@@ -37,7 +37,7 @@ androidx-work = "2.8.1"
 apache-commons-compress = "1.21"
 compose-hotreload = "1.0.0-rc04"
 compose-multiplatform = "1.9.3"
-desugar-jdk-libs = "2.0.3"
+desugar-jdk-libs = "2.1.5"
 dokka = "1.9.20"
 fhir-path = "1.0.0-beta01"
 fhir-ucum = "1.0.3"
@@ -66,6 +66,7 @@ licensee-gradle-plugin = "1.8.0"
 logback-android = "3.0.0"
 material = "1.13.0"
 material-icons-extended = "1.7.3"
+meeseeks = "1.0.2"
 mlkit-barcode-scanning = "16.1.1"
 mlkit-object-detection = "16.2.3"
 mlkit-object-detection-custom = "16.3.1"
@@ -111,6 +112,7 @@ androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-toolin
 androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview", version.ref = "androidx-compose-ui" }
 androidx-constraintlayout = { module = "androidx.constraintlayout:constraintlayout", version.ref = "androidx-constraintlayout" }
 androidx-core = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }
+androidx-datastore = { module = "androidx.datastore:datastore", version.ref = "androidx-datastore" }
 androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "androidx-datastore" }
 androidx-fragment = { module = "androidx.fragment:fragment-ktx", version.ref = "androidx-fragment" }
 androidx-fragment-testing = { module = "androidx.fragment:fragment-testing", version.ref = "androidx-fragment" }
@@ -189,6 +191,7 @@ ktor-client-auth = { module = "io.ktor:ktor-client-auth", version.ref = "ktor" }
 licensee-gradle-plugin = { module = "app.cash.licensee:licensee-gradle-plugin", version.ref = "licensee-gradle-plugin" }
 logback-android = { module = "com.github.tony19:logback-android", version.ref = "logback-android" }
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+meeseeks-runtime = { group = "dev.mattramotar.meeseeks", name = "runtime", version.ref = "meeseeks" }
 mlkit-barcode-scanning = { module = "com.google.mlkit:barcode-scanning", version.ref = "mlkit-barcode-scanning" }
 mlkit-obj-detection = { module = "com.google.mlkit:object-detection", version.ref = "mlkit-object-detection" }
 mlkit-obj-detection-custom = { module = "com.google.mlkit:object-detection-custom", version.ref = "mlkit-object-detection-custom" }

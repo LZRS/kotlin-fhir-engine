@@ -44,6 +44,7 @@ kotlin {
         implementation(libs.kermit)
         implementation(libs.androidx.room.runtime)
         implementation(libs.androidx.sqlite.bundled)
+        implementation(libs.androidx.datastore)
         implementation(libs.androidx.datastore.preferences)
         implementation(libs.ktor.client.core)
         implementation(libs.ktor.client.content.negotiation)
@@ -51,6 +52,7 @@ kotlin {
         implementation(libs.ktor.client.encoding)
         implementation(libs.ktor.client.auth)
         implementation(libs.ktor.serialization.kotlinx.json)
+        implementation(libs.meeseeks.runtime)
       }
     }
     commonTest {

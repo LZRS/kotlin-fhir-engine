@@ -58,7 +58,7 @@ internal class AndroidSyncSchedulerTest {
   private lateinit var scheduler: AndroidSyncScheduler
 
   class TestSyncWorker(appContext: Context, workerParams: WorkerParameters) :
-    FhirSyncWorker(appContext, workerParams) {
+    AndroidFhirSyncWorker(appContext, workerParams) {
 
     override fun getFhirEngine(): FhirEngine = TestFhirEngineImpl
 

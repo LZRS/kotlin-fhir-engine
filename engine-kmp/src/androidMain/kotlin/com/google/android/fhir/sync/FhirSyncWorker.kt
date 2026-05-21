@@ -21,29 +21,29 @@ import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import co.touchlab.kermit.Logger
 import com.google.android.fhir.FhirEngine
 import com.google.android.fhir.FhirEngineProvider
 import com.google.android.fhir.sync.download.DownloaderImpl
 import com.google.android.fhir.sync.upload.UploadStrategy
-import com.google.android.fhir.sync.upload.Uploader
-import com.google.android.fhir.sync.upload.patch.PatchGeneratorFactory
-import com.google.android.fhir.sync.upload.request.UploadRequestGeneratorFactory
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /**
- * Handles FHIR data synchronization between local database and remote server.
+ * Android WorkManager adapter for [FhirSyncWorker].
  *
- * Extend this abstract [CoroutineWorker] and implement the abstract methods to define your specific
- * synchronization behavior. The custom worker class can then be used to schedule periodic
- * synchronization jobs using [Sync].
+ * Extend this abstract [CoroutineWorker] and implement the abstract methods to define your
+ * synchronisation behaviour. The subclass can then be used to schedule sync jobs via [Sync]:
+ *
+ * ```kotlin
+ * Sync.oneTimeSync<MyFhirSyncWorker>(context)
+ * Sync.periodicSync<MyFhirSyncWorker>(context, periodicSyncConfiguration)
+ * ```
+ *
+ * This class bridges Android WorkManager with the platform-agnostic [FhirSyncWorker] by:
+ * - forwarding all abstract method implementations to a [FhirSyncWorker] delegate, and
+ * - mapping [SyncJobStatus] to WorkManager [Result] / progress [Data].
  */
-abstract class FhirSyncWorker(appContext: Context, workerParams: WorkerParameters) :
+abstract class AndroidFhirSyncWorker(appContext: Context, workerParams: WorkerParameters) :
   CoroutineWorker(appContext, workerParams) {
 
   /** Returns the [FhirEngine] instance used for interacting with the local FHIR data store. */
@@ -54,7 +54,7 @@ abstract class FhirSyncWorker(appContext: Context, workerParams: WorkerParameter
 
   /**
    * Returns the [ConflictResolver] instance that defines how to handle conflicts between local and
-   * remote data during synchronization.
+   * remote data during synchronisation.
    */
   abstract fun getConflictResolver(): ConflictResolver
 
@@ -64,9 +64,6 @@ abstract class FhirSyncWorker(appContext: Context, workerParams: WorkerParameter
    */
   abstract fun getUploadStrategy(): UploadStrategy
 
-  /** Returns the [DataSource] instance from [FhirEngineProvider]. */
-  internal open fun getDataSource(): DataSource? = FhirEngineProvider.getDataSource()
-
   /** Returns the [FhirDataStore] instance for persisting sync state and metadata. */
   internal open fun getFhirDataStore(): FhirDataStore =
     FhirDataStore(createDataStore(applicationContext))
@@ -74,85 +71,37 @@ abstract class FhirSyncWorker(appContext: Context, workerParams: WorkerParameter
   private val json = Json { ignoreUnknownKeys = true }
 
   override suspend fun doWork(): Result {
-    val dataSource =
-      getDataSource()
-        ?: return Result.failure(
-          buildErrorData(
-            IllegalStateException(
-              "FhirEngineConfiguration.ServerConfiguration is not set. Call FhirEngineProvider.init to initialize with appropriate configuration.",
-            ),
-          ),
-        )
+    val delegate =
+      object : FhirSyncWorker() {
+        override fun getFhirEngine() = this@AndroidFhirSyncWorker.getFhirEngine()
+        override fun getDownloadWorkManager() = this@AndroidFhirSyncWorker.getDownloadWorkManager()
+        override fun getConflictResolver() = this@AndroidFhirSyncWorker.getConflictResolver()
+        override fun getUploadStrategy() = this@AndroidFhirSyncWorker.getUploadStrategy()
+        override fun getFhirDataStore() = this@AndroidFhirSyncWorker.getFhirDataStore()
 
-    val fhirDataStore = getFhirDataStore()
-
-    val synchronizer =
-      FhirSynchronizer(
-        getFhirEngine(),
-        UploadConfiguration(
-          uploader =
-            Uploader(
-              dataSource = dataSource,
-              patchGenerator = PatchGeneratorFactory.byMode(getUploadStrategy().patchGeneratorMode),
-              requestGenerator =
-                UploadRequestGeneratorFactory.byMode(getUploadStrategy().requestGeneratorMode),
-            ),
-          uploadStrategy = getUploadStrategy(),
-        ),
-        DownloadConfiguration(
-          DownloaderImpl(dataSource, getDownloadWorkManager()),
-          getConflictResolver(),
-        ),
-        fhirDataStore,
-      )
-
-    val job =
-      CoroutineScope(Dispatchers.IO).launch {
-        synchronizer.syncState.collect { syncJobStatus ->
-          val uniqueWorkerName = inputData.getString(UNIQUE_WORK_NAME)
-          when (syncJobStatus) {
-            is SyncJobStatus.Succeeded,
-            is SyncJobStatus.Failed, -> {
-              if (uniqueWorkerName != null) {
-                fhirDataStore.writeTerminalSyncJobStatus(uniqueWorkerName, syncJobStatus)
-              }
-              cancel()
-            }
-            else -> {
-              setProgress(buildWorkData(syncJobStatus))
-            }
-          }
+        override suspend fun onProgress(state: SyncJobStatus) {
+          setProgress(buildWorkData(state))
         }
       }
 
-    val result = synchronizer.synchronize()
-    val output = buildWorkData(result)
-
-    kotlin.runCatching { job.join() }.onFailure { Logger.w(it) { "Failed to join sync job" } }
-
-    Logger.d { "Received result from worker $result and sending output $output" }
-
-    /**
-     * In case of failure, we can check if its worth retrying and do retry based on
-     * [RetryConfiguration.maxRetries] set by user.
-     */
     val retries = inputData.getInt(MAX_RETRIES_ALLOWED, 0)
+    val result =
+      delegate.runSync(
+        uniqueWorkerName = inputData.getString(UNIQUE_WORK_NAME),
+        maxRetries = retries,
+        attempt = runAttemptCount,
+      )
+
+    val output = buildWorkData(result)
     return when (result) {
       is SyncJobStatus.Succeeded -> Result.success(output)
-      else -> {
-        if (retries > runAttemptCount) Result.retry() else Result.failure(output)
-      }
+      else -> if (retries > runAttemptCount) Result.retry() else Result.failure(output)
     }
   }
 
-  private fun buildWorkData(state: SyncJobStatus): Data {
-    return workDataOf(
+  private fun buildWorkData(state: SyncJobStatus): Data =
+    workDataOf(
       "StateType" to state::class.java.name,
       "State" to json.encodeToString(state),
     )
-  }
-
-  private fun buildErrorData(exception: Exception): Data {
-    return workDataOf("error" to exception::class.java.name, "reason" to exception.message)
-  }
 }

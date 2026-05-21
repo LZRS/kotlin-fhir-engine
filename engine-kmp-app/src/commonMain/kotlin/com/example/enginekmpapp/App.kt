@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.sp
 import com.google.android.fhir.FhirEngine
 import com.google.android.fhir.FhirEngineConfiguration
 import com.google.android.fhir.FhirEngineProvider
+import com.google.android.fhir.NetworkConfiguration
+import com.google.android.fhir.ServerConfiguration
 import com.google.android.fhir.get
 import com.google.android.fhir.delete
 import com.google.android.fhir.index.SearchParamDefinition
@@ -52,6 +54,8 @@ import com.google.android.fhir.registerResourceType
 import com.google.android.fhir.search.StringClientParam
 import com.google.android.fhir.search.search
 import com.google.android.fhir.search.count
+import com.google.android.fhir.sync.createMeeseeksSyncScheduler
+import com.google.android.fhir.sync.remote.HttpLogger
 import com.google.fhir.model.r4.Patient
 import com.google.fhir.model.r4.HumanName
 import com.google.fhir.model.r4.terminologies.ResourceType
@@ -81,6 +85,13 @@ fun initFhirEngine(platformContext: Any = Unit) {
             path = "Patient.name.given",
           ),
         ),
+      serverConfiguration = ServerConfiguration(
+        "https://hapi.fhir.org/baseR4/",
+        httpLogger =
+          HttpLogger(
+            level = HttpLogger.Level.BODY),
+        networkConfiguration = NetworkConfiguration(uploadWithGzip = false),
+      )
     ),
   )
 }
@@ -232,6 +243,20 @@ fun App(platformContext: Any = Unit) {
               }
             }
           }) { Text("Clear DB") }
+
+          Button(onClick = {
+            scope.launch {
+              try {
+                val worker = createDemoFhirSyncWorker(getEngine())
+                createMeeseeksSyncScheduler(platformContext, worker)
+                  .runOneTimeSync(null)
+                  .collect { status -> appendLog("[Sync] $status") }
+              } catch (e: Exception) {
+                e.printStackTrace()
+                appendLog("[Sync] ERROR: ${e.message}")
+              }
+            }
+          }) { Text("Sync") }
 
           Button(onClick = {
             scope.launch {

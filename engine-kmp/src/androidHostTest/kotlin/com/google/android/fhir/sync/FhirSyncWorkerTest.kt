@@ -49,7 +49,7 @@ internal class FhirSyncWorkerTest {
   private lateinit var context: Context
 
   class PassingPeriodicSyncWorker(appContext: Context, workerParams: WorkerParameters) :
-    FhirSyncWorker(appContext, workerParams) {
+    AndroidFhirSyncWorker(appContext, workerParams) {
 
     override fun getFhirEngine(): FhirEngine = TestFhirEngineImpl
 
@@ -72,7 +72,7 @@ internal class FhirSyncWorkerTest {
   }
 
   class FailingPeriodicSyncWorker(appContext: Context, workerParams: WorkerParameters) :
-    FhirSyncWorker(appContext, workerParams) {
+    AndroidFhirSyncWorker(appContext, workerParams) {
 
     override fun getFhirEngine(): FhirEngine = TestFhirEngineImpl
 
@@ -97,7 +97,7 @@ internal class FhirSyncWorkerTest {
   class FailingPeriodicSyncWorkerWithoutDataSource(
     appContext: Context,
     workerParams: WorkerParameters,
-  ) : FhirSyncWorker(appContext, workerParams) {
+  ) : AndroidFhirSyncWorker(appContext, workerParams) {
 
     override fun getFhirEngine(): FhirEngine = TestFhirEngineImpl
 
@@ -193,7 +193,7 @@ internal class FhirSyncWorkerTest {
     assertIs<ListenableWorker.Result.Failure>(result)
     val outputData = (result as ListenableWorker.Result.Failure).outputData
     assertNotNull(outputData)
-    assertTrue(outputData.keyValueMap.containsKey("error"))
-    assertEquals("java.lang.IllegalStateException", outputData.getString("error"))
+    assertTrue(outputData.keyValueMap.containsKey("State"))
+    assertTrue(outputData.keyValueMap.containsKey("StateType"))
   }
 }

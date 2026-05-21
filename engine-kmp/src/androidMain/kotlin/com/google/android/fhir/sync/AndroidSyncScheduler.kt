@@ -41,20 +41,20 @@ import kotlinx.serialization.json.Json
  * Android implementation of [SyncScheduler] that uses [WorkManager] to schedule sync jobs.
  *
  * @param context The application context.
- * @param workerClass The class of the [FhirSyncWorker] to be used for sync jobs.
+ * @param workerClass The class of the [AndroidFhirSyncWorker] to be used for sync jobs.
  * @param dataStore The [FhirDataStore] instance for persisting sync state and metadata.
  */
 @PublishedApi
 internal class AndroidSyncScheduler(
   private val context: Context,
-  private val workerClass: Class<out FhirSyncWorker>,
+  private val workerClass: Class<out AndroidFhirSyncWorker>,
   private val dataStore: FhirDataStore,
 ) : SyncScheduler {
 
   private val json = Json { ignoreUnknownKeys = true }
 
   /**
-   * Starts a one time sync job based on [FhirSyncWorker].
+   * Starts a one time sync job based on [AndroidFhirSyncWorker].
    *
    * Use the returned [Flow] to get updates of the sync job. Alternatively, use [getWorkerInfo] with
    * the same 'workName' to retrieve the status of the job.
@@ -79,7 +79,7 @@ internal class AndroidSyncScheduler(
   }
 
   /**
-   * Starts a periodic sync job based on [FhirSyncWorker].
+   * Starts a periodic sync job based on [AndroidFhirSyncWorker].
    *
    * Use the returned [Flow] to get updates of the sync job. Alternatively, use [getWorkerInfo] with
    * the same 'workName' to retrieve the status of the job.

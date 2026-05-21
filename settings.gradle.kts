@@ -41,41 +41,41 @@ buildscript {
   }
 }
 
-include(":catalog")
+//include(":catalog")
 
-include(":common")
+//include(":common")
 
-include(":contrib:barcode")
+//include(":contrib:barcode")
 
-include(":contrib:locationwidget")
+//include(":contrib:locationwidget")
 
-include(":datacapture")
+//include(":datacapture")
 
-include(":document")
+//include(":document")
 
-include(":demo")
+//include(":demo")
 
-include(":engine")
+//include(":engine")
 
-include(":knowledge")
+//include(":knowledge")
 
-include(":workflow")
+//include(":workflow")
 
-include(":workflow-testing")
+//include(":workflow-testing")
 
-include(":workflow:benchmark")
+//include(":workflow:benchmark")
 
-include(
-  ":engine:benchmarks:app",
-  ":engine:benchmarks:microbenchmark",
-  ":engine:benchmarks:macrobenchmark",
-)
-
-include(":workflow_demo")
-
-include(":datacapture-kmp")
-
-include(":sdc-kmp-demo")
+//include(
+//  ":engine:benchmarks:app",
+//  ":engine:benchmarks:microbenchmark",
+//  ":engine:benchmarks:macrobenchmark",
+//)
+//
+//include(":workflow_demo")
+//
+//include(":datacapture-kmp")
+//
+//include(":sdc-kmp-demo")
 
 include(":engine-kmp")
 

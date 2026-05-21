@@ -24,6 +24,7 @@ android {
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_21
     targetCompatibility = JavaVersion.VERSION_21
+    isCoreLibraryDesugaringEnabled = true
   }
 }
 
@@ -96,4 +97,8 @@ compose.desktop {
       packageVersion = "1.0.0"
     }
   }
+}
+
+dependencies {
+  coreLibraryDesugaring(libs.desugar.jdk.libs)
 }
