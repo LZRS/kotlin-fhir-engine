@@ -80,3 +80,5 @@ buildscript {
 include(":engine-kmp")
 
 include(":engine-kmp-app")
+
+include(":fhir-sync")
