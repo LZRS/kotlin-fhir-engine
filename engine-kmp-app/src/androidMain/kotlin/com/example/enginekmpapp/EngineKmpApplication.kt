@@ -17,8 +17,13 @@
 package com.example.enginekmpapp
 
 import android.app.Application
+import com.google.android.fhir.sync.createDataStore
 
 class EngineKmpApplication : Application() {
+  val demoDataStore: DemoDataStore by lazy {
+    DemoDataStore(createDataStore { filesDir.resolve("demo_app_storage.preferences_pb").absolutePath })
+  }
+
   override fun onCreate() {
     super.onCreate()
     appContext = this

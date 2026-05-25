@@ -19,10 +19,14 @@ package com.example.enginekmpapp
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import com.google.android.fhir.sync.Sync
+import com.google.android.fhir.sync.oneTimeSync
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    setContent { App(platformContext = applicationContext) }
+    setContent { App(platformContext = applicationContext, onSync = {
+      Sync.oneTimeSync<DemoFhirSyncWorker>(applicationContext)
+    }) }
   }
 }

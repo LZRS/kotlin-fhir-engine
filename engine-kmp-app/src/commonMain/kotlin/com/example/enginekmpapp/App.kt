@@ -41,9 +41,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.android.fhir.DatabaseErrorStrategy.RECREATE_AT_OPEN
 import com.google.android.fhir.FhirEngine
 import com.google.android.fhir.FhirEngineConfiguration
 import com.google.android.fhir.FhirEngineProvider
+import com.google.android.fhir.NetworkConfiguration
+import com.google.android.fhir.ServerConfiguration
 import com.google.android.fhir.get
 import com.google.android.fhir.delete
 import com.google.android.fhir.index.SearchParamDefinition
@@ -52,9 +55,14 @@ import com.google.android.fhir.registerResourceType
 import com.google.android.fhir.search.StringClientParam
 import com.google.android.fhir.search.search
 import com.google.android.fhir.search.count
+import com.google.android.fhir.sync.CurrentSyncJobStatus
+import com.google.android.fhir.sync.remote.HttpLogger
 import com.google.fhir.model.r4.Patient
 import com.google.fhir.model.r4.HumanName
 import com.google.fhir.model.r4.terminologies.ResourceType
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 
 /** Initializes FhirEngineProvider with resource types and search params for the demo. */
@@ -63,6 +71,14 @@ fun initFhirEngine(platformContext: Any = Unit) {
 
   FhirEngineProvider.init(
     FhirEngineConfiguration(
+      serverConfiguration = ServerConfiguration(
+        "https://hapi.fhir.org/baseR4/",
+        httpLogger =
+          HttpLogger(
+            HttpLogger.Level.BODY,
+          ),
+        networkConfiguration = NetworkConfiguration(uploadWithGzip = false),
+      ),
       customSearchParameters =
         listOf(
           SearchParamDefinition(
@@ -87,7 +103,7 @@ fun initFhirEngine(platformContext: Any = Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun App(platformContext: Any = Unit) {
+fun App(platformContext: Any = Unit, onSync: suspend () -> Flow<CurrentSyncJobStatus> = { emptyFlow() }) {
   val scope = rememberCoroutineScope()
   var log by remember { mutableStateOf("Ready. Tap a button to start.\n") }
   var initialized by remember { mutableStateOf(false) }
@@ -301,6 +317,17 @@ fun App(platformContext: Any = Unit) {
               }
             }
           }) { Text("Full Flow") }
+
+          Button(onClick = {
+            scope.launch {
+              getEngine()
+              onSync.invoke().collectLatest {
+                appendLog("Sync Status: => $it")
+              }
+            }
+          }) {
+            Text("SYNC!")
+          }
         }
 
         Text(

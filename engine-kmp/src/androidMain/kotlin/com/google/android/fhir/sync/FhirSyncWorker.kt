@@ -84,52 +84,20 @@ abstract class FhirSyncWorker(appContext: Context, workerParams: WorkerParameter
           ),
         )
 
-    val fhirDataStore = getFhirDataStore()
-
-    val synchronizer =
-      FhirSynchronizer(
-        getFhirEngine(),
-        UploadConfiguration(
-          uploader =
-            Uploader(
-              dataSource = dataSource,
-              patchGenerator = PatchGeneratorFactory.byMode(getUploadStrategy().patchGeneratorMode),
-              requestGenerator =
-                UploadRequestGeneratorFactory.byMode(getUploadStrategy().requestGeneratorMode),
-            ),
-          uploadStrategy = getUploadStrategy(),
-        ),
-        DownloadConfiguration(
-          DownloaderImpl(dataSource, getDownloadWorkManager()),
-          getConflictResolver(),
-        ),
-        fhirDataStore,
+    val result = FhirSyncCore(
+      fhirEngine = getFhirEngine(),
+      dataSource = dataSource,
+      downloadWorkManager = getDownloadWorkManager(),
+      conflictResolver = getConflictResolver(),
+      uploadStrategy = getUploadStrategy(),
+      fhirDataStore = getFhirDataStore(),
+    )
+      .execute(
+        workerName = inputData.getString(UNIQUE_WORK_NAME),
+        onProgress = { setProgress(buildWorkData(it)) },
       )
 
-    val job =
-      CoroutineScope(Dispatchers.IO).launch {
-        synchronizer.syncState.collect { syncJobStatus ->
-          val uniqueWorkerName = inputData.getString(UNIQUE_WORK_NAME)
-          when (syncJobStatus) {
-            is SyncJobStatus.Succeeded,
-            is SyncJobStatus.Failed, -> {
-              if (uniqueWorkerName != null) {
-                fhirDataStore.writeTerminalSyncJobStatus(uniqueWorkerName, syncJobStatus)
-              }
-              cancel()
-            }
-            else -> {
-              setProgress(buildWorkData(syncJobStatus))
-            }
-          }
-        }
-      }
-
-    val result = synchronizer.synchronize()
     val output = buildWorkData(result)
-
-    kotlin.runCatching { job.join() }.onFailure { Logger.w(it) { "Failed to join sync job" } }
-
     Logger.d { "Received result from worker $result and sending output $output" }
 
     /**
