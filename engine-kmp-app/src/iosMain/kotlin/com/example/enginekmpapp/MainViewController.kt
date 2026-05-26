@@ -17,5 +17,27 @@
 package com.example.enginekmpapp
 
 import androidx.compose.ui.window.ComposeUIViewController
+import com.google.android.fhir.sync.AcceptLocalConflictResolver
+import com.google.android.fhir.sync.Sync
+import com.google.android.fhir.sync.oneTimeSync
+import com.google.android.fhir.sync.upload.HttpCreateMethod
+import com.google.android.fhir.sync.upload.HttpUpdateMethod
+import com.google.android.fhir.sync.upload.UploadStrategy
 
-fun MainViewController() = ComposeUIViewController { App() }
+fun MainViewController() = ComposeUIViewController {
+  App(
+    onSync = {
+      Sync.oneTimeSync(
+        downloadWorkManager = TimestampBasedDownloadWorkManagerImpl(sharedDemoDataStore),
+        conflictResolver = AcceptLocalConflictResolver,
+        uploadStrategy =
+          UploadStrategy.forBundleRequest(
+            methodForCreate = HttpCreateMethod.PUT,
+            methodForUpdate = HttpUpdateMethod.PATCH,
+            squash = true,
+            bundleSize = 500,
+          ),
+      )
+    },
+  )
+}
