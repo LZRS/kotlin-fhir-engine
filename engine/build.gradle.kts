@@ -1,4 +1,5 @@
 import codegen.GenerateSearchParamsTask
+import java.util.Properties
 
 plugins {
   id("org.jetbrains.kotlin.multiplatform")
@@ -104,6 +105,25 @@ dependencies {
   }
 }
 
+publishing {
+  repositories {
+    maven {
+      name = "GitHubPackages"
+      url = uri("https://maven.pkg.github.com/LZRS/kotlin-fhir-engine")
+      credentials {
+        val localProps = rootProject.file("local.properties").takeIf { it.exists() }?.let {
+          Properties().apply { load(it.inputStream()) }
+        }
+        username = localProps?.getProperty("gpr.user") ?: project.findProperty("gpr.user") as String? ?: System.getenv("GITHUB_ACTOR")
+        password = localProps?.getProperty("gpr.key") ?: project.findProperty("gpr.key") as String? ?: System.getenv("GITHUB_TOKEN")
+      }
+    }
+  }
+}
+
+tasks.withType<org.gradle.plugins.signing.Sign>().configureEach {
+  onlyIf { project.hasProperty("signingInMemoryKey") }
+}
 
 mavenPublishing {
   publishToMavenCentral()
