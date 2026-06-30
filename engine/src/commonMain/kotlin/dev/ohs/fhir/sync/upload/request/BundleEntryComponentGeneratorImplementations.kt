@@ -20,7 +20,7 @@ import dev.ohs.fhir.model.r4.Base64Binary
 import dev.ohs.fhir.model.r4.Binary
 import dev.ohs.fhir.model.r4.Bundle
 import dev.ohs.fhir.model.r4.Code
-import dev.ohs.fhir.model.r4.FhirR4Json
+import dev.ohs.fhir.db.impl.fhirJsonParser
 import dev.ohs.fhir.model.r4.Resource
 import dev.ohs.fhir.sync.upload.patch.Patch
 import kotlin.io.encoding.Base64
@@ -28,14 +28,14 @@ import kotlin.io.encoding.Base64
 internal class HttpPutForCreateEntryComponentGenerator(useETagForUpload: Boolean) :
   BundleEntryComponentGenerator(Bundle.HTTPVerb.Put, useETagForUpload) {
   override fun getEntryResource(patch: Patch): Resource {
-    return FhirR4Json().decodeFromString(patch.payload)
+    return fhirJsonParser.decodeFromString<Resource>(patch.payload)
   }
 }
 
 internal class HttpPostForCreateEntryComponentGenerator(useETagForUpload: Boolean) :
   BundleEntryComponentGenerator(Bundle.HTTPVerb.Post, useETagForUpload) {
   override fun getEntryResource(patch: Patch): Resource {
-    return FhirR4Json().decodeFromString(patch.payload)
+    return fhirJsonParser.decodeFromString<Resource>(patch.payload)
   }
 }
 

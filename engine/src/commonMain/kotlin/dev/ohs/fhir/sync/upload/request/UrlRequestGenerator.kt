@@ -20,7 +20,8 @@ import dev.ohs.fhir.model.r4.Base64Binary
 import dev.ohs.fhir.model.r4.Binary
 import dev.ohs.fhir.model.r4.Bundle
 import dev.ohs.fhir.model.r4.Code
-import dev.ohs.fhir.model.r4.FhirR4Json
+import dev.ohs.fhir.db.impl.fhirJsonParser
+import dev.ohs.fhir.model.r4.Resource
 import dev.ohs.fhir.sync.upload.patch.Patch
 import dev.ohs.fhir.sync.upload.patch.PatchMapping
 import dev.ohs.fhir.sync.upload.patch.StronglyConnectedPatchMappings
@@ -56,8 +57,6 @@ internal class UrlRequestGenerator(
       }
 
   companion object Factory {
-
-    private val fhirR4Json = FhirR4Json()
 
     private val createMapping =
       mapOf(
@@ -106,21 +105,21 @@ internal class UrlRequestGenerator(
       UrlUploadRequest(
         httpVerb = Bundle.HTTPVerb.Delete,
         url = "${patch.resourceType}/${patch.resourceId}",
-        resource = fhirR4Json.decodeFromString(patch.payload),
+        resource = fhirJsonParser.decodeFromString<Resource>(patch.payload),
       )
 
     private fun postForCreateResource(patch: Patch) =
       UrlUploadRequest(
         httpVerb = Bundle.HTTPVerb.Post,
         url = patch.resourceType,
-        resource = fhirR4Json.decodeFromString(patch.payload),
+        resource = fhirJsonParser.decodeFromString<Resource>(patch.payload),
       )
 
     private fun putForCreateResource(patch: Patch) =
       UrlUploadRequest(
         httpVerb = Bundle.HTTPVerb.Put,
         url = "${patch.resourceType}/${patch.resourceId}",
-        resource = fhirR4Json.decodeFromString(patch.payload),
+        resource = fhirJsonParser.decodeFromString<Resource>(patch.payload),
       )
 
     private fun patchForUpdateResource(patch: Patch) =

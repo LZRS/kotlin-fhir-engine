@@ -17,7 +17,7 @@ package dev.ohs.fhir.sync.remote
 
 import co.touchlab.kermit.Logger as KermitLogger
 import dev.ohs.fhir.NetworkConfiguration
-import dev.ohs.fhir.model.r4.FhirR4Json
+import dev.ohs.fhir.db.impl.fhirJsonParser
 import dev.ohs.fhir.model.r4.Resource
 import dev.ohs.fhir.sync.HttpAuthenticator
 import io.ktor.client.HttpClient
@@ -50,7 +50,7 @@ import kotlinx.serialization.json.jsonObject
 /** Ktor implementation of the [FhirHttpService]. */
 internal class KtorHttpService(
   private val client: HttpClient,
-  private val fhirJson: FhirR4Json = FhirR4Json(),
+  private val fhirJson: Json = fhirJsonParser,
 ) : FhirHttpService {
 
   /**
@@ -92,7 +92,7 @@ internal class KtorHttpService(
   override suspend fun get(path: String, headers: Map<String, String>): Resource {
     val json: String =
       client.get(path) { headers { headers.forEach { (k, v) -> append(k, v) } } }.body()
-    return fhirJson.decodeFromString(sanitizeJson(json)) as Resource
+    return fhirJson.decodeFromString<Resource>(sanitizeJson(json))
   }
 
   override suspend fun post(
@@ -108,7 +108,7 @@ internal class KtorHttpService(
           setBody(fhirJson.encodeToString(resource))
         }
         .body()
-    return fhirJson.decodeFromString(sanitizeJson(json)) as Resource
+    return fhirJson.decodeFromString<Resource>(sanitizeJson(json))
   }
 
   override suspend fun put(
@@ -124,7 +124,7 @@ internal class KtorHttpService(
           setBody(fhirJson.encodeToString(resource))
         }
         .body()
-    return fhirJson.decodeFromString(sanitizeJson(json)) as Resource
+    return fhirJson.decodeFromString<Resource>(sanitizeJson(json))
   }
 
   override suspend fun patch(
@@ -140,13 +140,13 @@ internal class KtorHttpService(
           setBody(patchDocument.toString())
         }
         .body()
-    return fhirJson.decodeFromString(sanitizeJson(json)) as Resource
+    return fhirJson.decodeFromString<Resource>(sanitizeJson(json))
   }
 
   override suspend fun delete(path: String, headers: Map<String, String>): Resource {
     val json: String =
       client.delete(path) { headers { headers.forEach { (k, v) -> append(k, v) } } }.body()
-    return fhirJson.decodeFromString(sanitizeJson(json)) as Resource
+    return fhirJson.decodeFromString<Resource>(sanitizeJson(json))
   }
 
   companion object {
