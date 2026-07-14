@@ -33,6 +33,17 @@ internal fun Instant.toTimeZoneString(): String {
     .toString()
 }
 
+/**
+ * Converts an [Instant] to an [OffsetDateTime] using the system timezone's offset at that instant.
+ */
+internal fun Instant.toOffsetDateTime(): OffsetDateTime {
+  val currentTimeZone = TimeZone.currentSystemDefault()
+  return OffsetDateTime(
+    dateTime = this.toLocalDateTime(currentTimeZone),
+    offset = currentTimeZone.offsetAt(this),
+  )
+}
+
 /** Returns true if given string matches ISO date format i.e. "yyyy-MM-dd", false otherwise. */
 internal fun isValidDateOnly(date: String): Boolean = Regex("^\\d{4}-\\d{2}-\\d{2}$").matches(date)
 

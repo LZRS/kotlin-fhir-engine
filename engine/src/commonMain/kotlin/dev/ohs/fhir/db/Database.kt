@@ -95,6 +95,13 @@ internal interface Database {
 
   suspend fun count(query: SearchQuery): Long
 
+  /**
+   * Returns the most recent `lastUpdatedRemote` value stored for [resourceType], or `null` if no
+   * resources of that type have been synced. Derived directly from the persisted resource rows so
+   * the sync watermark can never drift from the data it describes.
+   */
+  suspend fun getLatestLastUpdated(resourceType: ResourceType): Instant?
+
   suspend fun searchForwardReferencedResources(query: SearchQuery): List<ForwardIncludeSearchResult>
 
   suspend fun searchReverseReferencedResources(query: SearchQuery): List<ReverseIncludeSearchResult>

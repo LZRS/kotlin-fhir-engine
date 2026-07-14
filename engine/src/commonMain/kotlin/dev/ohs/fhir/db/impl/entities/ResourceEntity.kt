@@ -27,6 +27,7 @@ import kotlin.uuid.Uuid
     [
       Index(value = ["resourceUuid"], unique = true),
       Index(value = ["resourceType", "resourceId"], unique = true),
+      Index(value = ["resourceType", "lastUpdatedRemote"]),
     ],
 )
 internal data class ResourceEntity(

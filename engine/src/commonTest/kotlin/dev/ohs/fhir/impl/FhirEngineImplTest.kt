@@ -21,12 +21,16 @@ import dev.ohs.fhir.FhirEngineProvider
 import dev.ohs.fhir.LocalChange
 import dev.ohs.fhir.db.ResourceNotFoundException
 import dev.ohs.fhir.get
+import dev.ohs.fhir.model.r4.FhirDateTime
 import dev.ohs.fhir.model.r4.HumanName
+import dev.ohs.fhir.model.r4.Instant as FhirInstant
+import dev.ohs.fhir.model.r4.Meta
 import dev.ohs.fhir.model.r4.Patient
 import dev.ohs.fhir.model.r4.String as FhirString
 import dev.ohs.fhir.model.r4.terminologies.ResourceType
 import dev.ohs.fhir.search.count
 import dev.ohs.fhir.search.search
+import dev.ohs.fhir.sync.AcceptLocalConflictResolver
 import dev.ohs.fhir.testStorageDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -34,8 +38,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.datetime.toInstant
 
 class FhirEngineImplTest {
 
@@ -405,6 +412,36 @@ class FhirEngineImplTest {
     assertFailsWith<ResourceNotFoundException> {
       fhirEngine.get(ResourceType.Patient, "txn-rollback")
     }
+  }
+
+  @Test
+  fun getLastUpdated_afterSyncDownload_returnsServerLastUpdatedForType() = runTest {
+    val fhirEngine = setUpEngine()
+    val serverTimestamp = "2022-03-04T00:00:00Z"
+    val patient =
+      Patient(
+        id = "synced-1",
+        meta = Meta(lastUpdated = FhirInstant(value = FhirDateTime.fromString(serverTimestamp))),
+      )
+
+    fhirEngine.syncDownload(AcceptLocalConflictResolver) { flowOf(listOf(patient)) }
+
+    val lastUpdated = fhirEngine.getLastUpdated(ResourceType.Patient)
+    assertNotNull(lastUpdated)
+    // Compare instants rather than the OffsetDateTime struct directly: getLastUpdated renders the
+    // stored instant using the local system timezone offset, which need not match the "Z" offset
+    // the server sent.
+    assertEquals(
+      kotlin.time.Instant.parse(serverTimestamp),
+      lastUpdated.dateTime.toInstant(lastUpdated.offset),
+    )
+  }
+
+  @Test
+  fun getLastUpdated_noSyncedResourcesOfType_returnsNull() = runTest {
+    val fhirEngine = setUpEngine()
+
+    assertNull(fhirEngine.getLastUpdated(ResourceType.Observation))
   }
 
   companion object {

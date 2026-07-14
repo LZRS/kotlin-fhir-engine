@@ -28,7 +28,7 @@ class DemoFhirSyncTask : FhirSyncTask {
   override fun getFhirEngine(): FhirEngine = fhirEngine()
 
   override fun getDownloadWorkManager(): DownloadWorkManager =
-    TimestampBasedDownloadWorkManager(DemoDataStore(createDemoDataStore()))
+    TimestampBasedDownloadWorkManager(EngineBackedLastUpdatedStore(getFhirEngine()))
 
   override fun getConflictResolver(): ConflictResolver = AcceptLocalConflictResolver
 

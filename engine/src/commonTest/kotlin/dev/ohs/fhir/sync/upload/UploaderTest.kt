@@ -692,6 +692,10 @@ class UploaderTest {
         TODO("Not yet implemented")
       }
 
+      override suspend fun getLatestLastUpdated(resourceType: ResourceType): Instant? {
+        TODO("Not yet implemented")
+      }
+
       override suspend fun searchForwardReferencedResources(
         query: SearchQuery,
       ): List<ForwardIncludeSearchResult> {

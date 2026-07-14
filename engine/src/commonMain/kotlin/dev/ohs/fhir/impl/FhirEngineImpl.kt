@@ -34,6 +34,7 @@ import dev.ohs.fhir.sync.upload.ResourceConsolidatorFactory
 import dev.ohs.fhir.sync.upload.SyncUploadProgress
 import dev.ohs.fhir.sync.upload.UploadRequestResult
 import dev.ohs.fhir.sync.upload.UploadStrategy
+import dev.ohs.fhir.toOffsetDateTime
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
@@ -153,6 +154,10 @@ internal class FhirEngineImpl(private val database: Database) : FhirEngine {
   override suspend fun getLastSyncTimeStamp(): OffsetDateTime? {
     // TODO: implement with FhirDataStore
     return null
+  }
+
+  override suspend fun getLastUpdated(type: ResourceType): OffsetDateTime? {
+    return database.getLatestLastUpdated(type)?.toOffsetDateTime()
   }
 
   override suspend fun clearDatabase() {

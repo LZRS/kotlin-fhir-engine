@@ -41,6 +41,7 @@ import dev.ohs.fhir.db.impl.entities.TokenIndexEntity
 import dev.ohs.fhir.db.impl.entities.UriIndexEntity
 import dev.ohs.fhir.index.ResourceIndexer
 import dev.ohs.fhir.index.ResourceIndices
+import dev.ohs.fhir.lastUpdated
 import dev.ohs.fhir.model.r4.Resource
 import dev.ohs.fhir.model.r4.terminologies.ResourceType
 import dev.ohs.fhir.resourceType
@@ -143,7 +144,7 @@ internal class DatabaseImpl(
             resourceId = resourceId,
             serializedResource = serializeResource(res),
             versionId = null,
-            lastUpdatedRemote = now,
+            lastUpdatedRemote = res.lastUpdated ?: now,
             lastUpdatedLocal = now,
           )
         resourceDao.insertResource(entity)
@@ -295,6 +296,10 @@ internal class DatabaseImpl(
         results
       }
     }
+  }
+
+  override suspend fun getLatestLastUpdated(resourceType: ResourceType): Instant? {
+    return resourceDao.getLatestLastUpdatedRemote(resourceType)
   }
 
   override suspend fun count(query: SearchQuery): Long {

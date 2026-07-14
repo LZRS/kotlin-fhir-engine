@@ -29,13 +29,20 @@ internal const val demoDataStoreFileName = "demo_app_storage.preferences_pb"
  * implementation for optimal sync. See
  * [_lastUpdated](https://build.fhir.org/search.html#_lastUpdated).
  */
-class DemoDataStore(private val dataStorage: DataStore<Preferences>) {
+interface LastUpdatedStore {
+  suspend fun saveLastUpdatedTimestamp(resourceType: ResourceType, timestamp: String)
 
-  suspend fun saveLastUpdatedTimestamp(resourceType: ResourceType, timestamp: String) {
+  suspend fun getLastUpdateTimestamp(resourceType: ResourceType): String?
+}
+
+/** [LastUpdatedStore] backed by a preferences [DataStore]. */
+class DemoDataStore(private val dataStorage: DataStore<Preferences>) : LastUpdatedStore {
+
+  override suspend fun saveLastUpdatedTimestamp(resourceType: ResourceType, timestamp: String) {
     dataStorage.edit { pref -> pref[stringPreferencesKey(resourceType.name)] = timestamp }
   }
 
-  suspend fun getLastUpdateTimestamp(resourceType: ResourceType): String? {
+  override suspend fun getLastUpdateTimestamp(resourceType: ResourceType): String? {
     return dataStorage.data.first()[stringPreferencesKey(resourceType.name)]
   }
 }

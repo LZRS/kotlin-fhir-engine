@@ -20,7 +20,11 @@ import dev.ohs.fhir.db.Database
 import dev.ohs.fhir.db.ResourceNotFoundException
 import dev.ohs.fhir.index.ResourceIndexer
 import dev.ohs.fhir.index.SearchParamDefinitionsProviderImpl
+import dev.ohs.fhir.lastUpdated
 import dev.ohs.fhir.model.r4.Enumeration
+import dev.ohs.fhir.model.r4.FhirDateTime
+import dev.ohs.fhir.model.r4.Instant as FhirInstant
+import dev.ohs.fhir.model.r4.Meta
 import dev.ohs.fhir.model.r4.Observation
 import dev.ohs.fhir.model.r4.Patient
 import dev.ohs.fhir.model.r4.Reference
@@ -33,6 +37,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
@@ -218,6 +223,40 @@ class DatabaseImplTest {
         obsChanges.first().payload,
     )
   }
+
+  @Test
+  fun getLatestLastUpdated_noResourcesOfType_returnsNull() = runTest {
+    assertNull(database.getLatestLastUpdated(ResourceType.Observation))
+  }
+
+  @Test
+  fun getLatestLastUpdated_returnsMaxAmongResourcesOfSameType_ignoringOtherTypes() = runTest {
+    val older = patientWithLastUpdated("remote-older", "2020-01-01T00:00:00Z")
+    val newer = patientWithLastUpdated("remote-newer", "2024-06-01T00:00:00Z")
+    database.insertRemote(older, newer)
+    database.insertRemote(observationWithLastUpdated("obs-1", "2030-01-01T00:00:00Z"))
+
+    assertEquals(newer.lastUpdated, database.getLatestLastUpdated(ResourceType.Patient))
+  }
+
+  @Test
+  fun getLatestLastUpdated_usesResourceMetaLastUpdated_notLocalInsertTime() = runTest {
+    val resource = patientWithLastUpdated("remote-server-time", "2019-05-01T00:00:00Z")
+    database.insertRemote(resource)
+
+    assertEquals(resource.lastUpdated, database.getLatestLastUpdated(ResourceType.Patient))
+  }
+
+  private fun patientWithLastUpdated(id: String, iso: String) =
+    Patient(id = id, meta = Meta(lastUpdated = FhirInstant(value = FhirDateTime.fromString(iso))))
+
+  private fun observationWithLastUpdated(id: String, iso: String) =
+    Observation(
+      id = id,
+      status = Enumeration(value = Observation.ObservationStatus.Final),
+      code = dev.ohs.fhir.model.r4.CodeableConcept(),
+      meta = Meta(lastUpdated = FhirInstant(value = FhirDateTime.fromString(iso))),
+    )
 
   companion object {
     private const val TEST_PATIENT_1_ID = "test_patient_1"

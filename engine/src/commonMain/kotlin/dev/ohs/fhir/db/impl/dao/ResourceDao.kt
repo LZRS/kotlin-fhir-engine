@@ -234,6 +234,15 @@ internal abstract class ResourceDao {
 
   @RawQuery abstract suspend fun countResources(query: RoomRawQuery): Long
 
+  @Query(
+    """
+        SELECT MAX(lastUpdatedRemote)
+        FROM ResourceEntity
+        WHERE resourceType = :resourceType
+    """,
+  )
+  abstract suspend fun getLatestLastUpdatedRemote(resourceType: ResourceType): Instant?
+
   suspend fun insertLocalResource(resource: Resource, timeOfChange: Instant) =
     insertResource(resource, timeOfChange)
 
