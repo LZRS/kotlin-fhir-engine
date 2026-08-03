@@ -21,10 +21,12 @@ import dev.ohs.fhir.model.r4.Enumeration
 import dev.ohs.fhir.model.r4.HumanName
 import dev.ohs.fhir.model.r4.Patient
 import dev.ohs.fhir.model.r4.String as FhirR4String
+import io.kotest.matchers.equals.shouldBeEqual
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respondOk
+import io.ktor.client.request.HttpRequestData
 import io.ktor.http.Headers
 import kotlin.test.Test
 import kotlinx.coroutines.test.runTest
@@ -91,10 +93,37 @@ class KtorHttpServiceTest {
     val request =
       Bundle(id = "transaction-1", type = Enumeration(value = Bundle.BundleType.Transaction))
 
-    val result = httpService.post(".", request, mapOf("If-Match" to "randomResourceVersionID"))
+    val result = httpService.post("", request, mapOf("If-Match" to "randomResourceVersionID"))
     requestHeaders!!.contains("If-Match", "randomResourceVersionID")
     // No exception has occurred
     result.shouldBeInstanceOf<Bundle>()
+  }
+
+  @Test // https://github.com/ohs-foundation/kotlin-fhir-engine/issues/83
+  fun should_post_bundle_to_base_url_without_appending_dot_segment() = runTest {
+    var requestData: HttpRequestData? = null
+    val httpService =
+      KtorHttpService.Builder("https://example.com/fhir/", NetworkConfiguration())
+        .build(
+          engine =
+            MockEngine { request ->
+              requestData = request
+              respondOk(
+                parser.encodeToString(
+                  Bundle(
+                    id = "transaction-response-1",
+                    type = Enumeration(value = Bundle.BundleType.Transaction_Response),
+                  ),
+                ),
+              )
+            },
+        )
+    val request =
+      Bundle(id = "transaction-1", type = Enumeration(value = Bundle.BundleType.Transaction))
+
+    httpService.post("", request, emptyMap())
+
+    requestData!!.url.encodedPath.shouldBeEqual("/fhir/")
   }
 
   @Test
@@ -118,7 +147,7 @@ class KtorHttpServiceTest {
       val request =
         Bundle(id = "transaction-1", type = Enumeration(value = Bundle.BundleType.Transaction))
 
-      val result = httpService.post(".", request, emptyMap())
+      val result = httpService.post("", request, emptyMap())
 
       result.shouldBeInstanceOf<Bundle>()
       result.type.value.shouldBe(Bundle.BundleType.Transaction_Response)

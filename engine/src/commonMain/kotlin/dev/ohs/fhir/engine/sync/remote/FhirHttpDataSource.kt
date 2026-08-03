@@ -40,7 +40,7 @@ internal class FhirHttpDataSource(private val fhirHttpService: FhirHttpService) 
     when (downloadRequest) {
       is UrlDownloadRequest -> fhirHttpService.get(downloadRequest.url, downloadRequest.headers)
       is BundleDownloadRequest ->
-        fhirHttpService.post(".", downloadRequest.bundle, downloadRequest.headers)
+        fhirHttpService.post("", downloadRequest.bundle, downloadRequest.headers)
     }
 
   override suspend fun upload(request: UploadRequest): Resource =

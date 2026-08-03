@@ -35,7 +35,7 @@ sealed class UploadRequest(
 data class BundleUploadRequest(
   override val headers: Map<String, String> = emptyMap(),
   override val resource: Bundle,
-) : UploadRequest(".", headers, resource)
+) : UploadRequest("", headers, resource)
 
 /** A [url] based FHIR request to upload resources to the server. */
 data class UrlUploadRequest(
