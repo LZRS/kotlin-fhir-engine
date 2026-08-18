@@ -62,7 +62,7 @@ class FhirEngineImplTest {
 
   @AfterTest
   fun tearDown() {
-    FhirEngineProvider.clearInstance()
+    FhirEngineProvider.reset()
   }
 
   @Test
