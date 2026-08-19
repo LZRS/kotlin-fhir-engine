@@ -22,11 +22,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * Browser entry point: `?workload=…` or `?groups=search&profile=smoke`.
- *
- * Reloading the page is how a browser run gets a cold engine. The SQLite Web Worker cannot be
- * closed and reopened inside one page — closing wedges it and not closing leaves it holding the
- * exclusive OPFS handle — so a fresh page is the only real isolation available here.
+ * Browser entry point: `?workload=…` or `?groups=search&profile=smoke`. Reloading the page is the
+ * only cold-engine isolation available: the SQLite Web Worker cannot be reopened within one page.
  */
 fun main() {
   val values =

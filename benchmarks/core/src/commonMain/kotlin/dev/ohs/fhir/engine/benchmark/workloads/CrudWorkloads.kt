@@ -25,11 +25,8 @@ import dev.ohs.fhir.model.r4.Patient
 import dev.ohs.fhir.model.r4.String as FhirString
 
 /**
- * Create, read, update and delete workloads. Ports android-fhir's `CrudApiViewModel`.
- *
- * Every workload performs hundreds of operations per iteration, which is required rather than
- * merely tidy: Android measures these through a trace section whose noise floor sits in the tens of
- * microseconds, so a single `get` would measure jitter and nothing else.
+ * CRUD workloads, porting android-fhir's `CrudApiViewModel`. Each performs hundreds of operations
+ * per iteration to clear Android's trace noise floor.
  */
 object CrudWorkloads {
 
@@ -113,10 +110,8 @@ object CrudWorkloads {
       opsPerIteration = targets.size
     }
 
-    // Every write must actually change the resource. Toggling a boolean is not enough: the engine
-    // compares against the stored copy and skips resources that already hold the value ("same as
-    // old resource. Not inserting UPDATE LocalChange"), which would leave the workload measuring a
-    // mix of real updates and no-ops. A monotonic revision guarantees a diff every time.
+    // The engine skips updates matching the stored copy, so a toggled boolean leaves this
+    // measuring a mix of real updates and no-ops. A monotonic revision guarantees a diff.
     private var revision = 0
 
     override suspend fun beforeEach(env: BenchmarkEnv) {
@@ -185,6 +180,6 @@ object CrudWorkloads {
     }
   }
 
-  /** Enough operations to sit well clear of the trace noise floor without dominating a run. */
+  /** Clear of the trace noise floor without dominating a run. */
   private const val OPERATION_COUNT = 500
 }

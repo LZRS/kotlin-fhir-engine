@@ -17,13 +17,7 @@ package dev.ohs.fhir.engine.benchmark.workloads
 
 import dev.ohs.fhir.engine.benchmark.Workload
 
-/**
- * The single catalogue of workloads.
- *
- * Both harnesses read from here: the in-process runner used by desktop, iOS and web, and the
- * Android macrobenchmark module, which looks workloads up by id and measures them through a trace
- * section. Neither defines workloads of its own, so a query only ever exists in one place.
- */
+/** The single catalogue. Both the in-process runner and Android read from here. */
 object Workloads {
 
   fun all(): List<Workload> = CrudWorkloads.all() + SearchWorkloads.all() + SyncWorkloads.all()

@@ -16,11 +16,7 @@
 package dev.ohs.fhir.engine.benchmark
 
 /**
- * Marks [block] as the measured region under the name [name].
- *
- * The span name is the workload id, so the same identifier keys the Android Perfetto trace, the
- * browser performance timeline and the JSON report. On Android this emits an `androidx.tracing`
- * section that macrobenchmark's `TraceSectionMetric` reads; elsewhere it is inert, because the
- * in-process runner times the block itself.
+ * Marks [block] as the measured region. On Android this emits the trace section
+ * `TraceSectionMetric` reads; elsewhere it is inert and [BenchmarkRunner] does the timing.
  */
 internal expect suspend fun <T> benchmarkSpan(name: String, block: suspend () -> T): T

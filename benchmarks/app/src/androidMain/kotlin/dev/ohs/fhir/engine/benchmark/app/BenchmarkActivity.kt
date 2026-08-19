@@ -31,34 +31,21 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
- * The driver's only screen.
- *
- * Driven by intent extras rather than by tapping buttons, unlike android-fhir's benchmark app. UI
- * Automator taps break whenever the UI moves and need the view to be on screen and settled; `am
- * start -e workload …` does not, and it lets a workload be selected without any UI at all.
- *
- * The status view exists purely so the harness can wait for real completion instead of sleeping:
- * its text goes to [STATUS_READY] once setup is done and [STATUS_DONE] when the work finishes.
+ * The driver's only screen, launched by intent extras rather than UI taps, which break whenever the
+ * UI moves. The status view lets a harness wait on real completion instead of sleeping.
  */
 class BenchmarkActivity : Activity() {
 
   /**
-   * Benchmarks run off the main thread.
-   *
-   * On `Dispatchers.Main` a long workload blocks the UI thread, and the system puts up an "isn't
-   * responding" dialog over the app. That both contaminates the measurement and hides the status
-   * view from UI Automator, so a harness selecting on it finds nothing.
+   * Off the main thread: a long workload there triggers an ANR dialog, which contaminates the
+   * measurement and hides the status view from UI Automator.
    */
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
   private lateinit var statusView: TextView
 
   /**
-   * The run in flight, kept so a relaunch can cancel it.
-   *
-   * Without this, a relaunch that arrives while the previous workload is still running leaves two
-   * runs racing, and whichever finishes last writes the status. A stale run completing after a
-   * failed one would stamp [STATUS_DONE] over the failure, and a harness waiting on that status
-   * would record a measurement for work that never happened.
+   * Kept so a relaunch can cancel it. Otherwise two runs race and whichever finishes last writes
+   * the status, letting a stale [STATUS_DONE] overwrite a newer failure.
    */
   private var runJob: Job? = null
 
@@ -80,12 +67,8 @@ class BenchmarkActivity : Activity() {
   }
 
   /**
-   * Handles a relaunch without a fresh process.
-   *
-   * The activity is `singleTop`, so a second `am start` reuses this instance rather than stacking a
-   * new one on top of it. Without resetting the status here, a harness could read the previous
-   * run's [STATUS_DONE] and record a measurement for work that never happened. Macrobenchmark's
-   * cold startup mode avoids this too, but not every caller is macrobenchmark.
+   * The activity is `singleTop`, so a relaunch reuses this instance. Resetting the status here
+   * stops a harness reading the previous run's [STATUS_DONE].
    */
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
@@ -113,8 +96,7 @@ class BenchmarkActivity : Activity() {
   private suspend fun execute(request: BenchmarkRequest) {
     try {
       if (request.workloadId != null) {
-        // Setup is untimed, and macrobenchmark must not start its measured block until it is
-        // finished — hence STATUS_READY before any measured work happens.
+        // STATUS_READY marks the end of untimed setup, before any measured work.
         val run = BenchmarkDriver.prepareSingle(request)
         setStatus(STATUS_READY)
         run.beforeEach()
@@ -129,12 +111,10 @@ class BenchmarkActivity : Activity() {
         Log.i(TAG, summary)
       }
     } catch (e: CancellationException) {
-      // A newer launch replaced this run. It owns the status now; writing a failure here would
-      // overwrite the live run's state with the corpse of the one it superseded.
+      // A newer launch owns the status now; a failure here would overwrite it.
       throw e
     } catch (e: Throwable) {
-      // Surfaced in the view as well as the log: a harness waiting on STATUS_DONE would otherwise
-      // just time out with nothing to say.
+      // In the view as well as the log, or a harness waiting on STATUS_DONE just times out.
       Log.e(TAG, "benchmark failed", e)
       setStatus("$STATUS_FAILED ${e::class.simpleName}: ${e.message}")
     }

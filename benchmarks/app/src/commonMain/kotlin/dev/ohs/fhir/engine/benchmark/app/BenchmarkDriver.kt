@@ -18,12 +18,8 @@ package dev.ohs.fhir.engine.benchmark.app
 import dev.ohs.fhir.engine.benchmark.BenchmarkHarness
 
 /**
- * Runs what a [BenchmarkRequest] asks for.
- *
- * Two modes, because the two consumers need different things. A full run drives the whole catalogue
- * itself and writes a report, which is what desktop and web want. A single-workload run only
- * prepares state and exposes one measured call, which is what Android needs: macrobenchmark owns
- * the iteration loop and everything outside the measured block must happen with its timer stopped.
+ * Two modes: a full run drives the catalogue and writes a report (desktop, web); a single-workload
+ * run prepares state and exposes one measured call, which is what macrobenchmark needs.
  */
 object BenchmarkDriver {
 
