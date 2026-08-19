@@ -20,11 +20,8 @@ import dev.ohs.fhir.engine.benchmark.data.Dataset
 import kotlin.time.TimeSource
 
 /**
- * Runs workloads in-process and summarises them.
- *
- * Used by the desktop, iOS and web harnesses. Android goes through macrobenchmark instead, which
- * owns its own iteration control and reads the spans out of a trace; both paths execute the very
- * same [Workload] objects.
+ * Runs workloads in-process, for desktop, iOS and web. Android uses macrobenchmark instead, which
+ * owns iteration control but executes the same [Workload] objects.
  */
 class BenchmarkRunner(
   private val config: BenchmarkConfig,
@@ -78,8 +75,7 @@ class BenchmarkRunner(
         medianMillisPerOp = statistics.median / workload.opsPerIteration,
       )
     } catch (e: Throwable) {
-      // One broken workload must not cost the whole run. The report records the failure so a
-      // missing number is visible rather than silently absent.
+      // Record the failure rather than losing the whole run to one broken workload.
       WorkloadResult(
         id = workload.id,
         group = workload.group,

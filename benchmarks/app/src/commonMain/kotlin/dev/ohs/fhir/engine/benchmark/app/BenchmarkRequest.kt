@@ -19,10 +19,8 @@ import dev.ohs.fhir.engine.benchmark.BenchmarkConfig
 import dev.ohs.fhir.engine.benchmark.Profile
 
 /**
- * What one launch of the driver is being asked to do.
- *
- * Every platform parses its own launch mechanism (Android intent extras, desktop argv, browser
- * query string) into this, so the dispatch logic itself exists once.
+ * What one launch is asked to do. Each platform parses its own launch mechanism into this, so the
+ * dispatch logic exists once.
  */
 data class BenchmarkRequest(
   /** A single workload id, or null to run whole groups and emit a report. */

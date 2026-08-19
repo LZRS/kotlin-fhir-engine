@@ -22,12 +22,8 @@ import dev.ohs.fhir.model.r4.Organization
 import dev.ohs.fhir.model.r4.Practitioner
 
 /**
- * Disturbs SQLite's page cache by reading tables the workload under test does not touch.
- *
- * A port of android-fhir's `triggerChangeInSqlitePageCache`. Without it, every search after the
- * first reads pages already resident in memory and the whole search suite reports numbers that look
- * excellent and mean nothing. If the search results come back with no meaningful spread between
- * queries, suspect this first.
+ * Disturbs SQLite's page cache by reading untouched tables; a port of android-fhir's
+ * `triggerChangeInSqlitePageCache`. If the search medians show no spread, suspect this first.
  */
 internal suspend fun FhirEngine.evictPageCache() {
   search<Organization> { count = 1 }
@@ -39,12 +35,7 @@ internal suspend fun BenchmarkEnv.seedDataset() {
   engine.create(*dataset.allResources.toTypedArray())
 }
 
-/**
- * Target ids for the per-resource CRUD workloads, in a fixed shuffled order.
- *
- * Shuffled so reads do not follow insertion order and accidentally measure sequential page access;
- * fixed so every iteration and every platform touches the same ids in the same sequence.
- */
+/** Shuffled so reads avoid sequential page access; fixed so every platform touches the same ids. */
 internal fun BenchmarkEnv.crudTargetIds(limit: Int): List<String> =
   dataset.patientIds.shuffled(kotlin.random.Random(CRUD_SHUFFLE_SEED)).take(limit)
 

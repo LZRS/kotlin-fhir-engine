@@ -24,22 +24,15 @@ internal expect fun benchmarkStorageDirectory(): String?
 internal expect fun platformDescriptor(): PlatformDescriptor
 
 /**
- * Whether this platform can close and reopen the engine's database inside one process.
- *
- * False on web: closing wedges the SQLite Web Worker and skipping the close leaves it holding the
- * exclusive OPFS handle, so the reopen never completes. Web therefore cannot honour
- * [Isolation.FRESH_DATABASE] in-process; the runner degrades it to [Isolation.CLEAR_TABLES] and
- * records that in the report rather than reporting a cold number that was actually warm.
+ * False on web: closing wedges the SQLite Web Worker, and not closing leaves it holding the
+ * exclusive OPFS handle. The runner degrades [Isolation.FRESH_DATABASE] and says so in the report.
  */
 internal expect fun supportsFreshDatabase(): Boolean
 
 /** ISO-8601 timestamp for the report. */
 internal expect fun nowIso8601(): String
 
-/**
- * Deletes the benchmark database file, where the platform needs an explicit delete to get a cold
- * one. A no-op where [benchmarkStorageDirectory] already hands out a fresh location per call.
- */
+/** No-op where [benchmarkStorageDirectory] already hands out a fresh location per call. */
 internal expect suspend fun deleteBenchmarkDatabase(platformContext: Any)
 
 /** Writes [json] wherever this platform can be read from afterwards. */

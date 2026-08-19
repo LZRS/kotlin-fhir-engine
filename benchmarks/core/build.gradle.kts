@@ -9,8 +9,8 @@ plugins {
 kotlin {
   jvmToolchain(21)
 
-  // Mirrors :engine's target set exactly. Benchmarks that cannot run on every target the engine
-  // ships are benchmarks that cannot answer "is this slower on the constrained platforms?".
+  // Mirrors :engine's target set: a benchmark that skips a target cannot answer whether that target
+  // got slower.
   androidLibrary {
     namespace = "dev.ohs.fhir.engine.benchmark.core"
     compileSdk = 36
@@ -69,9 +69,8 @@ kotlin {
   }
 }
 
-// Gradle -P properties are the run's controls; forward them to the desktop harness as system
-// properties. Marked as inputs so changing a profile actually re-runs the benchmarks instead of
-// being served an up-to-date result from the previous profile.
+// Forward -P controls to the desktop harness. Registered as inputs so changing a profile re-runs
+// rather than serving the previous profile's result.
 tasks.named<Test>("desktopTest") {
   listOf(
       "benchmark.profile",

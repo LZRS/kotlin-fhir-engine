@@ -28,12 +28,8 @@ import dev.ohs.fhir.model.r4.String as FhirString
 import kotlinx.coroutines.flow.flow
 
 /**
- * Sync workloads that need no server.
- *
- * Only the download half is reachable in-process. `syncUpload` hands request generation to the
- * caller's lambda, and the response mapping types it expects back are `internal`, so an external
- * caller can only ever report failure. Upload benchmarking needs a real server and lives behind the
- * `benchmark.server` flag; see the plan's sync section.
+ * Server-free sync workloads. Only download is reachable in-process: `syncUpload` expects response
+ * mapping types that are `internal`, so an external caller can only ever report failure.
  */
 object SyncWorkloads {
 
@@ -59,10 +55,8 @@ object SyncWorkloads {
   }
 
   /**
-   * Half the batch already present locally and locally edited, so the resolver actually runs.
-   *
-   * The interesting cost here is not the resolution itself but the lookup of existing rows and
-   * their local changes, which a download into an empty database never pays.
+   * Half the batch present locally and edited, so the resolver runs. The cost of interest is the
+   * lookup of existing rows and their local changes, which a download into an empty database skips.
    */
   private object DownloadWithConflicts : Workload {
     override val id = "sync.download_with_conflicts"
@@ -81,11 +75,9 @@ object SyncWorkloads {
 
     override suspend fun beforeEach(env: BenchmarkEnv) {
       env.engine.create(*preexisting.toTypedArray())
+      // Without a real diff the engine drops the update, leaving nothing to conflict with and
+      // quietly turning this into a plain download.
       revision++
-      // The local edit has to be a real diff. The engine drops updates that match the stored copy
-      // ("same as old resource"), which would leave these resources with no local change and hence
-      // nothing for the download to conflict with — the workload would quietly become a plain
-      // download.
       for (patient in preexisting) {
         env.engine.update(
           env.engine

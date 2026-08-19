@@ -18,13 +18,7 @@ package dev.ohs.fhir.engine.benchmark
 import dev.ohs.fhir.engine.FhirEngine
 import dev.ohs.fhir.engine.benchmark.data.Dataset
 
-/**
- * How much state a workload needs torn down between iterations.
- *
- * Stated per workload rather than applied uniformly, because the choice changes what is being
- * measured. A read-heavy search wants a warm database and only its page cache disturbed; a bulk
- * insert is meaningless unless the database starts empty.
- */
+/** Per workload, not uniform: the choice changes what is being measured. */
 enum class Isolation {
   /** Leave the database alone. For read-only workloads that do not mutate anything. */
   NONE,
@@ -45,31 +39,18 @@ class BenchmarkEnv(
   val reopenEngine: suspend () -> FhirEngine,
 )
 
-/**
- * One measured unit of work.
- *
- * Only [run] is timed. Anything a workload needs in place first belongs in [prepare] (once) or
- * [beforeEach] (per iteration), both untimed.
- */
+/** One measured unit of work. Only [run] is timed. */
 interface Workload {
   /**
-   * Stable identifier, e.g. `search.observation_by_code`.
-   *
-   * This is also the trace-section name on Android and the `performance.measure` name on web, so
-   * one identifier keys the Perfetto trace, the browser timeline and the JSON report alike. Ids
-   * shared with android-fhir's benchmark app are kept spelled the same so numbers line up.
+   * Stable identifier, e.g. `search.observation_by_code`. Also the trace-section name, so one id
+   * keys the Perfetto trace and the JSON report. Ids shared with android-fhir match theirs.
    */
   val id: String
 
   /** `crud`, `search` or `sync`. */
   val group: String
 
-  /**
-   * Operations performed by a single [run].
-   *
-   * Deliberately large. Trace-based measurement on Android has a noise floor in the tens of
-   * microseconds, so a workload that performs one operation measures nothing but jitter.
-   */
+  /** Kept large: Android's trace noise floor is tens of microseconds. */
   val opsPerIteration: Int
 
   val isolation: Isolation

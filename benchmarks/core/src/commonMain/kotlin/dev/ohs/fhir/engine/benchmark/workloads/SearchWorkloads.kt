@@ -38,14 +38,8 @@ import dev.ohs.fhir.model.r4.SearchParameter.SearchComparator
 import dev.ohs.fhir.model.r4.terminologies.ResourceType
 
 /**
- * Search DSL workloads. Ports android-fhir's `SearchApiViewModel`.
- *
- * Ids are kept spelled the same as android-fhir's where an equivalent query exists, so the two
- * projects' numbers can be put side by side.
- *
- * All of these are read-only, so they run at [Isolation.NONE] against a database seeded once. What
- * they do need is [evictPageCache] before each iteration — otherwise every query but the first
- * reads pages already in memory.
+ * Search DSL workloads, porting android-fhir's `SearchApiViewModel` and keeping its ids where an
+ * equivalent query exists. Read-only, so they need [evictPageCache] rather than isolation.
  */
 object SearchWorkloads {
 
@@ -177,10 +171,6 @@ object SearchWorkloads {
     }
   }
 
-  /**
-   * Repeats per iteration. Enough that a single query's cost clears the measurement floor; the
-   * repeats after the first run against a warm cache, so these are throughput numbers rather than
-   * cold-query numbers.
-   */
+  /** Repeats after the first run warm, so these are throughput rather than cold-query numbers. */
   private const val QUERY_REPEATS = 20
 }

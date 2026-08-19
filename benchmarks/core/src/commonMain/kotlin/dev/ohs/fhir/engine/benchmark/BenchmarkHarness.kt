@@ -22,12 +22,7 @@ import dev.ohs.fhir.engine.benchmark.data.Dataset
 import dev.ohs.fhir.engine.benchmark.data.SyntheticDataset
 import dev.ohs.fhir.engine.benchmark.workloads.Workloads
 
-/**
- * Wires an engine, a dataset and the workload catalogue together and produces a report.
- *
- * Shared by every in-process harness (desktop, iOS, web) and by the driver app, so the setup a
- * number was produced under is identical everywhere.
- */
+/** Wires engine, dataset and catalogue together, so every harness sets up identically. */
 object BenchmarkHarness {
 
   suspend fun run(
@@ -52,13 +47,8 @@ object BenchmarkHarness {
   }
 
   /**
-   * Prepares a single workload and hands back something that can be measured one iteration at a
-   * time.
-   *
-   * Android needs this rather than [run]: macrobenchmark owns iteration control, and everything
-   * before the measured block has to happen while its timer is stopped. Splitting setup from
-   * measurement here keeps the Android path on the same workload objects as everywhere else instead
-   * of reimplementing them.
+   * Prepares one workload for iteration-at-a-time measurement. Android needs this because
+   * macrobenchmark owns iteration control and setup must happen with its timer stopped.
    */
   suspend fun setUpSingle(
     workloadId: String,
@@ -98,12 +88,7 @@ object BenchmarkHarness {
       seed = config.seed,
     )
 
-  /**
-   * Returns an engine on an empty database.
-   *
-   * Each call resets the provider and initialises against a freshly minted storage directory, so
-   * [Isolation.FRESH_DATABASE] gets a genuinely cold database file rather than a cleared one.
-   */
+  /** A fresh storage directory per call, so [Isolation.FRESH_DATABASE] gets a cold file. */
   private suspend fun openEngine(platformContext: Any): FhirEngine {
     if (FhirEngineProvider.isInitialized()) FhirEngineProvider.reset()
     deleteBenchmarkDatabase(platformContext)

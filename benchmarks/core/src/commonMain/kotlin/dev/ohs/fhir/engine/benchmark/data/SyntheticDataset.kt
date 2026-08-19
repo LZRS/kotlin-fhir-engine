@@ -42,16 +42,12 @@ import kotlin.random.Random
 import kotlinx.datetime.LocalDate
 
 /**
- * A deterministic dataset generated in common Kotlin.
+ * Deterministic fallback dataset, so the harness runs on a fresh clone with no Java tooling.
+ * Synthea remains the dataset for quotable numbers; reports record which kind ran so the two are
+ * never compared.
  *
- * This is the fallback, not the headline dataset: Synthea produces the numbers worth quoting and
- * gives parity with android-fhir. This exists so the harness runs on a fresh clone with no Java
- * tooling and no network, and because it is the only dataset iOS can currently load. Reports record
- * which kind produced them so the two are never accidentally compared.
- *
- * Shape per patient: one Encounter, three Observations and one Condition, plus a shared pool of
- * Organizations and Practitioners, so that reference, include, revInclude and has queries all have
- * something real to traverse.
+ * Per patient: one Encounter, three Observations, one Condition, plus shared Organizations and
+ * Practitioners, so include, revInclude and has queries have something to traverse.
  */
 class SyntheticDataset(
   override val population: Int,
@@ -127,10 +123,7 @@ class SyntheticDataset(
       fingerprint = fingerprint(),
     )
 
-  /**
-   * Stable across runs and platforms for the same generator, seed and population. Two reports whose
-   * fingerprints differ were not measuring the same thing and must not be compared.
-   */
+  /** Reports with differing fingerprints did not measure the same thing and cannot be compared. */
   private fun fingerprint(): String {
     var hash = 17L
     for (resource in allResources) {

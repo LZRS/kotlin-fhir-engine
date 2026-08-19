@@ -6,10 +6,8 @@ plugins {
   alias(libs.plugins.android.application)
 }
 
-// The benchmark driver. Deliberately not a Compose app like `engine-app`: its whole job is to take
-// a workload id, run it, and say when it is done. The only UI is a status view that UI Automator
-// can wait on, so pulling in Compose Multiplatform would add build weight and startup cost to
-// something that is being measured.
+// Deliberately not a Compose app like `engine-app`: Compose would add build weight and startup cost
+// to a screen showing one line of text.
 android {
   namespace = "dev.ohs.fhir.engine.benchmark.app"
   compileSdk = 36
@@ -25,8 +23,7 @@ android {
   buildTypes {
     release {
       isMinifyEnabled = false
-      // Macrobenchmark measures the release build, and `engine-app` declares no release signing,
-      // so without this the APK cannot be installed on a device.
+      // Macrobenchmark measures the release build, which is otherwise unsigned and uninstallable.
       signingConfig = signingConfigs.getByName("debug")
     }
   }
@@ -77,11 +74,8 @@ kotlin {
 }
 
 /**
- * Copies benchmark reports off the device.
- *
- * The app writes to its external files directory because that is readable by `adb pull` without
- * root, unlike internal storage. Macrobenchmark writes its own JSON elsewhere; both are kept, since
- * they measure different things — this one is the in-process report, that one is trace-derived.
+ * Copies benchmark reports off the device. The app writes to external files because `adb pull` can
+ * read it without root. Macrobenchmark's own trace-derived JSON is separate and also kept.
  */
 val pullBenchmarkReports by
   tasks.registering {
