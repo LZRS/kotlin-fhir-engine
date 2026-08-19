@@ -21,3 +21,5 @@ include(":engine")
 include(":engine-app")
 
 include(":benchmarks:core")
+
+include(":benchmarks:app")

@@ -51,6 +51,47 @@ object BenchmarkHarness {
     return report
   }
 
+  /**
+   * Prepares a single workload and hands back something that can be measured one iteration at a
+   * time.
+   *
+   * Android needs this rather than [run]: macrobenchmark owns iteration control, and everything
+   * before the measured block has to happen while its timer is stopped. Splitting setup from
+   * measurement here keeps the Android path on the same workload objects as everywhere else instead
+   * of reimplementing them.
+   */
+  suspend fun setUpSingle(
+    workloadId: String,
+    config: BenchmarkConfig = BenchmarkConfig.of(),
+    dataset: Dataset = defaultDataset(config),
+  ): SingleRun {
+    val workload = Workloads.byId(workloadId)
+    val platformContext = benchmarkPlatformContext()
+    val engine = openEngine(platformContext)
+    val env =
+      BenchmarkEnv(
+        engine = engine,
+        dataset = dataset,
+        platformContext = platformContext,
+        reopenEngine = { openEngine(platformContext) },
+      )
+    workload.prepare(env)
+    return SingleRun(workload, env)
+  }
+
+  /** A prepared workload. [measureOnce] is the only part that should be timed. */
+  class SingleRun internal constructor(val workload: Workload, private val env: BenchmarkEnv) {
+
+    /** Untimed per-iteration setup. Call with the harness timer stopped. */
+    suspend fun beforeEach() = workload.beforeEach(env)
+
+    /** The measured work, wrapped in the trace span named after the workload. */
+    suspend fun measureOnce() = benchmarkSpan(workload.id) { workload.run(env) }
+
+    /** Untimed per-iteration teardown. */
+    suspend fun afterEach() = workload.afterEach(env)
+  }
+
   fun defaultDataset(config: BenchmarkConfig): Dataset =
     SyntheticDataset(
       population = Profile.fromString(config.profile).population,
