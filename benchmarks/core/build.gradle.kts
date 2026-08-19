@@ -62,6 +62,10 @@ kotlin {
         implementation(libs.kotlinx.coroutines.test)
       }
     }
+    androidMain.dependencies {
+      // Emits the trace sections macrobenchmark's TraceSectionMetric reads.
+      implementation(libs.androidx.tracing)
+    }
     webMain.dependencies {
       // For navigator.userAgent in the report's platform descriptor.
       implementation(libs.kotlinx.browser)

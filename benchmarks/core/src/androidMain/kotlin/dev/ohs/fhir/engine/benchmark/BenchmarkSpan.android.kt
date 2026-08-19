@@ -15,7 +15,7 @@
  */
 package dev.ohs.fhir.engine.benchmark
 
-import android.os.Trace
+import androidx.tracing.Trace
 
 /**
  * Emits an `atrace` section that macrobenchmark's `TraceSectionMetric` reads back out of the

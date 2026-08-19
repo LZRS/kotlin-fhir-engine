@@ -68,7 +68,11 @@ kotlin {
       implementation(project(":benchmarks:core"))
       implementation(libs.kotlinx.coroutines.core)
     }
-    androidMain.dependencies { implementation(libs.kotlinx.coroutines.android) }
+    androidMain.dependencies {
+      implementation(libs.kotlinx.coroutines.android)
+      // Macrobenchmark drives profile compilation through this; it must be 1.4.0+ for API 34+.
+      implementation(libs.androidx.profileinstaller)
+    }
     webMain.dependencies { implementation(libs.kotlinx.browser) }
   }
 }
