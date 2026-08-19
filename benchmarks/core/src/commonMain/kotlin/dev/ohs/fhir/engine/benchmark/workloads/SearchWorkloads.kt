@@ -159,7 +159,7 @@ object SearchWorkloads {
     override val isolation = Isolation.NONE
 
     override suspend fun prepare(env: BenchmarkEnv) {
-      env.seedDataset()
+      env.seedDatasetIfEmpty()
     }
 
     override suspend fun beforeEach(env: BenchmarkEnv) {

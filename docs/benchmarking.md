@@ -40,6 +40,40 @@ The report prints as a table and is written to
 | `-Pbenchmark.seed` | fixed | Dataset seed. Changing it changes the fingerprint. |
 | `-Pbenchmark.report.dir` | `build/reports/benchmarks` | Where the JSON lands |
 
+## Synthea data
+
+The synthetic dataset is the default and needs no tooling. For realistic numbers, generate Synthea
+records instead:
+
+```bash
+./gradlew :benchmarks:core:packageBenchmarkData                       # download, generate, package
+./gradlew :benchmarks:core:desktopTest -Pbenchmark.dataset=synthea    # both steps, if not yet built
+```
+
+The first run downloads a ~200 MB jar into `~/.gradle/caches/synthea/<version>/`, outside the project
+so it survives `clean`. The version and its SHA-256 are pinned in `gradle.properties`; changing
+either changes the report fingerprint and makes earlier reports incomparable.
+
+**`benchmark.population` means Synthea patients, not synthetic-profile patients.** Synthea generates
+full medical histories, so the two scales are nothing alike:
+
+| `-Pbenchmark.population` | Patients | Resources loaded |
+|---|---|---|
+| `10` (default) | 11 | ~7,200 |
+| `100` | 121 | ~122,000 |
+
+Only the resource types the workloads touch are loaded. Synthea also emits `Claim`,
+`ExplanationOfBenefit` and `DocumentReference`, which together dwarf everything else and which no
+query looks at; loading them exhausts the heap for no benefit.
+
+Synthea's own output is not reproducible file-for-file — it stamps a run timestamp into some
+filenames, e.g. `Organization.1787101630467.ndjson` — so packaging merges everything for a type into
+`<Type>.ndjson` and writes a `manifest.json` beside it.
+
+Parsing is lenient. Synthea emits US Core profiles and extensions the model does not carry, and a
+strict parse would reject the corpus. Lines that still fail are counted and printed rather than
+silently dropped.
+
 ## Android
 
 Use a **physical device**. Emulator numbers are host-bound and meaningless; an emulator is only good
@@ -153,7 +187,5 @@ Before trusting a run:
   measurement needs a page reload.
 - **Upload sync is not measured.** `syncUpload` expects response mapping types that are `internal`,
   so an external caller can only report failure. Measuring upload needs a real FHIR server.
-- **Synthea data is not wired up yet.** All numbers currently come from the deterministic synthetic
-  dataset. It is fine for comparing runs against each other, not for comparing against android-fhir.
 - **iOS writes no report file.**
 - **`js`/`wasmJs` have two pre-existing `FhirEngineImplTest` failures** unrelated to benchmarking.

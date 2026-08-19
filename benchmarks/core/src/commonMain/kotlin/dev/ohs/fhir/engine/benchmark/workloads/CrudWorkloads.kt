@@ -83,7 +83,7 @@ object CrudWorkloads {
     private var targets: List<String> = emptyList()
 
     override suspend fun prepare(env: BenchmarkEnv) {
-      env.seedDataset()
+      env.seedDatasetIfEmpty()
       targets = env.crudTargetIds(OPERATION_COUNT)
       opsPerIteration = targets.size
     }
@@ -104,7 +104,7 @@ object CrudWorkloads {
     private var targets: List<Patient> = emptyList()
 
     override suspend fun prepare(env: BenchmarkEnv) {
-      env.seedDataset()
+      env.seedDatasetIfEmpty()
       val ids = env.crudTargetIds(OPERATION_COUNT)
       targets = ids.map { env.engine.get<Patient>(it) }
       opsPerIteration = targets.size

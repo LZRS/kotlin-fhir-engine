@@ -19,16 +19,17 @@ import dev.ohs.fhir.engine.FhirEngine
 import dev.ohs.fhir.engine.FhirEngineConfiguration
 import dev.ohs.fhir.engine.FhirEngineProvider
 import dev.ohs.fhir.engine.benchmark.data.Dataset
+import dev.ohs.fhir.engine.benchmark.data.NdjsonDataset
 import dev.ohs.fhir.engine.benchmark.data.SyntheticDataset
 import dev.ohs.fhir.engine.benchmark.workloads.Workloads
 
 /** Wires engine, dataset and catalogue together, so every harness sets up identically. */
 object BenchmarkHarness {
 
-  suspend fun run(
-    config: BenchmarkConfig = BenchmarkConfig.of(),
-    dataset: Dataset = defaultDataset(config),
-  ): BenchmarkReport {
+  suspend fun run(config: BenchmarkConfig = BenchmarkConfig.of()): BenchmarkReport =
+    run(config, loadDataset(config))
+
+  suspend fun run(config: BenchmarkConfig, dataset: Dataset): BenchmarkReport {
     val platformContext = benchmarkPlatformContext()
     val engine = openEngine(platformContext)
 
@@ -53,15 +54,16 @@ object BenchmarkHarness {
   suspend fun setUpSingle(
     workloadId: String,
     config: BenchmarkConfig = BenchmarkConfig.of(),
-    dataset: Dataset = defaultDataset(config),
+    dataset: Dataset? = null,
   ): SingleRun {
     val workload = Workloads.byId(workloadId)
+    val resolved = dataset ?: loadDataset(config)
     val platformContext = benchmarkPlatformContext()
     val engine = openEngine(platformContext)
     val env =
       BenchmarkEnv(
         engine = engine,
-        dataset = dataset,
+        dataset = resolved,
         platformContext = platformContext,
         reopenEngine = { openEngine(platformContext) },
       )
@@ -82,7 +84,36 @@ object BenchmarkHarness {
     suspend fun afterEach() = workload.afterEach(env)
   }
 
-  fun defaultDataset(config: BenchmarkConfig): Dataset =
+  /**
+   * The dataset the config asks for, falling back to synthetic when Synthea data has not been
+   * packaged for this platform. The report records which kind actually ran.
+   */
+  suspend fun loadDataset(config: BenchmarkConfig): Dataset {
+    if (config.datasetKind != DatasetKind.SYNTHEA.name.lowercase()) return syntheticDataset(config)
+    // Filter before reading: Synthea's Claim and ExplanationOfBenefit files dwarf everything the
+    // workloads touch, and loading them just to discard them exhausts the heap.
+    val names =
+      listDataFiles().filter {
+        it.endsWith(".ndjson") && it.substringBefore(".") in NdjsonDataset.INCLUDED_TYPES
+      }
+    if (names.isEmpty()) return syntheticDataset(config)
+    val files = names.mapNotNull { name -> readDataFile(name)?.let { name to it } }.toMap()
+    val dataset =
+      NdjsonDataset(
+        files = files,
+        seed = config.seed,
+        requestedPopulation = Profile.fromString(config.profile).population,
+      )
+    if (dataset.parseFailures.isNotEmpty()) {
+      println(
+        "Synthea parse failures: ${dataset.parseFailures.size}. First few:\n" +
+          dataset.parseFailures.take(5).joinToString("\n"),
+      )
+    }
+    return if (dataset.patientIds.isEmpty()) syntheticDataset(config) else dataset
+  }
+
+  private fun syntheticDataset(config: BenchmarkConfig): Dataset =
     SyntheticDataset(
       population = Profile.fromString(config.profile).population,
       seed = config.seed,

@@ -1,3 +1,5 @@
+import dev.ohs.fhir.engine.benchmark.PackageBenchmarkDataTask
+import dev.ohs.fhir.engine.benchmark.SyntheaDownloadTask
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 
 plugins {
@@ -85,6 +87,7 @@ tasks.named<Test>("desktopTest") {
       "benchmark.groups",
       "benchmark.report.dir",
       "benchmark.storage.dir",
+      "benchmark.data.dir",
     )
     .forEach { key ->
       val value = project.findProperty(key)?.toString()
@@ -93,7 +96,93 @@ tasks.named<Test>("desktopTest") {
         inputs.property(key, value)
       }
     }
+  // Real datasets are held in memory while they are inserted.
+  maxHeapSize = "4g"
   // A benchmark run is never up to date; the point is to measure again.
   outputs.upToDateWhen { false }
   testLogging { showStandardStreams = true }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Synthea dataset
+//
+// ./gradlew :benchmarks:core:packageBenchmarkData -Pbenchmark.population=100
+// ./gradlew :benchmarks:core:desktopTest -Pbenchmark.dataset=synthea
+// ---------------------------------------------------------------------------------------------
+
+val syntheaRelease = providers.gradleProperty("synthea.version").getOrElse("v4.0.0")
+val syntheaSha256 = providers.gradleProperty("synthea.sha256").get()
+val benchmarkPopulation = providers.gradleProperty("benchmark.population").getOrElse("100").toInt()
+val benchmarkSeed = providers.gradleProperty("benchmark.seed").getOrElse("20260819")
+
+// Outside the project tree so a 200 MB jar survives `clean` and is shared between checkouts.
+val syntheaJar =
+  File(gradle.gradleUserHomeDir, "caches/synthea/$syntheaRelease/synthea-with-dependencies.jar")
+
+val downloadSynthea by
+  tasks.registering(SyntheaDownloadTask::class) {
+    group = "benchmark data"
+    description = "Download the pinned Synthea release jar."
+    version.set(syntheaRelease)
+    sha256.set(syntheaSha256)
+    jar.set(syntheaJar)
+  }
+
+val syntheaRawOutput = layout.buildDirectory.dir("benchmark-data/raw")
+
+val generateSyntheaData by
+  tasks.registering(JavaExec::class) {
+    group = "benchmark data"
+    description = "Generate Synthea patient records."
+    dependsOn(downloadSynthea)
+    classpath = files(syntheaJar)
+    mainClass.set("App")
+
+    inputs.property("population", benchmarkPopulation)
+    inputs.property("seed", benchmarkSeed)
+    inputs.property("syntheaVersion", syntheaRelease)
+    outputs.dir(syntheaRawOutput)
+
+    argumentProviders.add(
+      CommandLineArgumentProvider {
+        listOf(
+          "-p",
+          benchmarkPopulation.toString(),
+          "-s",
+          benchmarkSeed,
+          "-cs",
+          benchmarkSeed,
+          // One ndjson per resource type, which is the layout android-fhir's benchmarks use.
+          "--exporter.fhir.bulk_data=true",
+          "--exporter.baseDirectory=${syntheaRawOutput.get().asFile.absolutePath}",
+        )
+      },
+    )
+
+    doFirst { syntheaRawOutput.get().asFile.deleteRecursively() }
+  }
+
+val benchmarkDataDir = layout.buildDirectory.dir("benchmark-data/synthea")
+
+val packageBenchmarkData by
+  tasks.registering(PackageBenchmarkDataTask::class) {
+    group = "benchmark data"
+    description = "Normalise Synthea output into one file per resource type, plus a manifest."
+    dependsOn(generateSyntheaData)
+    syntheaOutput.set(syntheaRawOutput)
+    destination.set(benchmarkDataDir)
+    syntheaVersion.set(syntheaRelease)
+    population.set(benchmarkPopulation)
+    seed.set(benchmarkSeed)
+  }
+
+tasks.named<Test>("desktopTest") {
+  // Only build the dataset when a run actually asks for it: generating it takes minutes.
+  if (
+    providers.gradleProperty("benchmark.dataset").orNull.equals("synthea", ignoreCase = true) &&
+      providers.gradleProperty("benchmark.data.dir").orNull == null
+  ) {
+    dependsOn(packageBenchmarkData)
+    systemProperty("benchmark.data.dir", benchmarkDataDir.get().asFile.absolutePath)
+  }
 }

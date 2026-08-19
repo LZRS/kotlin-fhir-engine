@@ -17,8 +17,10 @@ package dev.ohs.fhir.engine.benchmark.workloads
 
 import dev.ohs.fhir.engine.FhirEngine
 import dev.ohs.fhir.engine.benchmark.BenchmarkEnv
+import dev.ohs.fhir.engine.search.count
 import dev.ohs.fhir.engine.search.search
 import dev.ohs.fhir.model.r4.Organization
+import dev.ohs.fhir.model.r4.Patient
 import dev.ohs.fhir.model.r4.Practitioner
 
 /**
@@ -33,6 +35,18 @@ internal suspend fun FhirEngine.evictPageCache() {
 /** Inserts the whole dataset. Untimed setup for workloads that need populated tables. */
 internal suspend fun BenchmarkEnv.seedDataset() {
   engine.create(*dataset.allResources.toTypedArray())
+}
+
+/**
+ * Seeds only if the tables are empty.
+ *
+ * The read-only workloads run at [dev.ohs.fhir.engine.benchmark.Isolation.NONE] and share one
+ * database, so the first of them populates it for all the rest. Seeding unconditionally in every
+ * prepare() re-inserts the whole corpus once per workload, which is invisible at synthetic sizes
+ * and takes minutes on real Synthea data.
+ */
+internal suspend fun BenchmarkEnv.seedDatasetIfEmpty() {
+  if (engine.count<Patient> {} == 0L) seedDataset()
 }
 
 /** Shuffled so reads avoid sequential page access; fixed so every platform touches the same ids. */
