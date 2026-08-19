@@ -29,6 +29,12 @@ internal expect fun platformDescriptor(): PlatformDescriptor
  */
 internal expect fun supportsFreshDatabase(): Boolean
 
+/** Files under the packaged benchmark data directory, or empty where none is available. */
+internal expect suspend fun listDataFiles(): List<String>
+
+/** Contents of a packaged benchmark data file, or null if absent. */
+internal expect suspend fun readDataFile(relativePath: String): String?
+
 /** ISO-8601 timestamp for the report. */
 internal expect fun nowIso8601(): String
 
