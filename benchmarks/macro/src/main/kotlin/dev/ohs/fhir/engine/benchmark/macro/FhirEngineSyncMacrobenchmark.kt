@@ -13,21 +13,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package dev.ohs.fhir.engine.benchmark
+package dev.ohs.fhir.engine.benchmark.macro
 
-import androidx.tracing.Trace
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.ohs.fhir.engine.benchmark.workloads.Workloads
+import org.junit.Test
+import org.junit.runner.RunWith
 
-/**
- * Emits an `atrace` section that macrobenchmark's `TraceSectionMetric` reads back out of the
- * Perfetto trace. The section name is the workload id, which is also the key in the JSON report.
- *
- * Section names are truncated by the platform at 127 characters; workload ids are far shorter.
- */
-internal actual suspend fun <T> benchmarkSpan(name: String, block: suspend () -> T): T {
-  Trace.beginSection(name)
-  try {
-    return block()
-  } finally {
-    Trace.endSection()
+@RunWith(AndroidJUnit4::class)
+class FhirEngineSyncMacrobenchmark : FhirEngineMacrobenchmark() {
+
+  @Test
+  fun sync() {
+    Workloads.byGroup("sync").filter { ONLY == null || it.id == ONLY }.forEach { measure(it) }
   }
 }
