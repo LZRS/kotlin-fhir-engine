@@ -259,3 +259,46 @@ listOf("jsBrowserTest", "wasmJsBrowserTest").forEach { name ->
     outputs.upToDateWhen { false }
   }
 }
+
+// ---------------------------------------------------------------------------------------------
+// iOS simulator harness
+//
+// ./gradlew :benchmarks:core:iosSimulatorArm64Test -Pbenchmark.dataset=synthea
+// ---------------------------------------------------------------------------------------------
+
+// A simulator shares the host filesystem, so the report and the dataset are ordinary host paths;
+// the harness reads them from the environment. A real device would need them bundled instead.
+tasks
+  .withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest>()
+  .configureEach {
+    // simctl only forwards variables prefixed SIMCTL_CHILD_ into the simulated process; without the
+    // prefix the harness never sees them and silently writes its report inside the simulator.
+    fun forSimulator(name: String, value: String) {
+      environment(name, value)
+      environment("SIMCTL_CHILD_$name", value)
+    }
+
+    forSimulator(
+      "BENCHMARK_REPORT_DIR",
+      layout.buildDirectory.dir("reports/benchmarks").get().asFile.absolutePath,
+    )
+    listOf(
+        "benchmark.profile",
+        "benchmark.dataset",
+        "benchmark.seed",
+        "benchmark.warmup",
+        "benchmark.iterations",
+        "benchmark.groups",
+        "benchmark.server",
+      )
+      .forEach { key ->
+        providers.gradleProperty(key).orNull?.let {
+          forSimulator(key.replace(".", "_").uppercase(), it)
+        }
+      }
+    if (providers.gradleProperty("benchmark.dataset").orNull.equals("synthea", true)) {
+      dependsOn(packageBenchmarkData)
+      forSimulator("BENCHMARK_DATA_DIR", benchmarkDataDir.get().asFile.absolutePath)
+    }
+    outputs.upToDateWhen { false }
+  }

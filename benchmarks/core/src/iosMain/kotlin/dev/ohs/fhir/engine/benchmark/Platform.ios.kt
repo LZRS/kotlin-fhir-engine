@@ -16,8 +16,15 @@
 package dev.ohs.fhir.engine.benchmark
 
 import kotlin.time.Clock
+import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.toKString
+import platform.Foundation.NSFileManager
+import platform.Foundation.NSString
 import platform.Foundation.NSTemporaryDirectory
+import platform.Foundation.NSUTF8StringEncoding
+import platform.Foundation.dataUsingEncoding
 import platform.UIKit.UIDevice
+import platform.posix.getenv
 
 internal actual fun benchmarkPlatformContext(): Any = Unit
 
@@ -41,10 +48,23 @@ internal actual fun nowIso8601(): String = Clock.System.now().toString()
 internal actual suspend fun deleteBenchmarkDatabase(platformContext: Any) = Unit
 
 /**
- * Printed rather than written to disk. Reading a file back out of the simulator sandbox needs
- * plumbing this module does not have yet; the iOS harness is the last stage for that reason.
+ * Written to the host filesystem, which a simulator shares, so the report lands beside the other
+ * platforms'. Falls back to the simulator's temporary directory, whose path is also a real host
+ * path, and to the console if even that write fails.
  */
+@OptIn(ExperimentalForeignApi::class)
 internal actual suspend fun emitReport(fileName: String, json: String) {
-  println("BENCHMARK_REPORT $fileName")
-  println(json)
+  val directory =
+    getenv("BENCHMARK_REPORT_DIR")?.toKString()?.takeIf { it.isNotBlank() }
+      ?: NSTemporaryDirectory()
+  NSFileManager.defaultManager.createDirectoryAtPath(directory, true, null, null)
+
+  val path = "${directory.removeSuffix("/")}/$fileName"
+  val data = (json as NSString).dataUsingEncoding(NSUTF8StringEncoding)
+  if (data != null && NSFileManager.defaultManager.createFileAtPath(path, data, null)) {
+    println("Benchmark report written to $path")
+  } else {
+    println("BENCHMARK_REPORT $fileName")
+    println(json)
+  }
 }

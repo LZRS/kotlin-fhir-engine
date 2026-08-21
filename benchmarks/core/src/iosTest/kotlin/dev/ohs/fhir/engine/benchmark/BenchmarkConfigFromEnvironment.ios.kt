@@ -15,15 +15,33 @@
  */
 package dev.ohs.fhir.engine.benchmark
 
+import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.toKString
+import platform.posix.getenv
+
 /**
- * No Gradle system properties reach the iOS test runner, so the run uses fixed defaults.
+ * Read from the environment, which the Gradle test task fills from the `-Pbenchmark.*` properties.
  *
- * Deliberately the smoke profile and a low iteration count: the iOS harness is a smoke check that
- * the engine works on the platform, not a source of headline numbers.
+ * The defaults are deliberately small: a simulator harness is a check that the engine works on the
+ * platform, not a source of headline numbers.
  */
+@OptIn(ExperimentalForeignApi::class)
+private fun env(name: String): String? =
+  getenv(name)?.toKString()?.trim()?.takeIf { it.isNotEmpty() }
+
 internal actual suspend fun benchmarkConfigFromEnvironment(): BenchmarkConfig =
   BenchmarkConfig.of(
-    profile = Profile.SMOKE,
-    warmupIterations = 1,
-    measuredIterations = 3,
+    profile = Profile.fromString(env("BENCHMARK_PROFILE") ?: Profile.SMOKE.name),
+    datasetKind =
+      if (env("BENCHMARK_DATASET").equals("synthea", ignoreCase = true)) {
+        DatasetKind.SYNTHEA
+      } else {
+        DatasetKind.SYNTHETIC
+      },
+    seed = env("BENCHMARK_SEED")?.toIntOrNull() ?: BenchmarkConfig.DEFAULT_SEED,
+    warmupIterations = env("BENCHMARK_WARMUP")?.toIntOrNull() ?: 1,
+    measuredIterations = env("BENCHMARK_ITERATIONS")?.toIntOrNull() ?: 3,
+    groups = env("BENCHMARK_GROUPS")?.split(",")?.map { it.trim() }
+        ?: listOf("crud", "search", "sync"),
+    serverUrl = env("BENCHMARK_SERVER"),
   )
