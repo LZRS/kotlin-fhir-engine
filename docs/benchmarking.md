@@ -70,6 +70,12 @@ Synthea's own output is not reproducible file-for-file — it stamps a run times
 filenames, e.g. `Organization.1787101630467.ndjson` — so packaging merges everything for a type into
 `<Type>.ndjson` and writes a `manifest.json` beside it.
 
+**A pinned seed does not give a reproducible corpus.** Two runs at the same `synthea.version`,
+`benchmark.seed` and `benchmark.population` have produced different resource counts, and so
+different fingerprints. Pinning narrows the variation; it does not remove it. The fingerprint
+recorded in the report, not the seed, is what says whether two reports are comparable — regenerate
+the dataset only when you are ready to rebaseline.
+
 Parsing is lenient. Synthea emits US Core profiles and extensions the model does not carry, and a
 strict parse would reject the corpus. Lines that still fail are counted and printed rather than
 silently dropped.
@@ -190,9 +196,20 @@ a million rows answers differently from an empty one.
 
 ```bash
 ./gradlew :benchmarks:core:iosSimulatorArm64Test
+./gradlew :benchmarks:core:iosSimulatorArm64Test -Pbenchmark.dataset=synthea
 ```
 
-Indicative only: the report is printed, not written, and only the synthetic dataset is available.
+The report lands in `benchmarks/core/build/reports/benchmarks/ios-<timestamp>.json` like every other
+platform's. A simulator shares the host filesystem, so both the report and the Synthea directory are
+ordinary host paths handed to the harness through `BENCHMARK_REPORT_DIR` and `BENCHMARK_DATA_DIR`.
+
+A Synthea run on the simulator takes about 20 minutes at `benchmark.population=10`, most of it
+seeding the corpus for the fresh-database CRUD workloads.
+
+**Simulator numbers are indicative only.** A simulator runs on the host CPU with the host's disk, so
+these say whether the engine works on the platform and roughly where the costs sit — not what an
+iPhone would do. A real device needs the data bundled into the test app, which this harness does not
+do.
 
 ## Reading the results
 
@@ -237,5 +254,4 @@ Before trusting a run:
 - **Upload sync needs a real server.** `syncUpload` expects response mapping types that are
   `internal`, so an external caller can only report failure. The `server` group covers upload
   against a running FHIR server; there is no in-process equivalent.
-- **iOS writes no report file.** Web now does; iOS is the only platform left printing to stdout.
 - **`js`/`wasmJs` have two pre-existing `FhirEngineImplTest` failures** unrelated to benchmarking.
