@@ -20,6 +20,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
+import android.view.WindowManager
 import android.widget.TextView
 import dev.ohs.fhir.engine.benchmark.AndroidBenchmarkContext
 import kotlin.coroutines.cancellation.CancellationException
@@ -61,6 +62,12 @@ class BenchmarkActivity : Activity() {
       }
     setContentView(statusView)
 
+    // A long workload outlasts the screen timeout, and a sleeping device draws no frames, so
+    // macrobenchmark's startActivityAndWait never sees the launch complete.
+    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    setShowWhenLocked(true)
+    setTurnScreenOn(true)
+
     AndroidBenchmarkContext.context = applicationContext
 
     start(intent)
@@ -84,6 +91,7 @@ class BenchmarkActivity : Activity() {
             BenchmarkRequest.KEY_WORKLOAD,
             BenchmarkRequest.KEY_GROUPS,
             BenchmarkRequest.KEY_PROFILE,
+            BenchmarkRequest.KEY_DATASET,
             BenchmarkRequest.KEY_WARMUP,
             BenchmarkRequest.KEY_ITERATIONS,
           )
@@ -98,6 +106,11 @@ class BenchmarkActivity : Activity() {
       if (request.workloadId != null) {
         // STATUS_READY marks the end of untimed setup, before any measured work.
         val run = BenchmarkDriver.prepareSingle(request)
+        // Logged because this path writes no report, and asking for synthea does not guarantee
+        // getting it: a build without the staged assets falls back to synthetic silently.
+        run.datasetManifest.let {
+          Log.i(TAG, "dataset=${it.kind} population=${it.population} fingerprint=${it.fingerprint}")
+        }
         setStatus(STATUS_READY)
         run.beforeEach()
         run.measureOnce()

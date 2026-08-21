@@ -16,6 +16,7 @@
 package dev.ohs.fhir.engine.benchmark.app
 
 import dev.ohs.fhir.engine.benchmark.BenchmarkConfig
+import dev.ohs.fhir.engine.benchmark.DatasetKind
 import dev.ohs.fhir.engine.benchmark.Profile
 
 /**
@@ -27,6 +28,8 @@ data class BenchmarkRequest(
   val workloadId: String? = null,
   val groups: List<String> = listOf("crud", "search", "sync"),
   val profile: Profile = Profile.STANDARD,
+  /** Synthea only resolves when the app was built with the data staged into its assets. */
+  val datasetKind: DatasetKind = DatasetKind.SYNTHETIC,
   val warmupIterations: Int = 2,
   val measuredIterations: Int = 5,
 ) {
@@ -34,6 +37,7 @@ data class BenchmarkRequest(
   fun toConfig(): BenchmarkConfig =
     BenchmarkConfig.of(
       profile = profile,
+      datasetKind = datasetKind,
       warmupIterations = warmupIterations,
       measuredIterations = measuredIterations,
       groups = groups,
@@ -43,6 +47,7 @@ data class BenchmarkRequest(
     const val KEY_WORKLOAD = "workload"
     const val KEY_GROUPS = "groups"
     const val KEY_PROFILE = "profile"
+    const val KEY_DATASET = "dataset"
     const val KEY_WARMUP = "warmup"
     const val KEY_ITERATIONS = "iterations"
 
@@ -58,6 +63,12 @@ data class BenchmarkRequest(
             ?.takeIf { it.isNotEmpty() }
             ?: listOf("crud", "search", "sync"),
         profile = Profile.fromString(values[KEY_PROFILE]),
+        datasetKind =
+          if (values[KEY_DATASET].equals("synthea", ignoreCase = true)) {
+            DatasetKind.SYNTHEA
+          } else {
+            DatasetKind.SYNTHETIC
+          },
         warmupIterations = values[KEY_WARMUP]?.toIntOrNull() ?: 2,
         measuredIterations = values[KEY_ITERATIONS]?.toIntOrNull() ?: 5,
       )

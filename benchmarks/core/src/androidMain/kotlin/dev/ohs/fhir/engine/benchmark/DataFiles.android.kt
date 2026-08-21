@@ -15,7 +15,34 @@
  */
 package dev.ohs.fhir.engine.benchmark
 
-/** Synthea data is not packaged for this platform yet; the synthetic dataset is used instead. */
-internal actual suspend fun listDataFiles(): List<String> = emptyList()
+import android.content.Context
+import java.io.IOException
 
-internal actual suspend fun readDataFile(relativePath: String): String? = null
+/**
+ * Read from the driver app's assets, which is where `stageBenchmarkAssets` puts the packaged
+ * Synthea data. Android cannot read the host filesystem and `/data/local/tmp` is unreadable to an
+ * app from API 30, so the corpus has to travel inside the APK.
+ *
+ * Empty when the app was built without the data, which leaves the harness on the synthetic dataset.
+ */
+private const val ASSET_DIRECTORY = "bulk_data"
+
+private fun assets(): Context? = AndroidBenchmarkContext.context
+
+internal actual suspend fun listDataFiles(): List<String> {
+  val context = assets() ?: return emptyList()
+  return try {
+    context.assets.list(ASSET_DIRECTORY)?.toList().orEmpty().sorted()
+  } catch (e: IOException) {
+    emptyList()
+  }
+}
+
+internal actual suspend fun readDataFile(relativePath: String): String? {
+  val context = assets() ?: return null
+  return try {
+    context.assets.open("$ASSET_DIRECTORY/$relativePath").use { it.readBytes().decodeToString() }
+  } catch (e: IOException) {
+    null
+  }
+}

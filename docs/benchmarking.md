@@ -85,6 +85,11 @@ silently dropped.
 Use a **physical device**. Emulator numbers are host-bound and meaningless; an emulator is only good
 for checking that the plumbing works.
 
+Keep the device awake. Android freezes cached background processes, so if the screen sleeps during a
+long workload the run stalls at 0% CPU and the next launch cannot be confirmed. The driver app holds
+the screen on and the harness wakes the device, but a device that sleeps for other reasons — low
+battery, a policy — will still stall.
+
 ### The driver app on its own
 
 ```bash
@@ -122,6 +127,27 @@ One class at a time:
 Results land in
 `benchmarks/macro/build/outputs/connected_android_test_additional_output/`, alongside the Perfetto
 traces.
+
+### Synthea on Android
+
+```bash
+./gradlew :benchmarks:macro:connectedReleaseAndroidTest -Pbenchmark.dataset=synthea
+```
+
+One flag does both jobs: it stages the packaged data into the driver app's assets and tells the run
+to use it. Android cannot read the host filesystem, and `/data/local/tmp` is unreadable to an app
+from API 30, so the corpus travels inside the APK — only the types a workload queries, about 5.7 MB
+at `benchmark.population=10`, which compresses to roughly 1 MB of APK.
+
+**Asking for Synthea does not guarantee getting it.** A build without the staged assets falls back to
+synthetic silently, and this path writes no report. The driver logs what actually loaded:
+
+```bash
+adb logcat -d -s BenchmarkDriver | grep dataset=
+# dataset=synthea population=11 fingerprint=6ae5c742bfc713c6
+```
+
+`kind=synthetic` there means the assets are missing, whatever you passed on the command line.
 
 **Check that every metric is non-zero before believing a run.** A macrobenchmark passes whether or
 not it measured anything, so a green run proves nothing on its own:
@@ -259,9 +285,6 @@ Before trusting a run:
 
 - **A macrobenchmark passes whether or not it measured anything.** Nothing fails a run whose trace
   sections are all zero, so check the metrics rather than the exit code; see the Android section.
-
-- **Android still falls back to the synthetic dataset.** The Synthea data is not staged into the
-  driver app's assets, so Android numbers are not comparable with desktop, web or iOS Synthea runs.
 
 - **Web has no in-process reset.** Closing the database wedges the SQLite Web Worker; not closing
   leaves it holding the exclusive OPFS handle so a reopen never completes. `FRESH_DATABASE`

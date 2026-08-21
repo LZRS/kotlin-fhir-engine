@@ -78,6 +78,13 @@ object BenchmarkHarness {
   /** A prepared workload. [measureOnce] is the only part that should be timed. */
   class SingleRun internal constructor(val workload: Workload, private val env: BenchmarkEnv) {
 
+    /**
+     * What actually loaded, not what was asked for. Synthea falls back to synthetic whenever the
+     * data is missing, and the macrobenchmark path writes no report to record the difference.
+     */
+    val datasetManifest: DatasetManifest
+      get() = env.dataset.manifest()
+
     /** Untimed per-iteration setup. Call with the harness timer stopped. */
     suspend fun beforeEach() = workload.beforeEach(env)
 

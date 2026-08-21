@@ -14,6 +14,15 @@ android {
     minSdk = 29
     targetSdk = 36
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+    // Forwarded so -Pbenchmark.dataset=synthea both stages the data into the app's assets and tells
+    // the run to use it. Setting only one of the two silently measures the wrong dataset.
+    providers.gradleProperty("benchmark.dataset").orNull?.let {
+      testInstrumentationRunnerArguments["dataset"] = it
+    }
+    providers.gradleProperty("benchmark.profile").orNull?.let {
+      testInstrumentationRunnerArguments["profile"] = it
+    }
   }
 
   compileOptions {
