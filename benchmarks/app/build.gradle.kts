@@ -127,3 +127,54 @@ val pullBenchmarkReports by
       }
     }
   }
+
+// ---------------------------------------------------------------------------------------------
+// Synthea assets
+//
+// ./gradlew :benchmarks:app:installRelease -Pbenchmark.dataset=synthea
+//
+// Android cannot read the host filesystem, and /data/local/tmp is unreadable to an app from API 30,
+// so the corpus has to travel inside the APK.
+// ---------------------------------------------------------------------------------------------
+
+// Mirrors NdjsonDataset.INCLUDED_TYPES: the types a workload actually queries. Claim,
+// ExplanationOfBenefit and DocumentReference dwarf everything else and no query touches them, so
+// staging them would bloat the APK for nothing. Adding a workload type means updating both lists.
+val benchmarkAssetTypes =
+  listOf(
+    "AllergyIntolerance",
+    "CarePlan",
+    "Condition",
+    "Encounter",
+    "Immunization",
+    "MedicationRequest",
+    "Observation",
+    "Organization",
+    "Patient",
+    "Practitioner",
+    "Procedure",
+  )
+
+val benchmarkAssetsDir = layout.buildDirectory.dir("generated/benchmarkAssets")
+
+val stageBenchmarkAssets by
+  tasks.registering(Sync::class) {
+    group = "benchmark data"
+    description = "Copy the packaged Synthea data into the driver app's assets."
+    into(benchmarkAssetsDir)
+    from(project(":benchmarks:core").layout.buildDirectory.dir("benchmark-data/synthea")) {
+      into("bulk_data")
+      include("manifest.json")
+      benchmarkAssetTypes.forEach { include("$it.ndjson") }
+    }
+  }
+
+if (providers.gradleProperty("benchmark.dataset").orNull.equals("synthea", ignoreCase = true)) {
+  stageBenchmarkAssets.configure { dependsOn(":benchmarks:core:packageBenchmarkData") }
+}
+
+android {
+  // The task provider rather than the path, so every consumer — asset merge, lint, packaging —
+  // picks up the dependency instead of racing the copy.
+  sourceSets.getByName("main").assets.srcDir(stageBenchmarkAssets)
+}

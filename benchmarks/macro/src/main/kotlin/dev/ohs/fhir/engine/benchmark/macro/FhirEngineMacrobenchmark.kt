@@ -44,6 +44,10 @@ abstract class FhirEngineMacrobenchmark {
       // Kills the process between iterations, which also discards the engine's in-memory state.
       startupMode = StartupMode.COLD,
       setupBlock = {
+        // The screen times out during a long workload, and a sleeping device renders no frames, so
+        // the next iteration's launch cannot be confirmed.
+        device.wakeUp()
+        device.executeShellCommand("wm dismiss-keyguard")
         if (workload.isolation == Isolation.FRESH_DATABASE) {
           // Android ignores the engine's storageDirectory, so a cold database means clearing the
           // app's data outright.
@@ -57,6 +61,7 @@ abstract class FhirEngineMacrobenchmark {
           action = ACTION_RUN
           putExtra("workload", workload.id)
           putExtra("profile", PROFILE)
+          putExtra("dataset", DATASET)
         },
       )
 
@@ -91,6 +96,14 @@ abstract class FhirEngineMacrobenchmark {
     val PROFILE: String =
       androidx.test.platform.app.InstrumentationRegistry.getArguments()
         .getString("profile", "standard")
+
+    /**
+     * `synthea` only resolves if the app was built with the data staged into its assets; otherwise
+     * the harness falls back to the synthetic dataset and says so in its report.
+     */
+    val DATASET: String =
+      androidx.test.platform.app.InstrumentationRegistry.getArguments()
+        .getString("dataset", "synthetic")
 
     val ITERATIONS: Int =
       androidx.test.platform.app.InstrumentationRegistry.getArguments()
