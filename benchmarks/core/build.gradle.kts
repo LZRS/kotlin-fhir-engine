@@ -88,6 +88,7 @@ tasks.named<Test>("desktopTest") {
       "benchmark.report.dir",
       "benchmark.storage.dir",
       "benchmark.data.dir",
+      "benchmark.server",
     )
     .forEach { key ->
       val value = project.findProperty(key)?.toString()

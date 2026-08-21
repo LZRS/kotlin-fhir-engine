@@ -29,4 +29,5 @@ internal actual suspend fun benchmarkConfigFromEnvironment(): BenchmarkConfig =
     measuredIterations = System.getProperty("benchmark.iterations")?.toIntOrNull() ?: 5,
     groups = System.getProperty("benchmark.groups")?.split(",")?.map { it.trim() }
         ?: listOf("crud", "search", "sync"),
+    serverUrl = System.getProperty("benchmark.server")?.takeIf { it.isNotBlank() },
   )

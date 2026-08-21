@@ -29,6 +29,7 @@ class BenchmarkRunner(
   private var engine: FhirEngine,
   private val platformContext: Any,
   private val reopenEngine: suspend () -> FhirEngine,
+  private val serverUrl: String? = null,
 ) {
 
   suspend fun run(workloads: List<Workload>): BenchmarkReport {
@@ -116,6 +117,7 @@ class BenchmarkRunner(
       dataset = dataset,
       platformContext = platformContext,
       reopenEngine = reopenEngine,
+      serverUrl = serverUrl,
     )
 
   private companion object {

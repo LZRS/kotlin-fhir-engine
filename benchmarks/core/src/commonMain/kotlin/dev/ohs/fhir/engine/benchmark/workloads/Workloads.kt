@@ -20,7 +20,8 @@ import dev.ohs.fhir.engine.benchmark.Workload
 /** The single catalogue. Both the in-process runner and Android read from here. */
 object Workloads {
 
-  fun all(): List<Workload> = CrudWorkloads.all() + SearchWorkloads.all() + SyncWorkloads.all()
+  fun all(): List<Workload> =
+    CrudWorkloads.all() + SearchWorkloads.all() + SyncWorkloads.all() + ServerWorkloads.all()
 
   fun byGroup(group: String): List<Workload> = all().filter { it.group == group }
 
