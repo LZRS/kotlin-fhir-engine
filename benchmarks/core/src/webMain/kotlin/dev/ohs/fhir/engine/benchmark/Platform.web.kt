@@ -29,7 +29,11 @@ internal actual fun benchmarkPlatformContext(): Any = Unit
 internal actual fun benchmarkStorageDirectory(): String? = "benchmark"
 
 internal actual fun platformDescriptor() =
-  PlatformDescriptor(target = webTargetName(), os = webUserAgent())
+  PlatformDescriptor(
+    target = webTargetName(),
+    os = webUserAgent(),
+    cpuCount = webHardwareConcurrency(),
+  )
 
 /**
  * False: a browser page cannot close and reopen this database.
@@ -47,15 +51,29 @@ internal actual fun nowIso8601(): String = Clock.System.now().toString()
 internal actual suspend fun deleteBenchmarkDatabase(platformContext: Any) = Unit
 
 /**
- * Printed to the console, which Karma forwards to the Gradle output.
+ * POSTed to the test server, which writes it next to the other platforms' reports; see
+ * `karma.config.d/benchmark-report.js`.
  *
- * Writing the file needs a Karma middleware to receive it; that arrives with the web stage.
+ * A page served by webpack rather than Karma has no sink, so the console stays as the fallback.
  */
 internal actual suspend fun emitReport(fileName: String, json: String) {
-  println("BENCHMARK_REPORT $fileName")
-  println(json)
+  // A zero here means every span was lost, the same silent failure that makes an all-zero
+  // macrobenchmark look like a passing run.
+  println("Performance timeline: ${webTimelineMeasureCount()} measures recorded")
+  if (httpPost("/benchmark-report/$fileName", json)) {
+    println("Benchmark report written to $fileName")
+  } else {
+    println("BENCHMARK_REPORT $fileName")
+    println(json)
+  }
 }
 
 internal expect fun webTargetName(): String
+
+/** `navigator.hardwareConcurrency`, or null where the browser withholds it. */
+internal expect fun webHardwareConcurrency(): Int?
+
+/** How many `performance.measure` entries the run produced; see `BenchmarkSpan.web.kt`. */
+internal expect fun webTimelineMeasureCount(): Int
 
 internal expect fun webUserAgent(): String

@@ -186,3 +186,75 @@ tasks.named<Test>("desktopTest") {
     systemProperty("benchmark.data.dir", benchmarkDataDir.get().asFile.absolutePath)
   }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Browser harness
+//
+// export CHROME_BIN=/path/to/Chromium
+// ./gradlew :benchmarks:core:jsBrowserTest -Pbenchmark.profile=smoke
+// ---------------------------------------------------------------------------------------------
+
+// A browser reads neither -P properties nor the filesystem, so the run config is written where the
+// Karma middleware can serve it; see karma.config.d/benchmark-server.js.
+val webBenchmarkProperties =
+  listOf(
+      "benchmark.profile",
+      "benchmark.dataset",
+      "benchmark.seed",
+      "benchmark.warmup",
+      "benchmark.iterations",
+      "benchmark.groups",
+    )
+    .mapNotNull { key -> providers.gradleProperty(key).orNull?.let { key to it } }
+    .toMap()
+
+val webConfigFile = layout.buildDirectory.file("benchmark-web-config.json")
+
+val writeWebBenchmarkConfig by
+  tasks.registering {
+    group = "benchmark"
+    description = "Put the -Pbenchmark.* values where the browser harness can fetch them."
+    outputs.upToDateWhen { false }
+    doLast {
+      val file = webConfigFile.get().asFile
+      file.parentFile.mkdirs()
+      val groups =
+        (webBenchmarkProperties["benchmark.groups"] ?: "crud,search,sync").split(",").joinToString(
+          ", ",
+        ) {
+          "\"${it.trim()}\""
+        }
+      val dataset =
+        if (webBenchmarkProperties["benchmark.dataset"].equals("synthea", ignoreCase = true)) {
+          "synthea"
+        } else {
+          "synthetic"
+        }
+      // Defaults are the browser's own rather than desktop's: an unflagged browser run stays small
+      // because a browser over OPFS is the slowest target by a wide margin.
+      file.writeText(
+        """
+        {
+          "profile": "${(webBenchmarkProperties["benchmark.profile"] ?: "smoke").lowercase()}",
+          "datasetKind": "$dataset",
+          "seed": ${webBenchmarkProperties["benchmark.seed"]?.toIntOrNull() ?: 20260819},
+          "warmupIterations": ${webBenchmarkProperties["benchmark.warmup"]?.toIntOrNull() ?: 1},
+          "measuredIterations": ${webBenchmarkProperties["benchmark.iterations"]?.toIntOrNull() ?: 3},
+          "groups": [$groups]
+        }
+        """
+          .trimIndent(),
+      )
+    }
+  }
+
+listOf("jsBrowserTest", "wasmJsBrowserTest").forEach { name ->
+  tasks.named(name) {
+    dependsOn(writeWebBenchmarkConfig)
+    // The middleware serves this fixed directory, so -Pbenchmark.data.dir does not apply on web.
+    if (providers.gradleProperty("benchmark.dataset").orNull.equals("synthea", true)) {
+      dependsOn(packageBenchmarkData)
+    }
+    outputs.upToDateWhen { false }
+  }
+}

@@ -15,15 +15,15 @@
  */
 package dev.ohs.fhir.engine.benchmark
 
-/**
- * No Gradle system properties reach an Android host (JVM) test, so the run uses fixed defaults.
- *
- * Deliberately the smoke profile and a low iteration count: Android numbers come from
- * macrobenchmark on a device; this path exists only so the shared test source set compiles.
- */
-internal actual suspend fun benchmarkConfigFromEnvironment(): BenchmarkConfig =
-  BenchmarkConfig.of(
-    profile = Profile.SMOKE,
-    warmupIterations = 1,
-    measuredIterations = 3,
-  )
+// Reached through `dynamic` because kotlinx-browser's Performance type predates the User Timing
+// API and carries neither mark nor measure.
+private val performance: dynamic
+  get() = js("performance")
+
+internal actual fun performanceMark(name: String) {
+  performance.mark(name)
+}
+
+internal actual fun performanceMeasure(name: String, startMark: String) {
+  performance.measure(name, startMark)
+}

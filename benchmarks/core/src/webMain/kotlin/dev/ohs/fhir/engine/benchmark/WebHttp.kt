@@ -16,14 +16,12 @@
 package dev.ohs.fhir.engine.benchmark
 
 /**
- * No Gradle system properties reach an Android host (JVM) test, so the run uses fixed defaults.
+ * The test server is the only filesystem a browser run has: it serves the packaged dataset and the
+ * run config, and receives the report. Split per target because Kotlin/Wasm has no `dynamic`.
  *
- * Deliberately the smoke profile and a low iteration count: Android numbers come from
- * macrobenchmark on a device; this path exists only so the shared test source set compiles.
+ * Both return null/false rather than throwing when nothing is listening, so a page served by
+ * webpack rather than Karma degrades to defaults instead of failing.
  */
-internal actual suspend fun benchmarkConfigFromEnvironment(): BenchmarkConfig =
-  BenchmarkConfig.of(
-    profile = Profile.SMOKE,
-    warmupIterations = 1,
-    measuredIterations = 3,
-  )
+internal expect suspend fun httpGet(path: String): String?
+
+internal expect suspend fun httpPost(path: String, body: String): Boolean

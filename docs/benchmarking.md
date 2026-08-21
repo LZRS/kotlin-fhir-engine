@@ -135,7 +135,23 @@ export CHROME_BIN=/Applications/Chromium.app/Contents/MacOS/Chromium
 ./gradlew :benchmarks:core:jsBrowserTest
 ```
 
-The report is printed to the console rather than written to disk.
+Both take the same `-Pbenchmark.*` flags as desktop, `-Pbenchmark.dataset=synthea` included:
+
+```bash
+./gradlew :benchmarks:core:jsBrowserTest -Pbenchmark.profile=smoke -Pbenchmark.dataset=synthea
+```
+
+With no flags a browser run uses the smoke profile, 1 warmup and 3 measured iterations, rather than
+desktop's heavier defaults: a browser over OPFS is the slowest target by a wide margin.
+
+The report lands in `benchmarks/core/build/reports/benchmarks/<js|wasmJs>-<timestamp>.json`,
+alongside desktop's. Each workload is also marked on the browser's performance timeline under its
+own id, readable with `performance.getEntriesByType("measure")`.
+
+A browser can read neither `-P` properties nor the filesystem, so the Karma server stands in for
+both. `benchmarks/core/karma.config.d/benchmark-server.js` serves the run config and the packaged
+Synthea data, and receives the finished report. `-Pbenchmark.data.dir` and `-Pbenchmark.report.dir`
+therefore do not apply on web; both paths are fixed.
 
 ## iOS
 
@@ -187,5 +203,5 @@ Before trusting a run:
   measurement needs a page reload.
 - **Upload sync is not measured.** `syncUpload` expects response mapping types that are `internal`,
   so an external caller can only report failure. Measuring upload needs a real FHIR server.
-- **iOS writes no report file.**
+- **iOS writes no report file.** Web now does; iOS is the only platform left printing to stdout.
 - **`js`/`wasmJs` have two pre-existing `FhirEngineImplTest` failures** unrelated to benchmarking.

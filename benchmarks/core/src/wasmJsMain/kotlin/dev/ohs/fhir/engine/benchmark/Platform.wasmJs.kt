@@ -18,3 +18,11 @@ package dev.ohs.fhir.engine.benchmark
 internal actual fun webTargetName(): String = "wasmJs"
 
 internal actual fun webUserAgent(): String = kotlinx.browser.window.navigator.userAgent
+
+internal actual fun webHardwareConcurrency(): Int? = jsHardwareConcurrency().takeIf { it > 0 }
+
+internal actual fun webTimelineMeasureCount(): Int = jsMeasureCount()
+
+private fun jsHardwareConcurrency(): Int = js("navigator.hardwareConcurrency || 0")
+
+private fun jsMeasureCount(): Int = js("performance.getEntriesByType('measure').length")
