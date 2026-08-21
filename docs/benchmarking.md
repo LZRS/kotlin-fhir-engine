@@ -123,6 +123,26 @@ Results land in
 `benchmarks/macro/build/outputs/connected_android_test_additional_output/`, alongside the Perfetto
 traces.
 
+**Check that every metric is non-zero before believing a run.** A macrobenchmark passes whether or
+not it measured anything, so a green run proves nothing on its own:
+
+```bash
+python3 - <<'EOF'
+import json, glob
+f = glob.glob('benchmarks/macro/build/outputs/connected_android_test_additional_output/'
+              'release/connected/*/*-benchmarkData.json')[0]
+for b in json.load(open(f))['benchmarks']:
+    for k, v in b['metrics'].items():
+        if k.endswith('SumMs') and v['median'] == 0:
+            print('ZERO:', k)
+EOF
+```
+
+A zero means the trace section never formed a closed slice. `atrace` pairs begin and end **per
+thread**, so anything that lets the measured block resume on a different thread than it started on
+breaks the pairing silently — the name still appears in the trace, but nothing matches it. The
+Android span therefore runs on one dedicated thread; see `BenchmarkSpan.android.kt`.
+
 **On an emulator**, macrobenchmark refuses to run without:
 
 ```bash
@@ -237,15 +257,11 @@ Before trusting a run:
 
 ## Known limitations
 
-- **Macrobenchmark currently measures nothing.** `connectedReleaseAndroidTest` builds, installs and
-  runs, and the driver app completes its workloads, but every `TraceSectionMetric` comes back
-  `median=0.0` with `Count=0.0` — the trace sections never reach the Perfetto trace. The test
-  **passes** in this state, so treat a green macrobenchmark run as meaningless until a non-zero
-  count appears. Ruled out so far: `<profileable android:shell="true"/>` is present in the release
-  APK, and switching the span from `android.os.Trace` to `androidx.tracing.Trace` changed nothing.
-  Next things to try: `Trace.forceEnableAppTracing()`, whether the emulator's atrace is the problem
-  at all (retry on a physical device first), and whether the span landing on a background thread
-  matters.
+- **A macrobenchmark passes whether or not it measured anything.** Nothing fails a run whose trace
+  sections are all zero, so check the metrics rather than the exit code; see the Android section.
+
+- **Android still falls back to the synthetic dataset.** The Synthea data is not staged into the
+  driver app's assets, so Android numbers are not comparable with desktop, web or iOS Synthea runs.
 
 - **Web has no in-process reset.** Closing the database wedges the SQLite Web Worker; not closing
   leaves it holding the exclusive OPFS handle so a reopen never completes. `FRESH_DATABASE`
