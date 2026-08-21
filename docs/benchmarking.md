@@ -153,6 +153,39 @@ both. `benchmarks/core/karma.config.d/benchmark-server.js` serves the run config
 Synthea data, and receives the finished report. `-Pbenchmark.data.dir` and `-Pbenchmark.report.dir`
 therefore do not apply on web; both paths are fixed.
 
+## Sync against a real server
+
+The `server` group is the only way upload is measured at all. `syncUpload` drives patch generation,
+patch ordering and bundle generation through `internal` types, so an external caller can only ever
+report failure — a real server is not a convenience here, it is the only route.
+
+```bash
+benchmarks/tools/start-benchmark-server.sh          # HAPI in docker, waits until it answers
+./gradlew :benchmarks:core:packageBenchmarkData     # only needed for server.download
+benchmarks/tools/populate-benchmark-server.sh       # ditto
+
+./gradlew :benchmarks:core:desktopTest \
+  -Pbenchmark.groups=server \
+  -Pbenchmark.server=http://localhost:8080/fhir
+
+benchmarks/tools/stop-benchmark-server.sh
+```
+
+`-Pbenchmark.server` can point at any reachable FHIR server; the script is a convenience, not a
+requirement. Without the flag the `server` workloads are skipped and the run says so, rather than
+passing silently with nothing measured.
+
+| Workload | What it measures |
+|---|---|
+| `server.upload_creates` | New resources: patch generation, bundling, POST, consolidation |
+| `server.upload_updates` | Updates, so the patch generator diffs against a stored resource |
+| `server.download` | Download against a real server: paging, parsing, conflict resolution |
+
+**These numbers include the server and the network.** They are comparable only to another run
+against the same server on the same machine — never to the server-free `sync` group, and never
+across machines. Restart the server between comparable runs: uploads accumulate, and a server with
+a million rows answers differently from an empty one.
+
 ## iOS
 
 ```bash
@@ -201,7 +234,8 @@ Before trusting a run:
   leaves it holding the exclusive OPFS handle so a reopen never completes. `FRESH_DATABASE`
   therefore degrades to `CLEAR_TABLES` on web, which the report records. A genuinely cold web
   measurement needs a page reload.
-- **Upload sync is not measured.** `syncUpload` expects response mapping types that are `internal`,
-  so an external caller can only report failure. Measuring upload needs a real FHIR server.
+- **Upload sync needs a real server.** `syncUpload` expects response mapping types that are
+  `internal`, so an external caller can only report failure. The `server` group covers upload
+  against a running FHIR server; there is no in-process equivalent.
 - **iOS writes no report file.** Web now does; iOS is the only platform left printing to stdout.
 - **`js`/`wasmJs` have two pre-existing `FhirEngineImplTest` failures** unrelated to benchmarking.

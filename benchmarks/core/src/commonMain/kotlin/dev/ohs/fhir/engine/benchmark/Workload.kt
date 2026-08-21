@@ -37,6 +37,8 @@ class BenchmarkEnv(
   val platformContext: Any,
   /** Closes the current engine and returns a new one on an empty database. */
   val reopenEngine: suspend () -> FhirEngine,
+  /** Base URL of the FHIR server the engine was initialised against, or null. */
+  val serverUrl: String? = null,
 )
 
 /** One measured unit of work. Only [run] is timed. */
@@ -47,7 +49,7 @@ interface Workload {
    */
   val id: String
 
-  /** `crud`, `search` or `sync`. */
+  /** `crud`, `search`, `sync` or `server`. */
   val group: String
 
   /** Kept large: Android's trace noise floor is tens of microseconds. */

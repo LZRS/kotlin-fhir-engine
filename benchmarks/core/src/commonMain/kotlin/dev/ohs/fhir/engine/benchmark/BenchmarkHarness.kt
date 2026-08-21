@@ -18,9 +18,11 @@ package dev.ohs.fhir.engine.benchmark
 import dev.ohs.fhir.engine.FhirEngine
 import dev.ohs.fhir.engine.FhirEngineConfiguration
 import dev.ohs.fhir.engine.FhirEngineProvider
+import dev.ohs.fhir.engine.ServerConfiguration
 import dev.ohs.fhir.engine.benchmark.data.Dataset
 import dev.ohs.fhir.engine.benchmark.data.NdjsonDataset
 import dev.ohs.fhir.engine.benchmark.data.SyntheticDataset
+import dev.ohs.fhir.engine.benchmark.workloads.ServerWorkloads
 import dev.ohs.fhir.engine.benchmark.workloads.Workloads
 
 /** Wires engine, dataset and catalogue together, so every harness sets up identically. */
@@ -31,7 +33,7 @@ object BenchmarkHarness {
 
   suspend fun run(config: BenchmarkConfig, dataset: Dataset): BenchmarkReport {
     val platformContext = benchmarkPlatformContext()
-    val engine = openEngine(platformContext)
+    val engine = openEngine(platformContext, config.serverUrl)
 
     val runner =
       BenchmarkRunner(
@@ -39,10 +41,11 @@ object BenchmarkHarness {
         dataset = dataset,
         engine = engine,
         platformContext = platformContext,
-        reopenEngine = { openEngine(platformContext) },
+        reopenEngine = { openEngine(platformContext, config.serverUrl) },
+        serverUrl = config.serverUrl,
       )
 
-    val report = runner.run(Workloads.byGroups(config.groups))
+    val report = runner.run(selectWorkloads(config))
     emitReport(reportFileName(report), report.toJson())
     return report
   }
@@ -59,13 +62,14 @@ object BenchmarkHarness {
     val workload = Workloads.byId(workloadId)
     val resolved = dataset ?: loadDataset(config)
     val platformContext = benchmarkPlatformContext()
-    val engine = openEngine(platformContext)
+    val engine = openEngine(platformContext, config.serverUrl)
     val env =
       BenchmarkEnv(
         engine = engine,
         dataset = resolved,
         platformContext = platformContext,
-        reopenEngine = { openEngine(platformContext) },
+        reopenEngine = { openEngine(platformContext, config.serverUrl) },
+        serverUrl = config.serverUrl,
       )
     workload.prepare(env)
     return SingleRun(workload, env)
@@ -119,12 +123,31 @@ object BenchmarkHarness {
       seed = config.seed,
     )
 
+  /**
+   * The `server` group needs a server and every other group is slowed down by one, so it is only
+   * run when `-Pbenchmark.server` names one. Silently returning nothing would look like a pass.
+   */
+  private fun selectWorkloads(config: BenchmarkConfig): List<Workload> {
+    val selected = Workloads.byGroups(config.groups)
+    if (config.serverUrl != null) return selected
+    val (needsServer, rest) = selected.partition { it.group == ServerWorkloads.GROUP }
+    if (needsServer.isNotEmpty()) {
+      println(
+        "Skipping ${needsServer.size} ${ServerWorkloads.GROUP} workloads: no -Pbenchmark.server.",
+      )
+    }
+    return rest
+  }
+
   /** A fresh storage directory per call, so [Isolation.FRESH_DATABASE] gets a cold file. */
-  private suspend fun openEngine(platformContext: Any): FhirEngine {
+  private suspend fun openEngine(platformContext: Any, serverUrl: String?): FhirEngine {
     if (FhirEngineProvider.isInitialized()) FhirEngineProvider.reset()
     deleteBenchmarkDatabase(platformContext)
     FhirEngineProvider.init(
-      FhirEngineConfiguration(storageDirectory = benchmarkStorageDirectory()),
+      FhirEngineConfiguration(
+        storageDirectory = benchmarkStorageDirectory(),
+        serverConfiguration = serverUrl?.let { ServerConfiguration(baseUrl = it) },
+      ),
       platformContext,
     )
     return FhirEngineProvider.getInstance(platformContext)

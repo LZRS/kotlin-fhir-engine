@@ -47,6 +47,8 @@ data class BenchmarkConfig(
   val warmupIterations: Int,
   val measuredIterations: Int,
   val groups: List<String>,
+  /** Base URL of a FHIR server, or null. Only the `server` group needs one. */
+  val serverUrl: String? = null,
 ) {
   companion object {
     fun of(
@@ -56,6 +58,7 @@ data class BenchmarkConfig(
       warmupIterations: Int = 2,
       measuredIterations: Int = 5,
       groups: List<String> = listOf("crud", "search", "sync"),
+      serverUrl: String? = null,
     ) =
       BenchmarkConfig(
         profile = profile.name.lowercase(),
@@ -64,6 +67,10 @@ data class BenchmarkConfig(
         warmupIterations = warmupIterations,
         measuredIterations = measuredIterations,
         groups = groups,
+        // Ktor resolves a request path against the base URL, so a base without a trailing slash
+        // loses its last segment: `.../fhir` + `Patient?...` requests `.../Patient` and 404s.
+        // Uploads hide it, because a transaction bundle posts to the base itself.
+        serverUrl = serverUrl?.trim()?.takeIf { it.isNotEmpty() }?.removeSuffix("/")?.plus("/"),
       )
 
     const val DEFAULT_SEED = 20260819
