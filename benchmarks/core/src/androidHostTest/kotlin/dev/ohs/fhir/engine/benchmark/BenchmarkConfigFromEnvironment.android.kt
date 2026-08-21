@@ -21,7 +21,7 @@ package dev.ohs.fhir.engine.benchmark
  * Deliberately the smoke profile and a low iteration count: Android numbers come from
  * macrobenchmark on a device; this path exists only so the shared test source set compiles.
  */
-internal actual fun benchmarkConfigFromEnvironment(): BenchmarkConfig =
+internal actual suspend fun benchmarkConfigFromEnvironment(): BenchmarkConfig =
   BenchmarkConfig.of(
     profile = Profile.SMOKE,
     warmupIterations = 1,

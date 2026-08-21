@@ -15,15 +15,22 @@
  */
 package dev.ohs.fhir.engine.benchmark
 
+import kotlinx.serialization.json.Json
+
 /**
- * No Gradle system properties reach a browser, so the run uses fixed defaults.
+ * Fetched from the test server, which Gradle writes the `-Pbenchmark.*` values into; see
+ * `karma.config.d/benchmark-config.js`.
  *
- * Deliberately the smoke profile and a low iteration count: browsers over OPFS are the slowest
- * target by a wide margin, and Karma disconnects a page that stops responding to pings.
+ * The fallback is deliberately the smoke profile and a low iteration count: browsers over OPFS are
+ * the slowest target by a wide margin.
  */
-internal actual fun benchmarkConfigFromEnvironment(): BenchmarkConfig =
-  BenchmarkConfig.of(
-    profile = Profile.SMOKE,
-    warmupIterations = 1,
-    measuredIterations = 3,
-  )
+internal actual suspend fun benchmarkConfigFromEnvironment(): BenchmarkConfig {
+  val json = httpGet("/benchmark-config") ?: return browserDefaults()
+  return runCatching { lenientJson.decodeFromString<BenchmarkConfig>(json) }
+    .getOrElse { browserDefaults() }
+}
+
+private val lenientJson = Json { ignoreUnknownKeys = true }
+
+private fun browserDefaults() =
+  BenchmarkConfig.of(profile = Profile.SMOKE, warmupIterations = 1, measuredIterations = 3)

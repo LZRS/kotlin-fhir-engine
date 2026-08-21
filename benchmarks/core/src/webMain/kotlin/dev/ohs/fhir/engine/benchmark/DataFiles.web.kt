@@ -15,7 +15,25 @@
  */
 package dev.ohs.fhir.engine.benchmark
 
-/** Synthea data is not packaged for this platform yet; the synthetic dataset is used instead. */
-internal actual suspend fun listDataFiles(): List<String> = emptyList()
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 
-internal actual suspend fun readDataFile(relativePath: String): String? = null
+/** Served by the middleware in `karma.config.d/benchmark-data.js`. */
+private const val DATA_ROOT = "/benchmark-data"
+
+/**
+ * Derived from the manifest rather than a directory listing, because HTTP has none.
+ *
+ * Empty when the dataset was never packaged, which sends the harness to the synthetic fallback.
+ */
+internal actual suspend fun listDataFiles(): List<String> {
+  val manifest = httpGet("$DATA_ROOT/manifest.json") ?: return emptyList()
+  val counts =
+    runCatching { Json.parseToJsonElement(manifest).jsonObject["resourceCounts"]?.jsonObject }
+      .getOrNull()
+      ?: return emptyList()
+  return counts.keys.map { "$it.ndjson" }.sorted()
+}
+
+internal actual suspend fun readDataFile(relativePath: String): String? =
+  httpGet("$DATA_ROOT/$relativePath")

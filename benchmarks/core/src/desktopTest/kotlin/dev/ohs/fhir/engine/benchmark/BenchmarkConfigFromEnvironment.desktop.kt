@@ -15,7 +15,7 @@
  */
 package dev.ohs.fhir.engine.benchmark
 
-internal actual fun benchmarkConfigFromEnvironment(): BenchmarkConfig =
+internal actual suspend fun benchmarkConfigFromEnvironment(): BenchmarkConfig =
   BenchmarkConfig.of(
     profile = Profile.fromString(System.getProperty("benchmark.profile")),
     datasetKind =

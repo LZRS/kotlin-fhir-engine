@@ -21,7 +21,7 @@ package dev.ohs.fhir.engine.benchmark
  * Deliberately the smoke profile and a low iteration count: the iOS harness is a smoke check that
  * the engine works on the platform, not a source of headline numbers.
  */
-internal actual fun benchmarkConfigFromEnvironment(): BenchmarkConfig =
+internal actual suspend fun benchmarkConfigFromEnvironment(): BenchmarkConfig =
   BenchmarkConfig.of(
     profile = Profile.SMOKE,
     warmupIterations = 1,

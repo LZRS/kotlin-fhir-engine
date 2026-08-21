@@ -16,7 +16,10 @@
 package dev.ohs.fhir.engine.benchmark
 
 /**
- * Reads run settings from wherever the platform surfaces them: system properties on desktop, and
- * defaults elsewhere. Keeps `-Pbenchmark.profile=smoke` working from Gradle.
+ * Reads run settings from wherever the platform surfaces them: system properties on desktop, the
+ * test server in a browser, and defaults elsewhere. Keeps `-Pbenchmark.profile=smoke` working from
+ * Gradle.
+ *
+ * Suspending because the browser can only reach its settings over HTTP.
  */
-internal expect fun benchmarkConfigFromEnvironment(): BenchmarkConfig
+internal expect suspend fun benchmarkConfigFromEnvironment(): BenchmarkConfig
