@@ -107,8 +107,21 @@ adb shell am start -n dev.ohs.fhir.engine.benchmark.app/.BenchmarkActivity \
 adb logcat -d -s BenchmarkDriver
 ```
 
-The status view reports `starting` → `ready` → `done`, or `failed <exception>`. `ready` marks the end
-of untimed setup.
+### Watching a run
+
+A group run shows live progress on the device: which workload is in flight, warmup versus measured
+iteration, elapsed time, and each finished workload's median as it lands. When the run ends the
+screen is the results table. Completions are also written to logcat:
+
+    adb logcat -s BenchmarkDriver
+
+A single-workload run (`-e workload <id>`) keeps the plain status text instead, because
+macrobenchmark waits on that view and must not pay for a UI. That view reports
+`starting` → `ready` → `done`, or `failed <exception>`. `ready` marks the end of untimed setup.
+
+The elapsed clock ticks once a second, including while a workload is being measured, so the app's
+own in-process numbers carry a small amount of UI work that macrobenchmark's do not. Macrobenchmark
+is the authoritative Android measurement; treat the app's group-mode report as indicative.
 
 ### Macrobenchmark
 
