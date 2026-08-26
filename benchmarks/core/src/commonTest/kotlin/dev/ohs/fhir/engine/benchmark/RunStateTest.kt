@@ -117,6 +117,31 @@ class RunStateTest {
   }
 
   @Test
+  fun finishingAWorkloadMidRunGoesBackToPreparing() {
+    // The runner prepares the next workload straight away, so leaving the phase on MEASURING
+    // would claim a measurement is in flight when none is.
+    val state =
+      fold(
+        BenchmarkProgress.Iterating("crud.create", "crud", 0, 2, 0, 1, 2),
+        BenchmarkProgress.WorkloadFinished(result("crud.create", 6000.0), 0, 2),
+      )
+    assertEquals(RunPhase.PREPARING, state.phase)
+  }
+
+  @Test
+  fun finishingTheLastWorkloadShowsReporting() {
+    // Serialising and writing the report takes long enough to look like a hang, and it is the one
+    // stretch with no current workload to name.
+    val state =
+      fold(
+        BenchmarkProgress.Iterating("search.by_code", "search", 1, 2, 0, 1, 2),
+        BenchmarkProgress.WorkloadFinished(result("search.by_code", 48.0), 1, 2),
+      )
+    assertEquals(RunPhase.REPORTING, state.phase)
+    assertTrue(!state.phase.isTerminal)
+  }
+
+  @Test
   fun aFailedWorkloadIsRecordedRatherThanDropped() {
     val state = fold(BenchmarkProgress.WorkloadFinished(result("server.upload", 0.0, "boom"), 0, 1))
     assertEquals(1, state.finished.size)
