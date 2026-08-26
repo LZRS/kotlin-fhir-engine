@@ -64,6 +64,13 @@ class BenchmarkActivity : ComponentActivity() {
   private var runJob: Job? = null
   private var tickerJob: Job? = null
 
+  /**
+   * Bumped per launch. Cancellation is cooperative, so a superseded run keeps executing until its
+   * next suspension point; everything it does after that — progress events, stopping the clock,
+   * writing a status — belongs to a display it no longer owns and has to be dropped.
+   */
+  @Volatile private var runEpoch = 0
+
   private val runState = MutableStateFlow(RunState())
   private val elapsedSeconds = MutableStateFlow(0L)
 
@@ -110,12 +117,20 @@ class BenchmarkActivity : ComponentActivity() {
 
     runJob?.cancel()
     tickerJob?.cancel()
+    val epoch = ++runEpoch
 
     // Chosen here rather than in execute(): setContent and setContentView must run on the main
     // thread, and onCreate/onNewIntent are already on it.
     if (request.workloadId != null) showStatusView() else showProgressScreen()
 
-    runJob = scope.launch { execute(request) }
+    runJob = scope.launch { execute(request, epoch) }
+  }
+
+  private fun isCurrent(epoch: Int) = epoch == runEpoch
+
+  /** Only the run that owns the display may stop the clock. */
+  private fun stopTicker(epoch: Int) {
+    if (isCurrent(epoch)) tickerJob?.cancel()
   }
 
   /** Macrobenchmark's path. The resource id is what `By.res(pkg, "benchmark_status")` selects. */
@@ -155,7 +170,7 @@ class BenchmarkActivity : ComponentActivity() {
       }
   }
 
-  private suspend fun execute(request: BenchmarkRequest) {
+  private suspend fun execute(request: BenchmarkRequest, epoch: Int) {
     try {
       if (request.workloadId != null) {
         // STATUS_READY marks the end of untimed setup, before any measured work.
@@ -174,6 +189,7 @@ class BenchmarkActivity : ComponentActivity() {
       } else {
         val report =
           BenchmarkDriver.runAll(request) { event ->
+            if (!isCurrent(epoch)) return@runAll
             runState.update { it.fold(event) }
             // Completions only. Logging every iteration floods logcat on a 26-workload run.
             if (event is BenchmarkProgress.WorkloadFinished) {
@@ -185,7 +201,7 @@ class BenchmarkActivity : ComponentActivity() {
               )
             }
           }
-        tickerJob?.cancel()
+        stopTicker(epoch)
         Log.i(TAG, BenchmarkDriver.summarise(report))
       }
     } catch (e: CancellationException) {
@@ -194,8 +210,9 @@ class BenchmarkActivity : ComponentActivity() {
     } catch (e: Throwable) {
       // In the view as well as the log, or a harness waiting on STATUS_DONE just times out.
       Log.e(TAG, "benchmark failed", e)
+      if (!isCurrent(epoch)) return
       val message = "${e::class.simpleName}: ${e.message}"
-      tickerJob?.cancel()
+      stopTicker(epoch)
       runState.update { it.failed(message) }
       setStatus("$STATUS_FAILED $message")
     }
