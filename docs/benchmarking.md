@@ -1,7 +1,7 @@
 # Benchmarking
 
-Measures the engine's CRUD, Search DSL and sync paths across the platforms it ships on. Run manually;
-nothing here runs in CI.
+Measures the engine's CRUD, Search DSL and sync paths across the platforms it ships on. Run
+manually; nothing here runs in CI.
 
 ## Modules
 
@@ -34,11 +34,20 @@ The report prints as a table and is written to
 | Flag | Default | Meaning |
 |---|---|---|
 | `-Pbenchmark.profile` | `standard` | `smoke` (10 patients), `standard` (100), `large` (1000) |
-| `-Pbenchmark.groups` | all | Comma-separated: `crud`, `search`, `sync` |
+| `-Pbenchmark.groups` | `crud,search,sync` | Comma-separated. `server` is never a default. |
+| `-Pbenchmark.dataset` | `synthetic` | `synthetic` or `synthea` |
 | `-Pbenchmark.warmup` | `2` | Discarded iterations |
 | `-Pbenchmark.iterations` | `5` | Measured iterations |
-| `-Pbenchmark.seed` | fixed | Dataset seed. Changing it changes the fingerprint. |
+| `-Pbenchmark.seed` | `20260819` | Dataset seed. Changing it changes the fingerprint. |
+| `-Pbenchmark.server` | none | Base URL for the `server` group, which is skipped without it |
 | `-Pbenchmark.report.dir` | `build/reports/benchmarks` | Where the JSON lands |
+| `-Pbenchmark.data.dir` | the packaged output | Where the Synthea corpus is read from |
+| `-Pbenchmark.storage.dir` | `build/benchmark-db` | Where the engine's database file goes |
+
+The first six also work on `jsBrowserTest`, `wasmJsBrowserTest` and `iosSimulatorArm64Test`;
+`-Pbenchmark.server` works on iOS but not on web. The three directory flags are desktop-only —
+[Web](#web) and [iOS](#ios) say where those paths come from instead. Browser runs also have their
+own lighter defaults.
 
 ## Synthea data
 
@@ -50,9 +59,9 @@ records instead:
 ./gradlew :benchmarks:core:desktopTest -Pbenchmark.dataset=synthea    # both steps, if not yet built
 ```
 
-The first run downloads a ~200 MB jar into `~/.gradle/caches/synthea/<version>/`, outside the project
-so it survives `clean`. The version and its SHA-256 are pinned in `gradle.properties`; changing
-either changes the report fingerprint and makes earlier reports incomparable.
+The first run downloads a ~200 MB jar into `~/.gradle/caches/synthea/<version>/`, outside the
+project so it survives `clean`. The version and its SHA-256 are pinned in `gradle.properties`;
+changing either changes the report fingerprint and makes earlier reports incomparable.
 
 **`benchmark.population` means Synthea patients, not synthetic-profile patients.** Synthea generates
 full medical histories, so the two scales are nothing alike:
@@ -67,8 +76,8 @@ Only the resource types the workloads touch are loaded. Synthea also emits `Clai
 query looks at; loading them exhausts the heap for no benefit.
 
 Synthea's own output is not reproducible file-for-file — it stamps a run timestamp into some
-filenames, e.g. `Organization.1787101630467.ndjson` — so packaging merges everything for a type into
-`<Type>.ndjson` and writes a `manifest.json` beside it.
+filenames, e.g. `Organization.1787101630467.ndjson` — so packaging merges everything for a type
+into `<Type>.ndjson` and writes a `manifest.json` beside it.
 
 **A pinned seed does not give a reproducible corpus.** Two runs at the same `synthea.version`,
 `benchmark.seed` and `benchmark.population` have produced different resource counts, and so
@@ -110,18 +119,25 @@ adb logcat -d -s BenchmarkDriver
 ### Watching a run
 
 A group run shows live progress on the device: which workload is in flight, warmup versus measured
-iteration, elapsed time, and each finished workload's median as it lands. When the run ends the
-screen is the results table. Completions are also written to logcat:
+iteration, elapsed time, and each finished workload's median as it lands. The header names the
+phase, so the stretch after the last workload reads `reporting` while the JSON is being written
+rather than looking like a stall. When the run ends the screen is the results table.
 
-    adb logcat -s BenchmarkDriver
+Completions are also written to logcat:
+
+```bash
+adb logcat -s BenchmarkDriver
+```
 
 A single-workload run (`-e workload <id>`) keeps the plain status text instead, because
 macrobenchmark waits on that view and must not pay for a UI. That view reports
 `starting` → `ready` → `done`, or `failed <exception>`. `ready` marks the end of untimed setup.
 
-The elapsed clock ticks once a second, including while a workload is being measured, so the app's
-own in-process numbers carry a small amount of UI work that macrobenchmark's do not. Macrobenchmark
-is the authoritative Android measurement; treat the app's group-mode report as indicative.
+The screen costs the numbers a little. The elapsed clock ticks once a second, and each iteration
+event redraws the current row; both can land while a workload is being measured, so the app's own
+in-process numbers carry a small amount of UI work. Macrobenchmark drives the single-workload path,
+never renders this screen, and is the authoritative Android measurement — treat the app's
+group-mode report as indicative.
 
 ### Macrobenchmark
 
@@ -149,11 +165,11 @@ traces.
 
 One flag does both jobs: it stages the packaged data into the driver app's assets and tells the run
 to use it. Android cannot read the host filesystem, and `/data/local/tmp` is unreadable to an app
-from API 30, so the corpus travels inside the APK — only the types a workload queries, about 5.7 MB
-at `benchmark.population=10`, which compresses to roughly 1 MB of APK.
+from API 30, so the corpus travels inside the APK — only the types a workload queries, about
+5.7 MB at `benchmark.population=10`, which compresses to roughly 1 MB of APK.
 
-**Asking for Synthea does not guarantee getting it.** A build without the staged assets falls back to
-synthetic silently, and this path writes no report. The driver logs what actually loaded:
+**Asking for Synthea does not guarantee getting it.** A build without the staged assets falls back
+to synthetic silently, and this path writes no report. The driver logs what actually loaded:
 
 ```bash
 adb logcat -d -s BenchmarkDriver | grep dataset=
@@ -283,9 +299,9 @@ Per workload the report carries the raw `samplesMillis` plus min/median/p90/max/
 
 Before trusting a run:
 
-- **The search medians must show a spread.** If they are all alike and fast, the page cache was never
-  disturbed and the search numbers mean nothing. On desktop at `standard` the spread is roughly
-  0.6 ms to 108 ms.
+- **The search medians must show a spread.** If they are all alike and fast, the page cache was
+  never disturbed and the search numbers mean nothing. On desktop at `standard` the spread is
+  roughly 0.6 ms to 108 ms.
 - **Every macrobenchmark `TraceSectionMetric` must be non-zero.** A zero means the section never
   reached the trace — usually a debuggable build, a missing `<profileable>`, or a workload id that
   does not match the span name. This fails silently.
