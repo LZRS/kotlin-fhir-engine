@@ -1,6 +1,5 @@
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
 
 plugins {
   alias(libs.plugins.kotlin.multiplatform)
@@ -9,13 +8,8 @@ plugins {
   alias(libs.plugins.kotlin.compose)
 }
 
-// The Compose compiler plugin otherwise runs on every target, and desktop, js and wasmJs have no
-// Compose runtime on their class path, so it fails them at IR generation.
-composeCompiler { targetKotlinPlatforms.set(setOf(KotlinPlatformType.androidJvm)) }
-
-// Compose is Android-only here. A group run takes hours and needs a real progress screen, but
-// desktop and web print to a console, so pulling Compose into commonMain would cost them build
-// weight for nothing. Compose never initialises on the single-workload macrobenchmark path.
+// Only Android has a Compose UI. A group run takes hours and needs a real progress screen; desktop
+// and web print to a console. Compose never initialises on the single-workload macrobenchmark path.
 android {
   namespace = "dev.ohs.fhir.engine.benchmark.app"
   compileSdk = 36
@@ -75,13 +69,15 @@ kotlin {
     commonMain.dependencies {
       implementation(project(":benchmarks:core"))
       implementation(libs.kotlinx.coroutines.core)
+      // The Compose compiler plugin applies to every compilation and fails one whose class path
+      // has no runtime, even a source set with no Compose code. Only Android gets the UI.
+      implementation(compose.runtime)
     }
     androidMain.dependencies {
       implementation(libs.kotlinx.coroutines.android)
       // Macrobenchmark drives profile compilation through this; it must be 1.4.0+ for API 34+.
       implementation(libs.androidx.profileinstaller)
       implementation(libs.androidx.activity.compose)
-      implementation(compose.runtime)
       implementation(compose.foundation)
       implementation(compose.material3)
       implementation(compose.ui)
