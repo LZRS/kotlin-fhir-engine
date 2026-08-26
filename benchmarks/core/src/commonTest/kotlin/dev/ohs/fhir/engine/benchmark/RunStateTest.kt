@@ -153,4 +153,35 @@ class RunStateTest {
     assertEquals("OutOfMemoryError: heap", state.failure)
     assertEquals(1, state.finished.size)
   }
+
+  @Test
+  fun aRealRunEmitsEventsInAnOrderThatFoldsToACompleteState() {
+    // Mirrors the emission order in BenchmarkRunner: RunStarted, then Preparing/Iterating per
+    // workload, then WorkloadFinished, then RunFinished. Guards against an emission moving.
+    val report =
+      BenchmarkReport(
+        timestamp = "2026-08-26T00:00:00Z",
+        platform = PlatformDescriptor(target = "desktop", os = "test"),
+        config = BenchmarkConfig.of(warmupIterations = 1, measuredIterations = 2),
+        dataset = manifest(),
+        results = listOf(result("search.by_code", 48.0)),
+      )
+    val state =
+      fold(
+        BenchmarkProgress.LoadingDataset("synthea"),
+        BenchmarkProgress.DatasetReady(manifest()),
+        BenchmarkProgress.RunStarted(1),
+        BenchmarkProgress.Preparing("search.by_code", "search", 0, 1),
+        BenchmarkProgress.Iterating("search.by_code", "search", 0, 1, 0, 1, 2),
+        BenchmarkProgress.Iterating("search.by_code", "search", 0, 1, 1, 1, 2),
+        BenchmarkProgress.Iterating("search.by_code", "search", 0, 1, 2, 1, 2),
+        BenchmarkProgress.WorkloadFinished(result("search.by_code", 48.0), 0, 1),
+        BenchmarkProgress.RunFinished(report),
+      )
+    assertEquals(RunPhase.DONE, state.phase)
+    assertEquals(1, state.totalWorkloads)
+    assertEquals(1, state.completedWorkloads)
+    assertEquals("synthea 121pt", state.datasetLabel)
+    assertNull(state.current)
+  }
 }
