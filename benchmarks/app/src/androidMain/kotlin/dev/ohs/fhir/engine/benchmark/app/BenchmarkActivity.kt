@@ -119,7 +119,7 @@ class BenchmarkActivity : Activity() {
         Log.i(TAG, "completed ${request.workloadId}")
       } else {
         setStatus(STATUS_READY)
-        val summary = BenchmarkDriver.runAll(request)
+        val summary = BenchmarkDriver.summarise(BenchmarkDriver.runAll(request))
         setStatus(STATUS_DONE)
         Log.i(TAG, summary)
       }
