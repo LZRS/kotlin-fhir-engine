@@ -21,6 +21,9 @@ enum class RunPhase {
   LOADING_DATASET,
   PREPARING,
   MEASURING,
+
+  /** The last workload is done and the report is being serialised and written. */
+  REPORTING,
   DONE,
   FAILED,
   ;
@@ -102,6 +105,9 @@ data class RunState(
         )
       is BenchmarkProgress.WorkloadFinished ->
         copy(
+          // Not left on MEASURING: the runner moves straight to the next workload's untimed setup,
+          // and after the last one there is nothing to name until the report lands.
+          phase = if (event.index + 1 >= event.total) RunPhase.REPORTING else RunPhase.PREPARING,
           totalWorkloads = event.total,
           current = null,
           finished =
