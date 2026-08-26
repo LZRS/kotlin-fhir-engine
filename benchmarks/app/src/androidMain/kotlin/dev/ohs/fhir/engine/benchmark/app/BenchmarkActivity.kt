@@ -15,52 +15,63 @@
  */
 package dev.ohs.fhir.engine.benchmark.app
 
-import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.TextView
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import dev.ohs.fhir.engine.benchmark.AndroidBenchmarkContext
+import dev.ohs.fhir.engine.benchmark.BenchmarkProgress
+import dev.ohs.fhir.engine.benchmark.RunState
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.TimeSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
  * The driver's only screen, launched by intent extras rather than UI taps, which break whenever the
- * UI moves. The status view lets a harness wait on real completion instead of sleeping.
+ * UI moves.
+ *
+ * Two very different displays. A single-workload launch is macrobenchmark's, and keeps a bare
+ * [TextView] whose resource id UI Automator selects on — no Compose is initialised on that path. A
+ * group launch runs for hours and gets the Compose progress screen instead; nothing waits on its
+ * status, so it is free to render whatever is useful.
  */
-class BenchmarkActivity : Activity() {
+class BenchmarkActivity : ComponentActivity() {
 
   /**
    * Off the main thread: a long workload there triggers an ANR dialog, which contaminates the
    * measurement and hides the status view from UI Automator.
    */
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-  private lateinit var statusView: TextView
 
   /**
    * Kept so a relaunch can cancel it. Otherwise two runs race and whichever finishes last writes
    * the status, letting a stale [STATUS_DONE] overwrite a newer failure.
    */
   private var runJob: Job? = null
+  private var tickerJob: Job? = null
+
+  private val runState = MutableStateFlow(RunState())
+  private val elapsedSeconds = MutableStateFlow(0L)
+
+  /** Only inflated on the single-workload path. Null in group mode. */
+  private var statusView: TextView? = null
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-
-    statusView =
-      TextView(this).apply {
-        id = R.id.benchmark_status
-        gravity = Gravity.CENTER
-        textSize = 18f
-        text = STATUS_STARTING
-      }
-    setContentView(statusView)
 
     // A long workload outlasts the screen timeout, and a sleeping device draws no frames, so
     // macrobenchmark's startActivityAndWait never sees the launch complete.
@@ -74,7 +85,7 @@ class BenchmarkActivity : Activity() {
   }
 
   /**
-   * The activity is `singleTop`, so a relaunch reuses this instance. Resetting the status here
+   * The activity is `singleTop`, so a relaunch reuses this instance. Resetting the display here
    * stops a harness reading the previous run's [STATUS_DONE].
    */
   override fun onNewIntent(intent: Intent) {
@@ -84,7 +95,6 @@ class BenchmarkActivity : Activity() {
   }
 
   private fun start(intent: Intent) {
-    setStatus(STATUS_STARTING)
     val request =
       BenchmarkRequest.from(
         listOf(
@@ -97,8 +107,52 @@ class BenchmarkActivity : Activity() {
           )
           .associateWith { intent.getStringExtra(it) },
       )
+
     runJob?.cancel()
+    tickerJob?.cancel()
+
+    // Chosen here rather than in execute(): setContent and setContentView must run on the main
+    // thread, and onCreate/onNewIntent are already on it.
+    if (request.workloadId != null) showStatusView() else showProgressScreen()
+
     runJob = scope.launch { execute(request) }
+  }
+
+  /** Macrobenchmark's path. The resource id is what `By.res(pkg, "benchmark_status")` selects. */
+  private fun showStatusView() {
+    val view =
+      statusView
+        ?: TextView(this)
+          .apply {
+            id = R.id.benchmark_status
+            gravity = Gravity.CENTER
+            textSize = 18f
+          }
+          .also { statusView = it }
+    setContentView(view)
+    setStatus(STATUS_STARTING)
+  }
+
+  private fun showProgressScreen() {
+    statusView = null
+    runState.value = RunState()
+    elapsedSeconds.value = 0L
+    setContent {
+      val state by runState.collectAsState()
+      val elapsed by elapsedSeconds.collectAsState()
+      ProgressScreen(state, elapsed)
+    }
+    // Ticks through measured spans. Accepted: group mode is the secondary Android stream —
+    // macrobenchmark is authoritative — and a frozen clock during a long iteration looks like the
+    // hang this screen exists to rule out.
+    tickerJob =
+      scope.launch {
+        val start = TimeSource.Monotonic.markNow()
+        while (true) {
+          elapsedSeconds.value = start.elapsedNow().inWholeSeconds
+          delay(1000)
+        }
+      }
   }
 
   private suspend fun execute(request: BenchmarkRequest) {
@@ -118,24 +172,41 @@ class BenchmarkActivity : Activity() {
         setStatus(STATUS_DONE)
         Log.i(TAG, "completed ${request.workloadId}")
       } else {
-        setStatus(STATUS_READY)
-        val summary = BenchmarkDriver.summarise(BenchmarkDriver.runAll(request))
-        setStatus(STATUS_DONE)
-        Log.i(TAG, summary)
+        val report =
+          BenchmarkDriver.runAll(request) { event ->
+            runState.update { it.fold(event) }
+            // Completions only. Logging every iteration floods logcat on a 26-workload run.
+            if (event is BenchmarkProgress.WorkloadFinished) {
+              Log.i(
+                TAG,
+                "${event.index + 1}/${event.total} ${event.result.id} " +
+                  (event.result.error?.let { "ERROR $it" }
+                    ?: "median=${event.result.statistics.median} ms"),
+              )
+            }
+          }
+        tickerJob?.cancel()
+        Log.i(TAG, BenchmarkDriver.summarise(report))
       }
     } catch (e: CancellationException) {
-      // A newer launch owns the status now; a failure here would overwrite it.
+      // A newer launch owns the display now; a failure here would overwrite it.
       throw e
     } catch (e: Throwable) {
       // In the view as well as the log, or a harness waiting on STATUS_DONE just times out.
       Log.e(TAG, "benchmark failed", e)
-      setStatus("$STATUS_FAILED ${e::class.simpleName}: ${e.message}")
+      val message = "${e::class.simpleName}: ${e.message}"
+      tickerJob?.cancel()
+      runState.update { it.failed(message) }
+      setStatus("$STATUS_FAILED $message")
     }
   }
 
-  /** Callable from the benchmark thread; the view itself is only ever touched on the UI thread. */
+  /**
+   * No-ops in group mode, where there is no status view. Never touches the view off the UI thread.
+   */
   private fun setStatus(status: String) {
-    runOnUiThread { statusView.text = status }
+    val view = statusView ?: return
+    runOnUiThread { view.text = status }
   }
 
   override fun onDestroy() {
