@@ -21,6 +21,13 @@ package dev.ohs.fhir.engine.benchmark
  * Every event is emitted outside the measured span: [BenchmarkRunner] wraps only `Workload.run` in
  * [benchmarkSpan], and these fire around it. A listener that blocks stretches the untimed gaps
  * between iterations, so keep implementations cheap.
+ *
+ * That covers what a listener costs synchronously, not what it starts. A listener that schedules
+ * work elsewhere — a Compose recomposition on the main thread, say — can have that work land inside
+ * the next span, because an `Isolation.NONE` workload does almost nothing between [Iterating] and
+ * the span opening. The Android driver app accepts this: macrobenchmark is the authoritative
+ * Android measurement and never runs a listener. Anything that wants clean numbers from the
+ * in-process runner should keep the listener empty.
  */
 sealed interface BenchmarkProgress {
 
