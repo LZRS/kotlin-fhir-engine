@@ -30,10 +30,19 @@ class BenchmarkRunner(
   private val platformContext: Any,
   private val reopenEngine: suspend () -> FhirEngine,
   private val serverUrl: String? = null,
+  /** Fires between iterations only, never inside [benchmarkSpan]. */
+  private val onProgress: ProgressListener = {},
 ) {
 
   suspend fun run(workloads: List<Workload>): BenchmarkReport {
-    val results = workloads.map { runWorkload(it) }
+    onProgress(BenchmarkProgress.RunStarted(workloads.size))
+    val results =
+      workloads.mapIndexed { index, workload ->
+        // `also` rather than an emission inside runWorkload, so the failure path reports too.
+        runWorkload(workload, index, workloads.size).also {
+          onProgress(BenchmarkProgress.WorkloadFinished(it, index, workloads.size))
+        }
+      }
     return BenchmarkReport(
       timestamp = nowIso8601(),
       platform = platformDescriptor(),
@@ -43,14 +52,27 @@ class BenchmarkRunner(
     )
   }
 
-  private suspend fun runWorkload(workload: Workload): WorkloadResult {
+  private suspend fun runWorkload(workload: Workload, index: Int, total: Int): WorkloadResult {
     val (isolation, note) = resolveIsolation(workload.isolation)
     val samples = mutableListOf<Double>()
     return try {
+      onProgress(BenchmarkProgress.Preparing(workload.id, workload.group, index, total))
       var env = newEnv()
       workload.prepare(env)
 
       repeat(config.warmupIterations + config.measuredIterations) { iteration ->
+        // Before applyIsolation, which reopens the database and is itself slow.
+        onProgress(
+          BenchmarkProgress.Iterating(
+            workloadId = workload.id,
+            group = workload.group,
+            index = index,
+            total = total,
+            iteration = iteration,
+            warmupIterations = config.warmupIterations,
+            measuredIterations = config.measuredIterations,
+          ),
+        )
         env = applyIsolation(isolation, env)
         workload.beforeEach(env)
 

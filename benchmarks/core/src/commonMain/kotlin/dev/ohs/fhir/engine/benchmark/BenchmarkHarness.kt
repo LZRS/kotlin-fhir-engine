@@ -28,10 +28,20 @@ import dev.ohs.fhir.engine.benchmark.workloads.Workloads
 /** Wires engine, dataset and catalogue together, so every harness sets up identically. */
 object BenchmarkHarness {
 
-  suspend fun run(config: BenchmarkConfig = BenchmarkConfig.of()): BenchmarkReport =
-    run(config, loadDataset(config))
+  suspend fun run(
+    config: BenchmarkConfig = BenchmarkConfig.of(),
+    onProgress: ProgressListener = {},
+  ): BenchmarkReport {
+    onProgress(BenchmarkProgress.LoadingDataset(config.datasetKind))
+    return run(config, loadDataset(config), onProgress)
+  }
 
-  suspend fun run(config: BenchmarkConfig, dataset: Dataset): BenchmarkReport {
+  suspend fun run(
+    config: BenchmarkConfig,
+    dataset: Dataset,
+    onProgress: ProgressListener = {},
+  ): BenchmarkReport {
+    onProgress(BenchmarkProgress.DatasetReady(dataset.manifest()))
     val platformContext = benchmarkPlatformContext()
     val engine = openEngine(platformContext, config.serverUrl)
 
@@ -43,10 +53,12 @@ object BenchmarkHarness {
         platformContext = platformContext,
         reopenEngine = { openEngine(platformContext, config.serverUrl) },
         serverUrl = config.serverUrl,
+        onProgress = onProgress,
       )
 
     val report = runner.run(selectWorkloads(config))
     emitReport(reportFileName(report), report.toJson())
+    onProgress(BenchmarkProgress.RunFinished(report))
     return report
   }
 
