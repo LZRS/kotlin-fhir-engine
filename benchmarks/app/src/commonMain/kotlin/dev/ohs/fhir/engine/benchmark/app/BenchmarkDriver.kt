@@ -16,6 +16,8 @@
 package dev.ohs.fhir.engine.benchmark.app
 
 import dev.ohs.fhir.engine.benchmark.BenchmarkHarness
+import dev.ohs.fhir.engine.benchmark.BenchmarkReport
+import dev.ohs.fhir.engine.benchmark.ProgressListener
 
 /**
  * Two modes: a full run drives the catalogue and writes a report (desktop, web); a single-workload
@@ -23,9 +25,17 @@ import dev.ohs.fhir.engine.benchmark.BenchmarkHarness
  */
 object BenchmarkDriver {
 
-  /** Runs whole groups and emits a report. Returns a one-line summary for the status view. */
-  suspend fun runAll(request: BenchmarkRequest): String {
-    val report = BenchmarkHarness.run(request.toConfig())
+  /**
+   * Runs whole groups and emits a report. Returns the report rather than a summary line: a caller
+   * with a screen needs the results, and a caller with a console can call [summarise].
+   */
+  suspend fun runAll(
+    request: BenchmarkRequest,
+    onProgress: ProgressListener = {},
+  ): BenchmarkReport = BenchmarkHarness.run(request.toConfig(), onProgress)
+
+  /** One line for a console or a status view. */
+  fun summarise(report: BenchmarkReport): String {
     val failed = report.results.count { it.error != null }
     return "ran ${report.results.size} workloads on ${report.platform.target}, $failed failed"
   }

@@ -38,7 +38,7 @@ fun main(args: Array<String>) {
         run.afterEach()
         "ran ${request.workloadId} once"
       } else {
-        BenchmarkDriver.runAll(request)
+        BenchmarkDriver.summarise(BenchmarkDriver.runAll(request))
       }
     println(summary)
   }

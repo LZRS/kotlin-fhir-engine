@@ -49,7 +49,7 @@ fun main() {
           run.afterEach()
           "ran ${request.workloadId} once"
         } else {
-          BenchmarkDriver.runAll(request)
+          BenchmarkDriver.summarise(BenchmarkDriver.runAll(request))
         }
       setStatus("done: $summary")
     } catch (e: Throwable) {
