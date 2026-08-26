@@ -17,6 +17,7 @@ package dev.ohs.fhir.engine.benchmark
 
 import dev.ohs.fhir.engine.FhirEngine
 import dev.ohs.fhir.engine.benchmark.data.Dataset
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.TimeSource
 
 /**
@@ -97,6 +98,10 @@ class BenchmarkRunner(
         statistics = statistics,
         medianMillisPerOp = statistics.median / workload.opsPerIteration,
       )
+    } catch (e: CancellationException) {
+      // Never a workload failure. Swallowing it would let the rest of the catalogue blow through in
+      // milliseconds, reporting fake errors to the progress listener and writing a bogus report.
+      throw e
     } catch (e: Throwable) {
       // Record the failure rather than losing the whole run to one broken workload.
       WorkloadResult(
