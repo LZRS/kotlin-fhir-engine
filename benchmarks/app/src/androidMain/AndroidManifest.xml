@@ -13,8 +13,12 @@
         tools:ignore="ProfileableAttributeUnsupported"
         xmlns:tools="http://schemas.android.com/tools" />
 
+    <!-- A group run lasts hours with the screen held on. Without configChanges a rotation, a dock,
+         or a night-mode switch destroys the activity, which cancels the run and silently restarts
+         it from zero. -->
     <activity
         android:name="dev.ohs.fhir.engine.benchmark.app.BenchmarkActivity"
+        android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density|fontScale"
         android:exported="true"
         android:launchMode="singleTop">
       <intent-filter>
