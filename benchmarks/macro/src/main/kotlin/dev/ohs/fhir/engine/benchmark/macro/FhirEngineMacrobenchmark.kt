@@ -22,6 +22,7 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Until
 import dev.ohs.fhir.engine.benchmark.Isolation
 import dev.ohs.fhir.engine.benchmark.Workload
+import java.util.regex.Pattern
 import org.junit.Rule
 
 /**
@@ -66,20 +67,26 @@ abstract class FhirEngineMacrobenchmark {
       )
 
       // Wait on the driver's own status rather than a sleep: the measured section has not closed
-      // until the workload says it is done.
-      val done =
+      // until the workload says it is done. Failure ends the wait too, so a run that cannot start
+      // at all — Synthea asked for but not staged, say — reports in seconds, not at the timeout.
+      val settled =
         device.wait(
-          Until.hasObject(By.res(TARGET_PACKAGE, STATUS_VIEW_ID).text(STATUS_DONE)),
+          Until.hasObject(
+            By.res(TARGET_PACKAGE, STATUS_VIEW_ID).text(SETTLED_STATUS),
+          ),
           TIMEOUT_MILLIS,
         )
-      check(done) {
-        val actual =
-          device.findObject(By.res(TARGET_PACKAGE, STATUS_VIEW_ID))?.text ?: "<no status view>"
+      val actual =
+        device.findObject(By.res(TARGET_PACKAGE, STATUS_VIEW_ID))?.text ?: "<no status view>"
+      check(settled == true && actual == STATUS_DONE) {
         val visible =
           device.findObjects(By.pkg(TARGET_PACKAGE)).joinToString {
             "${it.className}[res=${it.resourceName}, text=${it.text}]"
           }
-        "Workload ${workload.id} did not finish within ${TIMEOUT_MILLIS}ms. " +
+        val what =
+          if (actual.startsWith(STATUS_FAILED)) "failed"
+          else "did not finish within ${TIMEOUT_MILLIS}ms"
+        "Workload ${workload.id} $what. " +
           "Status: $actual. Current window: ${device.currentPackageName}. " +
           "Nodes for $TARGET_PACKAGE: ${visible.ifEmpty { "<none>" }}"
       }
@@ -91,6 +98,10 @@ abstract class FhirEngineMacrobenchmark {
     const val ACTION_RUN = "dev.ohs.fhir.engine.benchmark.RUN"
     const val STATUS_VIEW_ID = "benchmark_status"
     const val STATUS_DONE = "done"
+    const val STATUS_FAILED = "failed"
+
+    /** Either terminal status, so the wait ends on a failure instead of running to the timeout. */
+    val SETTLED_STATUS: Pattern = Pattern.compile("$STATUS_DONE|$STATUS_FAILED.*", Pattern.DOTALL)
 
     /** Overridable with `-Pandroid.testInstrumentationRunnerArguments.profile=…`. */
     val PROFILE: String =
@@ -98,8 +109,8 @@ abstract class FhirEngineMacrobenchmark {
         .getString("profile", "standard")
 
     /**
-     * `synthea` only resolves if the app was built with the data staged into its assets; otherwise
-     * the harness falls back to the synthetic dataset and says so in its report.
+     * `synthea` needs the app built with the data staged into its assets. Without them the
+     * driver fails the run rather than measuring the synthetic dataset in its place.
      */
     val DATASET: String =
       androidx.test.platform.app.InstrumentationRegistry.getArguments()

@@ -34,7 +34,7 @@ sealed interface BenchmarkProgress {
   /** Reading and parsing the corpus. On a Synthea run this is the longest silent stretch. */
   data class LoadingDataset(val datasetKind: String) : BenchmarkProgress
 
-  /** What actually loaded, which is synthetic whenever the Synthea data was not staged. */
+  /** The loaded corpus: its kind, population and fingerprint. */
   data class DatasetReady(val manifest: DatasetManifest) : BenchmarkProgress
 
   /** The catalogue is selected, so a screen can show a denominator before workload one starts. */

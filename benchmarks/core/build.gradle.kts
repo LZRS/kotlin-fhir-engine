@@ -147,12 +147,18 @@ val generateSyntheaData by
     argumentProviders.add(
       CommandLineArgumentProvider {
         listOf(
+          "-m",
+          "pregnancy",
           "-p",
           benchmarkPopulation.toString(),
           "-s",
           benchmarkSeed,
           "-cs",
           benchmarkSeed,
+          "--exporter.fhir.included_resources=Patient",
+          "--exporter.fhir.transaction_bundle=false",
+          "--exporter.fhir.use_us_core_ig=false",
+          "--exporter.years_of_history=1",
           // One ndjson per resource type, which is the layout android-fhir's benchmarks use.
           "--exporter.fhir.bulk_data=true",
           "--exporter.baseDirectory=${syntheaRawOutput.get().asFile.absolutePath}",
