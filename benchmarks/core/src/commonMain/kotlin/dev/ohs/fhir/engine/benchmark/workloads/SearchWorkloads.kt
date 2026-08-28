@@ -20,6 +20,8 @@ import dev.ohs.fhir.engine.benchmark.BenchmarkEnv
 import dev.ohs.fhir.engine.benchmark.Isolation
 import dev.ohs.fhir.engine.benchmark.Workload
 import dev.ohs.fhir.engine.search.DateClientParam
+import dev.ohs.fhir.engine.search.NumberClientParam
+import dev.ohs.fhir.engine.search.Operation
 import dev.ohs.fhir.engine.search.Order
 import dev.ohs.fhir.engine.search.QuantityClientParam
 import dev.ohs.fhir.engine.search.ReferenceClientParam
@@ -31,10 +33,16 @@ import dev.ohs.fhir.engine.search.has
 import dev.ohs.fhir.engine.search.include
 import dev.ohs.fhir.engine.search.revInclude
 import dev.ohs.fhir.engine.search.search
+import dev.ohs.fhir.model.r4.Decimal as FhirDecimal
+import dev.ohs.fhir.model.r4.Encounter
+import dev.ohs.fhir.model.r4.Enumeration
 import dev.ohs.fhir.model.r4.FhirDate
 import dev.ohs.fhir.model.r4.Observation
 import dev.ohs.fhir.model.r4.Patient
+import dev.ohs.fhir.model.r4.Reference
+import dev.ohs.fhir.model.r4.RiskAssessment
 import dev.ohs.fhir.model.r4.SearchParameter.SearchComparator
+import dev.ohs.fhir.model.r4.String as FhirString
 import dev.ohs.fhir.model.r4.terminologies.ResourceType
 
 /**
@@ -145,13 +153,119 @@ object SearchWorkloads {
         env.engine.search("Patient?gender=male&_count=50")
       },
       search("search.patient_count") { env -> env.engine.count<Patient> {} },
+      // The queries below close the gaps against android-fhir's SearchApiViewModel. Each reaches a
+      // filter path no other workload here touches.
+      search("search.patient_given_or_birthdate") { env ->
+        env.engine.search<Patient> {
+          // OR between two filters, as opposed to search.patient_two_filters_and.
+          operation = Operation.OR
+          filter(StringClientParam("given"), { value = "Ja" })
+          filter(
+            DateClientParam("birthdate"),
+            {
+              prefix = SearchComparator.Lt
+              value = of(FhirDate.fromString("1950-01-01")!!)
+            },
+          )
+        }
+      },
+      search("search.patient_given_disjunct_values") { env ->
+        env.engine.search<Patient> {
+          // OR between two values of one filter, which is a different query shape again: one
+          // index table, two candidate values.
+          filter(
+            StringClientParam("given"),
+            { value = "Ja" },
+            { value = "Jo" },
+            operation = Operation.OR,
+          )
+        }
+      },
+      search("search.encounter_by_last_updated") { env ->
+        // android-fhir sorts on its `local_lastUpdated` column. This engine declares that
+        // parameter but never indexes it, so the closest honest equivalent is the resource's own
+        // meta.lastUpdated, which is a generated date parameter.
+        env.engine.search<Encounter> {
+          sort(DateClientParam("_lastUpdated"), Order.DESCENDING)
+          count = 1
+        }
+      },
+      search(
+        "search.risk_assessment_by_probability",
+        seed = ::seedRiskAssessments,
+      ) { env ->
+        env.engine.search<RiskAssessment> {
+          filter(
+            NumberClientParam("probability"),
+            {
+              prefix = SearchComparator.Gt
+              value = BigDecimal.fromInt(50)
+            },
+          )
+        }
+      },
+      search(
+        "search.risk_assessment_probability_or_status",
+        seed = ::seedRiskAssessments,
+      ) { env ->
+        env.engine.search<RiskAssessment> {
+          // A number filter OR'd with a filter of another type. android-fhir pairs a string with a
+          // number through a custom search parameter; adding one here would change how every
+          // Patient is indexed, and so every crud number in the report.
+          operation = Operation.OR
+          filter(
+            NumberClientParam("probability"),
+            {
+              prefix = SearchComparator.Gt
+              value = BigDecimal.fromInt(90)
+            },
+          )
+          filter(
+            TokenClientParam("status"),
+            { value = TokenFilterValue.string("final") },
+          )
+        }
+      },
     )
 
-  private fun search(id: String, block: suspend (BenchmarkEnv) -> Unit): Workload =
-    SearchWorkload(id, block)
+  /**
+   * No resource type in the corpus carries a number search parameter — Synthea emits none — so the
+   * number filter is measured against resources the workload creates itself. Small on purpose: the
+   * measurement is of the number index path, not of scale.
+   */
+  private suspend fun seedRiskAssessments(env: BenchmarkEnv) {
+    if (env.engine.count<RiskAssessment> {} > 0L) return
+    val subject = env.dataset.patientIds.firstOrNull() ?: return
+    val assessments =
+      (0 until RISK_ASSESSMENTS).map { index ->
+        RiskAssessment(
+          id = "bench-risk-assessment-$index",
+          status = Enumeration(value = RiskAssessment.ObservationStatus.Final),
+          subject = Reference(reference = FhirString(value = "Patient/$subject")),
+          prediction =
+            listOf(
+              RiskAssessment.Prediction(
+                probability =
+                  RiskAssessment.Prediction.Probability.Decimal(
+                    FhirDecimal(value = BigDecimal.fromInt(index % 100)),
+                  ),
+              ),
+            ),
+        )
+      }
+    env.engine.create(*assessments.toTypedArray())
+  }
+
+  private fun search(
+    id: String,
+    seed: (suspend (BenchmarkEnv) -> Unit)? = null,
+    block: suspend (BenchmarkEnv) -> Unit,
+  ): Workload = SearchWorkload(id, seed, block)
 
   private class SearchWorkload(
     override val id: String,
+    /** Untimed, once per run. For queries the corpus cannot answer on its own. */
+    private val seed: (suspend (BenchmarkEnv) -> Unit)?,
     private val block: suspend (BenchmarkEnv) -> Unit,
   ) : Workload {
     override val group = "search"
@@ -160,6 +274,7 @@ object SearchWorkloads {
 
     override suspend fun prepare(env: BenchmarkEnv) {
       env.seedDatasetIfEmpty()
+      seed?.invoke(env)
     }
 
     override suspend fun beforeEach(env: BenchmarkEnv) {
@@ -173,4 +288,7 @@ object SearchWorkloads {
 
   /** Repeats after the first run warm, so these are throughput rather than cold-query numbers. */
   private const val QUERY_REPEATS = 20
+
+  /** Enough rows for the number index to be worth consulting, few enough to seed in a moment. */
+  private const val RISK_ASSESSMENTS = 200
 }
