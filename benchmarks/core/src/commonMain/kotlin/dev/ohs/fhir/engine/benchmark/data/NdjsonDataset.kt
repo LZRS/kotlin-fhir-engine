@@ -19,24 +19,27 @@ import dev.ohs.fhir.engine.benchmark.DatasetManifest
 import dev.ohs.fhir.model.r4.Organization
 import dev.ohs.fhir.model.r4.Patient
 import dev.ohs.fhir.model.r4.Resource
+import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.Json
 
 /**
  * Synthea bulk data: one `.ndjson` per resource type, one resource per line.
  *
+ * Built by [load] rather than a constructor, because the corpus is far larger than the parsed
+ * resources it yields: `Patient.ndjson` alone runs to hundreds of megabytes at benchmark
+ * populations, and holding a file as a string before parsing it costs more than the dataset does.
+ *
  * Parsed leniently. Synthea emits US Core profiles and extensions the model does not carry, and a
  * strict parse would reject most of the corpus; unknown keys are dropped instead. [parseFailures]
  * records the lines that still failed so a half-loaded dataset is visible rather than silent.
  */
-class NdjsonDataset(
-  private val files: Map<String, String>,
+class NdjsonDataset
+private constructor(
+  private val byType: Map<String, List<Resource>>,
+  val parseFailures: List<String>,
   private val seed: Int,
   private val requestedPopulation: Int,
 ) : Dataset {
-
-  val parseFailures: MutableList<String> = mutableListOf()
-
-  private val byType: Map<String, List<Resource>> = parse()
 
   override val allResources: List<Resource> =
     // Referenced types first, so references resolve as they are inserted.
@@ -77,26 +80,6 @@ class NdjsonDataset(
       fingerprint = fingerprint(),
     )
 
-  private fun parse(): Map<String, List<Resource>> = buildMap {
-    for ((name, contents) in files) {
-      val type = name.substringBefore(".")
-      if (type !in INCLUDED_TYPES) continue
-      val resources =
-        contents
-          .lineSequence()
-          .filter { it.isNotBlank() }
-          .mapNotNull { line ->
-            try {
-              JSON.decodeFromString<Resource>(line)
-            } catch (e: Exception) {
-              parseFailures += "$name: ${e::class.simpleName}: ${e.message?.take(160)}"
-              null
-            }
-          }
-      put(type, get(type).orEmpty() + resources.toList())
-    }
-  }
-
   private fun observationCode(resource: Resource): String? =
     (resource as? dev.ohs.fhir.model.r4.Observation)?.code?.coding?.firstOrNull()?.code?.value
 
@@ -116,6 +99,37 @@ class NdjsonDataset(
       explicitNulls = false
       encodeDefaults = false
       ignoreUnknownKeys = true
+    }
+
+    /**
+     * Parses [fileNames] a line at a time, keeping only the parsed resources.
+     *
+     * [lines] hands back one line per NDJSON record, which is the whole point of the format: peak
+     * memory is the parsed corpus, not the parsed corpus plus the bytes it came from. Passing it in
+     * rather than calling the platform reader here keeps this package free of platform code.
+     */
+    suspend fun load(
+      fileNames: List<String>,
+      seed: Int,
+      requestedPopulation: Int,
+      lines: (String) -> Flow<String>,
+    ): NdjsonDataset {
+      val byType = mutableMapOf<String, MutableList<Resource>>()
+      val parseFailures = mutableListOf<String>()
+      for (name in fileNames) {
+        val type = name.substringBefore(".")
+        if (type !in INCLUDED_TYPES) continue
+        val resources = byType.getOrPut(type) { mutableListOf() }
+        lines(name).collect { line ->
+          if (line.isBlank()) return@collect
+          try {
+            resources += JSON.decodeFromString<Resource>(line)
+          } catch (e: Exception) {
+            parseFailures += "$name: ${e::class.simpleName}: ${e.message?.take(160)}"
+          }
+        }
+      }
+      return NdjsonDataset(byType, parseFailures, seed, requestedPopulation)
     }
 
     /**

@@ -16,6 +16,8 @@
 package dev.ohs.fhir.engine.benchmark
 
 import java.io.File
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 
 /** Set by the Gradle task that packages the data; see `benchmarks/core/build.gradle.kts`. */
 private fun dataDirectory(): File? =
@@ -24,5 +26,7 @@ private fun dataDirectory(): File? =
 internal actual suspend fun listDataFiles(): List<String> =
   dataDirectory()?.listFiles()?.filter { it.isFile }?.map { it.name }?.sorted().orEmpty()
 
-internal actual suspend fun readDataFile(relativePath: String): String? =
-  dataDirectory()?.resolve(relativePath)?.takeIf { it.isFile }?.readText()
+internal actual fun dataFileLines(relativePath: String): Flow<String> = flow {
+  val file = dataDirectory()?.resolve(relativePath)?.takeIf { it.isFile } ?: return@flow
+  file.bufferedReader().use { reader -> reader.lineSequence().forEach { emit(it) } }
+}
