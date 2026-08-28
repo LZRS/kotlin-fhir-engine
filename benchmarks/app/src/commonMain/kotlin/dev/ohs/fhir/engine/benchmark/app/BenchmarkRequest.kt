@@ -28,7 +28,7 @@ data class BenchmarkRequest(
   val workloadId: String? = null,
   val groups: List<String> = listOf("crud", "search", "sync"),
   val profile: Profile = Profile.STANDARD,
-  /** Synthea only resolves when the app was built with the data staged into its assets. */
+  /** Synthea needs the data staged into the app's assets at build time, or the run fails. */
   val datasetKind: DatasetKind = DatasetKind.SYNTHETIC,
   val warmupIterations: Int = 2,
   val measuredIterations: Int = 5,

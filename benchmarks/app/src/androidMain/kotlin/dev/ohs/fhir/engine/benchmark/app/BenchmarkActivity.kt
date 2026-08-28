@@ -175,8 +175,8 @@ class BenchmarkActivity : ComponentActivity() {
       if (request.workloadId != null) {
         // STATUS_READY marks the end of untimed setup, before any measured work.
         val run = BenchmarkDriver.prepareSingle(request)
-        // Logged because this path writes no report, and asking for synthea does not guarantee
-        // getting it: a build without the staged assets falls back to synthetic silently.
+        // Logged because this path writes no report, so nothing else records which corpus the
+        // measured iteration ran against.
         run.datasetManifest.let {
           Log.i(TAG, "dataset=${it.kind} population=${it.population} fingerprint=${it.fingerprint}")
         }

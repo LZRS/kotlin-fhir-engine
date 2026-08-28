@@ -79,7 +79,7 @@ data class RunState(
       is BenchmarkProgress.LoadingDataset ->
         copy(phase = RunPhase.LOADING_DATASET, datasetLabel = event.datasetKind)
 
-      // Overwrites the requested kind: asking for synthea does not guarantee getting it.
+      // Overwrites the requested kind with the loaded one, which carries a population too.
       is BenchmarkProgress.DatasetReady ->
         copy(datasetLabel = "${event.manifest.kind} ${event.manifest.population}pt")
       is BenchmarkProgress.RunStarted ->

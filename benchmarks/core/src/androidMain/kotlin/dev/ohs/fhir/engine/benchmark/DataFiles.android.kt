@@ -23,7 +23,7 @@ import java.io.IOException
  * Synthea data. Android cannot read the host filesystem and `/data/local/tmp` is unreadable to an
  * app from API 30, so the corpus has to travel inside the APK.
  *
- * Empty when the app was built without the data, which leaves the harness on the synthetic dataset.
+ * Empty when the app was built without the data, which fails a run that asked for Synthea.
  */
 private const val ASSET_DIRECTORY = "bulk_data"
 

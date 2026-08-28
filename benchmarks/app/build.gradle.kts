@@ -1,3 +1,4 @@
+import javax.inject.Inject
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -164,26 +165,62 @@ val benchmarkAssetTypes =
     "Procedure",
   )
 
-val benchmarkAssetsDir = layout.buildDirectory.dir("generated/benchmarkAssets")
+/**
+ * Copies the packaged corpus into one variant's assets.
+ *
+ * A plain `Sync` wired through `android.sourceSets` is not enough: AGP 8.13 resolves whatever
+ * `assets.srcDir` is handed down to a bare path, so the asset merge, lint and packaging never learn
+ * they have to wait for the copy. Registering the output through the variant API tells all three.
+ */
+abstract class StageBenchmarkAssets @Inject constructor(private val fs: FileSystemOperations) :
+  DefaultTask() {
 
-val stageBenchmarkAssets by
-  tasks.registering(Sync::class) {
-    group = "benchmark data"
-    description = "Copy the packaged Synthea data into the driver app's assets."
-    into(benchmarkAssetsDir)
-    from(project(":benchmarks:core").layout.buildDirectory.dir("benchmark-data/synthea")) {
-      into("bulk_data")
-      include("manifest.json")
-      benchmarkAssetTypes.forEach { include("$it.ndjson") }
+  /** A file collection rather than a directory, so an absent corpus is empty and not a failure. */
+  @get:InputFiles
+  @get:PathSensitive(PathSensitivity.RELATIVE)
+  abstract val syntheaData: ConfigurableFileCollection
+
+  @get:Input abstract val types: ListProperty<String>
+
+  @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+
+  @TaskAction
+  fun stage() {
+    val corpus = syntheaData.files.firstOrNull()?.takeIf { it.isDirectory }
+    fs.sync {
+      into(outputDirectory)
+      if (corpus != null) {
+        from(corpus) {
+          into("bulk_data")
+          include("manifest.json")
+          types.get().forEach { include("$it.ndjson") }
+        }
+      }
     }
   }
-
-if (providers.gradleProperty("benchmark.dataset").orNull.equals("synthea", ignoreCase = true)) {
-  stageBenchmarkAssets.configure { dependsOn(":benchmarks:core:packageBenchmarkData") }
 }
 
-android {
-  // The task provider rather than the path, so every consumer — asset merge, lint, packaging —
-  // picks up the dependency instead of racing the copy.
-  sourceSets.getByName("main").assets.srcDir(stageBenchmarkAssets)
+val useSynthea =
+  providers.gradleProperty("benchmark.dataset").orNull.equals("synthea", ignoreCase = true)
+
+androidComponents {
+  onVariants { variant ->
+    val stage =
+      tasks.register<StageBenchmarkAssets>(
+        "stage${variant.name.replaceFirstChar { it.uppercase() }}BenchmarkAssets",
+      ) {
+        group = "benchmark data"
+        description = "Copy the packaged Synthea data into the driver app's assets."
+        syntheaData.from(
+          project(":benchmarks:core").layout.buildDirectory.dir("benchmark-data/synthea"),
+        )
+        types.set(benchmarkAssetTypes)
+        // Only build the corpus when a run asks for it: generating it takes minutes.
+        if (useSynthea) dependsOn(":benchmarks:core:packageBenchmarkData")
+      }
+    variant.sources.assets?.addGeneratedSourceDirectory(
+      stage,
+      StageBenchmarkAssets::outputDirectory,
+    )
+  }
 }

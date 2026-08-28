@@ -59,6 +59,9 @@ records instead:
 ./gradlew :benchmarks:core:desktopTest -Pbenchmark.dataset=synthea    # both steps, if not yet built
 ```
 
+Asking for `synthea` and not getting it is an error, not a downgrade: every platform fails the run
+when the corpus is missing or holds no `Patient`, rather than measuring synthetic data in its place.
+
 The first run downloads a ~200 MB jar into `~/.gradle/caches/synthea/<version>/`, outside the
 project so it survives `clean`. The version and its SHA-256 are pinned in `gradle.properties`;
 changing either changes the report fingerprint and makes earlier reports incomparable.
@@ -168,15 +171,27 @@ to use it. Android cannot read the host filesystem, and `/data/local/tmp` is unr
 from API 30, so the corpus travels inside the APK — only the types a workload queries, about
 5.7 MB at `benchmark.population=10`, which compresses to roughly 1 MB of APK.
 
-**Asking for Synthea does not guarantee getting it.** A build without the staged assets falls back
-to synthetic silently, and this path writes no report. The driver logs what actually loaded:
+**A Synthea run that cannot find the data fails.** Nothing substitutes the synthetic dataset for
+it, so a build without the staged assets stops the run:
+
+```
+IllegalStateException: benchmark.dataset=synthea, but the Synthea data is not readable here: …
+```
+
+The driver puts that in its status view and in logcat, and the macrobenchmark's wait ends on it
+rather than running to the timeout. Read the message with:
+
+```bash
+adb logcat -d -s BenchmarkDriver
+```
+
+On a run that does start, the driver logs what loaded, which is the only record of the dataset on
+the single-workload path because it writes no report:
 
 ```bash
 adb logcat -d -s BenchmarkDriver | grep dataset=
 # dataset=synthea population=11 fingerprint=6ae5c742bfc713c6
 ```
-
-`kind=synthetic` there means the assets are missing, whatever you passed on the command line.
 
 **Check that every metric is non-zero before believing a run.** A macrobenchmark passes whether or
 not it measured anything, so a green run proves nothing on its own:

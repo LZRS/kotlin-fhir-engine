@@ -91,8 +91,8 @@ object BenchmarkHarness {
   class SingleRun internal constructor(val workload: Workload, private val env: BenchmarkEnv) {
 
     /**
-     * What actually loaded, not what was asked for. Synthea falls back to synthetic whenever the
-     * data is missing, and the macrobenchmark path writes no report to record the difference.
+     * What loaded. The macrobenchmark path writes no report, so logging this is the only record of
+     * which dataset a single-workload run measured.
      */
     val datasetManifest: DatasetManifest
       get() = env.dataset.manifest()
@@ -108,8 +108,9 @@ object BenchmarkHarness {
   }
 
   /**
-   * The dataset the config asks for, falling back to synthetic when Synthea data has not been
-   * packaged for this platform. The report records which kind actually ran.
+   * The dataset the config asks for. Synthea is never substituted: a run that asked for it and
+   * cannot have it fails here rather than measuring synthetic data under a Synthea request. The
+   * report records which kind ran.
    */
   suspend fun loadDataset(config: BenchmarkConfig): Dataset {
     if (config.datasetKind != DatasetKind.SYNTHEA.name.lowercase()) return syntheticDataset(config)
@@ -119,7 +120,9 @@ object BenchmarkHarness {
       listDataFiles().filter {
         it.endsWith(".ndjson") && it.substringBefore(".") in NdjsonDataset.INCLUDED_TYPES
       }
-    if (names.isEmpty()) return syntheticDataset(config)
+    if (names.isEmpty()) {
+      missingSyntheaData("no .ndjson file for any of the types the workloads query")
+    }
     val files = names.mapNotNull { name -> readDataFile(name)?.let { name to it } }.toMap()
     val dataset =
       NdjsonDataset(
@@ -133,8 +136,24 @@ object BenchmarkHarness {
           dataset.parseFailures.take(5).joinToString("\n"),
       )
     }
-    return if (dataset.patientIds.isEmpty()) syntheticDataset(config) else dataset
+    if (dataset.patientIds.isEmpty()) {
+      missingSyntheaData("${names.size} file(s) read, but none of them yielded a Patient")
+    }
+    return dataset
   }
+
+  /**
+   * Ends a run that asked for Synthea and cannot have it. The alternative is a report that reads
+   * like a Synthea run everywhere except its manifest, which is how a fallback goes unnoticed.
+   */
+  private fun missingSyntheaData(detail: String): Nothing =
+    error(
+      "benchmark.dataset=synthea, but the Synthea data is not readable here: $detail. " +
+        "Package it with `./gradlew :benchmarks:core:packageBenchmarkData`. On Android the " +
+        "corpus travels inside the APK, so also reinstall the driver app with " +
+        "-Pbenchmark.dataset=synthea; on web it is served by Karma, so rerun the Gradle task " +
+        "rather than an already-running browser.",
+    )
 
   private fun syntheticDataset(config: BenchmarkConfig): Dataset =
     SyntheticDataset(

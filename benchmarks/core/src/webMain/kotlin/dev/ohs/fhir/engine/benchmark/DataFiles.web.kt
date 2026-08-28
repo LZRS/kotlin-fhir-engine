@@ -24,7 +24,7 @@ private const val DATA_ROOT = "/benchmark-data"
 /**
  * Derived from the manifest rather than a directory listing, because HTTP has none.
  *
- * Empty when the dataset was never packaged, which sends the harness to the synthetic fallback.
+ * Empty when the dataset was never packaged, which fails a run that asked for Synthea.
  */
 internal actual suspend fun listDataFiles(): List<String> {
   val manifest = httpGet("$DATA_ROOT/manifest.json") ?: return emptyList()
