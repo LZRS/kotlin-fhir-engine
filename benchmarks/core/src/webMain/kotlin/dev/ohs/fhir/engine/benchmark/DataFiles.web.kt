@@ -15,6 +15,8 @@
  */
 package dev.ohs.fhir.engine.benchmark
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 
@@ -35,5 +37,13 @@ internal actual suspend fun listDataFiles(): List<String> {
   return counts.keys.map { "$it.ndjson" }.sorted()
 }
 
-internal actual suspend fun readDataFile(relativePath: String): String? =
-  httpGet("$DATA_ROOT/$relativePath")
+/**
+ * Line-shaped rather than streamed: `XMLHttpRequest` hands back a body that is already complete,
+ * and reading it incrementally would mean `fetch` and a `ReadableStream` reader written twice, once
+ * per web target. Web runs the smoke profile, whose corpus is small enough that the whole body
+ * fits.
+ */
+internal actual fun dataFileLines(relativePath: String): Flow<String> = flow {
+  val contents = httpGet("$DATA_ROOT/$relativePath") ?: return@flow
+  contents.lineSequence().forEach { emit(it) }
+}

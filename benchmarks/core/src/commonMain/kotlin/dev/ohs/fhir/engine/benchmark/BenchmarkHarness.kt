@@ -123,12 +123,12 @@ object BenchmarkHarness {
     if (names.isEmpty()) {
       missingSyntheaData("no .ndjson file for any of the types the workloads query")
     }
-    val files = names.mapNotNull { name -> readDataFile(name)?.let { name to it } }.toMap()
     val dataset =
-      NdjsonDataset(
-        files = files,
+      NdjsonDataset.load(
+        fileNames = names,
         seed = config.seed,
         requestedPopulation = Profile.fromString(config.profile).population,
+        lines = ::dataFileLines,
       )
     if (dataset.parseFailures.isNotEmpty()) {
       println(

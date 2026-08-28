@@ -17,6 +17,8 @@ package dev.ohs.fhir.engine.benchmark
 
 import android.content.Context
 import java.io.IOException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 
 /**
  * Read from the driver app's assets, which is where `stageBenchmarkAssets` puts the packaged
@@ -38,11 +40,19 @@ internal actual suspend fun listDataFiles(): List<String> {
   }
 }
 
-internal actual suspend fun readDataFile(relativePath: String): String? {
-  val context = assets() ?: return null
-  return try {
-    context.assets.open("$ASSET_DIRECTORY/$relativePath").use { it.readBytes().decodeToString() }
-  } catch (e: IOException) {
-    null
-  }
+/**
+ * Streamed off the asset, not read whole: an uncompressed `Patient.ndjson` is hundreds of megabytes
+ * at benchmark populations, and decoding it into a string before parsing exhausts the heap on a
+ * mid-range device. Only a missing asset is swallowed; a failure part-way through a file is a
+ * truncated corpus and has to be loud.
+ */
+internal actual fun dataFileLines(relativePath: String): Flow<String> = flow {
+  val context = assets() ?: return@flow
+  val stream =
+    try {
+      context.assets.open("$ASSET_DIRECTORY/$relativePath")
+    } catch (e: IOException) {
+      return@flow
+    }
+  stream.bufferedReader().use { reader -> reader.lineSequence().forEach { emit(it) } }
 }

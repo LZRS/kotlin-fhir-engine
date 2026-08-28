@@ -15,6 +15,8 @@
  */
 package dev.ohs.fhir.engine.benchmark
 
+import kotlinx.coroutines.flow.Flow
+
 /** Platform context for [dev.ohs.fhir.engine.FhirEngineProvider.init]; `Unit` off Android. */
 internal expect fun benchmarkPlatformContext(): Any
 
@@ -32,8 +34,14 @@ internal expect fun supportsFreshDatabase(): Boolean
 /** Files under the packaged benchmark data directory, or empty where none is available. */
 internal expect suspend fun listDataFiles(): List<String>
 
-/** Contents of a packaged benchmark data file, or null if absent. */
-internal expect suspend fun readDataFile(relativePath: String): String?
+/**
+ * One line per NDJSON record, empty where the file is absent.
+ *
+ * A line at a time rather than the whole file: at benchmark populations a single Synthea file runs
+ * to hundreds of megabytes, and holding it as a string costs more than the resources parsed out of
+ * it. The flow is cold, so nothing is read until it is collected.
+ */
+internal expect fun dataFileLines(relativePath: String): Flow<String>
 
 /** ISO-8601 timestamp for the report. */
 internal expect fun nowIso8601(): String
