@@ -221,6 +221,70 @@ Android span therefore runs on one dedicated thread; see `BenchmarkSpan.android.
 
 Suppressing those does not make the numbers meaningful. It only lets the run proceed.
 
+### Sweeping every workload in isolation
+
+At a large corpus the interesting question is which workloads survive, not only how fast they are.
+One `connectedReleaseAndroidTest` cannot answer it: the six crud workloads share a single `@Test`,
+so the first `OutOfMemoryError` ends the other five before they start.
+
+`scripts/android_benchmark_sweep.py` runs one workload per Gradle invocation and aggregates the
+results:
+
+```bash
+scripts/android_benchmark_sweep.py --population 50000
+scripts/android_benchmark_sweep.py --population 50000 --triage-only
+scripts/android_benchmark_sweep.py --only crud.create_batch --reuse-corpus
+```
+
+Two phases. **Triage** runs every workload once, to find what survives. **Full** then reruns only
+the survivors at measured iterations. At 50,000 patients that is the difference between learning
+what breaks in an hour and learning it at the end of a day; `--triage-only` stops after the first
+pass.
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--population` | `50000` | Synthea patients |
+| `--profile` | `standard` | Forwarded to the driver |
+| `--timeout` | `30` | Wall-clock minutes per workload |
+| `--triage-iterations` | `1` | Iterations in the triage pass |
+| `--full-iterations` | `5` | Iterations in the full pass |
+| `--only` | all | Workload ids to run instead of the whole catalogue |
+| `--groups` | all | Restrict to `crud`, `search` or `sync` |
+| `--reuse-corpus` | off | Use the packaged corpus on disk, skipping generation |
+| `--dry-run` | off | Print the Gradle commands and stop |
+
+Each workload gets two timeouts: an outer wall clock that kills the process group, and the driver's
+own wait set below it, so the test reports which workload stalled rather than being killed
+mid-sentence.
+
+Every run is classified from its logcat, its Gradle log and its metrics:
+
+| Status | Meaning |
+|---|---|
+| `ok` | Passed, and the trace section measured something |
+| `no-metric` | Passed but measured zero — see the sanity check above |
+| `oom` | `OutOfMemoryError`, or the low-memory killer took the driver |
+| `timeout` | Ran past the clock with no out-of-memory evidence |
+| `failed` | Anything else; the first exception line is kept |
+| `skipped` | The `server` group, which has no macrobenchmark class |
+
+Out of memory is checked before the timeout it causes. When the driver dies its status view never
+settles and the wait runs to the clock, so reporting a timeout would name the symptom and hide the
+cause.
+
+Results land under `benchmarks/macro/build/sweeps/<timestamp>/`: `summary.json` and `summary.txt`
+at the top, and per workload per phase the `benchmarkData.json`, the Gradle log and the logcat.
+Each row records the driver's `dataset=… population=… fingerprint=…` line, so a report proves which
+corpus it measured. Rows whose workload queries a resource type the corpus does not contain are
+flagged — without that, an empty result set reads as a fast one.
+
+The workload list is read from the catalogue sources rather than copied, and the script fails if a
+group comes back empty, so a rename cannot silently shrink the sweep. Its own logic is tested:
+
+```bash
+python3 -m unittest discover -s scripts -t scripts
+```
+
 ## Web
 
 Needs a Chromium-based browser. Chromium satisfies Karma's `CHROME_BIN` directly:
