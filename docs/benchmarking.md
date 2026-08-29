@@ -45,7 +45,7 @@ The report prints as a table and is written to
 | `-Pbenchmark.storage.dir` | `build/benchmark-db` | Where the engine's database file goes |
 
 The first six also work on `jsBrowserTest`, `wasmJsBrowserTest` and `iosSimulatorArm64Test`;
-`-Pbenchmark.server` works on iOS but not on web. The three directory flags are desktop-only —
+`-Pbenchmark.server` works on Android and iOS but not on web. The three directory flags are desktop-only —
 [Web](#web) and [iOS](#ios) say where those paths come from instead. Browser runs also have their
 own lighter defaults.
 
@@ -234,6 +234,7 @@ results:
 scripts/android_benchmark_sweep.py --population 50000
 scripts/android_benchmark_sweep.py --population 50000 --triage-only
 scripts/android_benchmark_sweep.py --only crud.create_batch --reuse-corpus
+scripts/android_benchmark_sweep.py --groups server --server http://localhost:8080/fhir
 ```
 
 Two phases. **Triage** runs every workload once, to find what survives. **Full** then reruns only
@@ -249,7 +250,8 @@ pass.
 | `--triage-iterations` | `1` | Iterations in the triage pass |
 | `--full-iterations` | `5` | Iterations in the full pass |
 | `--only` | all | Workload ids to run instead of the whole catalogue |
-| `--groups` | all | Restrict to `crud`, `search` or `sync` |
+| `--groups` | all | Restrict to `crud`, `search`, `sync` or `server` |
+| `--server` | none | Base URL of a FHIR server; the `server` group needs it |
 | `--reuse-corpus` | off | Use the packaged corpus on disk, skipping generation |
 | `--dry-run` | off | Print the Gradle commands and stop |
 
@@ -266,7 +268,7 @@ Every run is classified from its logcat, its Gradle log and its metrics:
 | `oom` | `OutOfMemoryError`, or the low-memory killer took the driver |
 | `timeout` | Ran past the clock with no out-of-memory evidence |
 | `failed` | Anything else; the first exception line is kept |
-| `skipped` | The `server` group, which has no macrobenchmark class |
+| `skipped` | The `server` group when no `--server` was given |
 
 Out of memory is checked before the timeout it causes. When the driver dies its status view never
 settles and the wait runs to the clock, so reporting a timeout would name the symptom and hide the
@@ -334,6 +336,45 @@ benchmarks/tools/stop-benchmark-server.sh
 `-Pbenchmark.server` can point at any reachable FHIR server; the script is a convenience, not a
 requirement. Without the flag the `server` workloads are skipped and the run says so, rather than
 passing silently with nothing measured.
+
+### On a device
+
+The same group runs on Android, through `FhirEngineServerMacrobenchmark`. Two things differ from
+desktop.
+
+A phone resolves `localhost` to itself, so a server on the host has to be forwarded first:
+
+```bash
+adb reverse tcp:8080 tcp:8080
+```
+
+The forward belongs to the adb connection rather than to the app, so it survives the process
+restart macrobenchmark does between iterations. `scripts/android_benchmark_sweep.py` sets it up
+itself when `--server` names a loopback URL:
+
+```bash
+scripts/android_benchmark_sweep.py --groups server --server http://localhost:8080/fhir
+```
+
+Driving Gradle directly needs the URL forwarded to the instrumentation as well as to the build:
+
+```bash
+./gradlew :benchmarks:macro:connectedReleaseAndroidTest \
+  -Pbenchmark.server=http://localhost:8080/fhir \
+  -Pandroid.testInstrumentationRunnerArguments.class=dev.ohs.fhir.engine.benchmark.macro.FhirEngineServerMacrobenchmark
+```
+
+Without a URL the class is skipped by an `assumeTrue` rather than failed, so a sweep that runs
+every class does not report the group as broken when the run simply did not ask for a server.
+
+The driver app declares `INTERNET` and permits cleartext traffic, which a local HAPI needs. It is
+a measurement driver and is never published, so cleartext is permitted outright rather than
+through a config that would have to be edited per server.
+
+Upload ids carry a per-process token, because macrobenchmark restarts the driver between
+iterations and anything counted in memory would restart at the same value. Reusing an id is not a
+failure the run would report: the server already holds the resource, so the `PUT` lands as an
+update and `server.upload_creates` measures update cost under a create's name.
 
 | Workload | What it measures |
 |---|---|

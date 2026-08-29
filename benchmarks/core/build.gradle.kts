@@ -131,8 +131,40 @@ val downloadSynthea by
 
 val syntheaRawOutput = layout.buildDirectory.dir("benchmark-data/raw")
 
+/**
+ * Stops a run from quietly replacing a corpus with one of a different size.
+ *
+ * `generateSyntheaData` deletes its output before running, and the population it uses comes from a
+ * property that defaults to 10. A command that forgets `-Pbenchmark.population` therefore destroys
+ * a 50,000-patient corpus that took half an hour to build, and the run that follows reports the
+ * wrong dataset rather than failing.
+ */
+val guardBenchmarkCorpus by
+  tasks.registering {
+    doFirst {
+      val manifest = benchmarkDataDir.get().asFile.resolve("manifest.json")
+      if (!manifest.isFile) return@doFirst
+      val existing =
+        Regex("\"population\"\\s*:\\s*(\\d+)")
+          .find(manifest.readText())
+          ?.groupValues
+          ?.get(1)
+          ?.toInt()
+          ?: return@doFirst
+      if (existing != benchmarkPopulation && !project.hasProperty("benchmark.regenerate")) {
+        error(
+          "A benchmark corpus of $existing patients is already packaged, but this run asks for " +
+            "$benchmarkPopulation and generating would delete it. Pass " +
+            "-Pbenchmark.population=$existing to use what is there, or " +
+            "-Pbenchmark.regenerate to replace it.",
+        )
+      }
+    }
+  }
+
 val generateSyntheaData by
   tasks.registering(JavaExec::class) {
+    dependsOn(guardBenchmarkCorpus)
     group = "benchmark data"
     description = "Generate Synthea patient records."
     dependsOn(downloadSynthea)
@@ -147,6 +179,10 @@ val generateSyntheaData by
     argumentProviders.add(
       CommandLineArgumentProvider {
         listOf(
+          // One module, and Patient-only export below. The full module set multiplies the corpus
+          // by roughly forty — 50,000 patients export around 5 GB and take over half a day to
+          // insert on the benchmark tablet. The clinical resources the workloads query are
+          // generated instead; see AugmentedDataset.
           "-m",
           "pregnancy",
           "-p",
@@ -158,6 +194,8 @@ val generateSyntheaData by
           "--exporter.fhir.included_resources=Patient",
           "--exporter.fhir.transaction_bundle=false",
           "--exporter.fhir.use_us_core_ig=false",
+          // Enough history for the clinical types to accumulate; at 1 year most patients carry
+          // no conditions or observations worth querying.
           "--exporter.years_of_history=1",
           // One ndjson per resource type, which is the layout android-fhir's benchmarks use.
           "--exporter.fhir.bulk_data=true",

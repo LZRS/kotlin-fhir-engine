@@ -17,6 +17,7 @@ package dev.ohs.fhir.engine.benchmark.data
 
 import dev.ohs.fhir.engine.benchmark.DatasetManifest
 import dev.ohs.fhir.model.r4.Resource
+import kotlinx.coroutines.flow.Flow
 
 /**
  * The resources a benchmark run works against.
@@ -27,8 +28,17 @@ import dev.ohs.fhir.model.r4.Resource
 interface Dataset {
   val population: Int
 
-  /** Every resource, ordered so that referenced resources come before the ones referencing them. */
-  val allResources: List<Resource>
+  /** Total resources across every type, so a workload can size itself without holding them. */
+  val resourceCount: Int
+
+  /**
+   * Every resource, ordered so that referenced resources come before the ones referencing them.
+   *
+   * A flow rather than a list. At benchmark populations the parsed corpus is larger than a phone's
+   * entire heap — 50,000 Synthea patients exceed a 512 MB largeHeap ceiling — so a caller streams
+   * the corpus and never has all of it resident.
+   */
+  fun resources(): Flow<Resource>
 
   /** Patient ids in insertion order. Workloads use these to pick targets deterministically. */
   val patientIds: List<String>

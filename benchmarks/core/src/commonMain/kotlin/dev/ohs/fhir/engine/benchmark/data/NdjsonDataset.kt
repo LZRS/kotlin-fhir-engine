@@ -16,10 +16,12 @@
 package dev.ohs.fhir.engine.benchmark.data
 
 import dev.ohs.fhir.engine.benchmark.DatasetManifest
+import dev.ohs.fhir.model.r4.Observation
 import dev.ohs.fhir.model.r4.Organization
 import dev.ohs.fhir.model.r4.Patient
 import dev.ohs.fhir.model.r4.Resource
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 
 /**
@@ -35,64 +37,51 @@ import kotlinx.serialization.json.Json
  */
 class NdjsonDataset
 private constructor(
-  private val byType: Map<String, List<Resource>>,
+  private val orderedFiles: List<String>,
+  private val lines: (String) -> Flow<String>,
+  private val counts: Map<String, Int>,
+  override val patientIds: List<String>,
+  override val sampleObservationCode: String,
+  override val sampleOrganizationId: String,
   val parseFailures: List<String>,
   private val seed: Int,
-  private val requestedPopulation: Int,
+  private val fingerprint: String,
 ) : Dataset {
 
-  override val allResources: List<Resource> =
-    // Referenced types first, so references resolve as they are inserted.
-    LOAD_ORDER.flatMap { byType[it].orEmpty() } +
-      byType.filterKeys { it !in LOAD_ORDER }.values.flatten()
+  override val population: Int = patientIds.size
 
-  private val patients = byType["Patient"].orEmpty().filterIsInstance<Patient>()
-
-  override val population: Int = patients.size
-
-  override val patientIds: List<String> = patients.mapNotNull { it.id }
+  override val resourceCount: Int = counts.values.sum()
 
   /**
-   * The most common Observation code in the corpus, so the token query matches a useful share of
-   * rows rather than none. Synthea's mix varies with the seed, hence discovering it rather than
-   * hard-coding.
+   * Re-parses the corpus on every call.
+   *
+   * Deliberate: holding it is what a phone cannot afford, and the files are on local storage, so a
+   * second pass costs time rather than the run. Referenced types come first, in the same order
+   * [load] walked, so the fingerprint taken there describes exactly this sequence.
    */
-  override val sampleObservationCode: String =
-    byType["Observation"]
-      .orEmpty()
-      .mapNotNull { observationCode(it) }
-      .groupingBy { it }
-      .eachCount()
-      .maxByOrNull { it.value }
-      ?.key
-      ?: "8867-4"
-
-  override val sampleOrganizationId: String =
-    byType["Organization"].orEmpty().filterIsInstance<Organization>().firstNotNullOfOrNull { it.id }
-      ?: ""
+  override fun resources(): Flow<Resource> = flow {
+    for (name in orderedFiles) {
+      lines(name).collect { line ->
+        if (line.isBlank()) return@collect
+        val resource =
+          try {
+            JSON.decodeFromString<Resource>(line)
+          } catch (e: Exception) {
+            null
+          }
+        if (resource != null) emit(resource)
+      }
+    }
+  }
 
   override fun manifest() =
     DatasetManifest(
       kind = "synthea",
       population = population,
       seed = seed,
-      resourceCounts = byType.mapValues { (_, resources) -> resources.size },
-      fingerprint = fingerprint(),
+      resourceCounts = counts,
+      fingerprint = fingerprint,
     )
-
-  private fun observationCode(resource: Resource): String? =
-    (resource as? dev.ohs.fhir.model.r4.Observation)?.code?.coding?.firstOrNull()?.code?.value
-
-  private fun fingerprint(): String {
-    var hash = 17L
-    for (resource in allResources) {
-      hash = hash * 31 + resource.id.hashCode()
-      hash = hash * 31 + resource::class.simpleName.hashCode()
-    }
-    hash = hash * 31 + requestedPopulation
-    hash = hash * 31 + seed
-    return hash.toULong().toString(16).padStart(16, '0')
-  }
 
   companion object {
     private val JSON = Json {
@@ -102,35 +91,133 @@ private constructor(
     }
 
     /**
-     * Parses [fileNames] a line at a time, keeping only the parsed resources.
+     * Reads the corpus once to learn what is in it, keeping counts, ids and a fingerprint but none
+     * of the resources.
      *
      * [lines] hands back one line per NDJSON record, which is the whole point of the format: peak
-     * memory is the parsed corpus, not the parsed corpus plus the bytes it came from. Passing it in
-     * rather than calling the platform reader here keeps this package free of platform code.
+     * memory here is a single parsed resource, not the corpus. Passing it in rather than calling
+     * the platform reader keeps this package free of platform code.
      */
     suspend fun load(
       fileNames: List<String>,
       seed: Int,
       requestedPopulation: Int,
       lines: (String) -> Flow<String>,
+      cache: DatasetCache? = null,
+      cacheKey: String? = null,
     ): NdjsonDataset {
-      val byType = mutableMapOf<String, MutableList<Resource>>()
+      val ordered = inLoadOrder(fileNames)
+      cached(cache, cacheKey)?.let { metadata ->
+        return NdjsonDataset(
+          orderedFiles = ordered,
+          lines = lines,
+          counts = metadata.counts,
+          patientIds = metadata.patientIds,
+          sampleObservationCode = metadata.sampleObservationCode,
+          sampleOrganizationId = metadata.sampleOrganizationId,
+          // A cached scan found no failures worth replaying; the run that wrote it reported them.
+          parseFailures = emptyList(),
+          seed = seed,
+          fingerprint = metadata.fingerprint,
+        )
+      }
+      val counts = mutableMapOf<String, Int>()
+      val patientIds = mutableListOf<String>()
+      val observationCodes = mutableMapOf<String, Int>()
+      var organizationId = ""
       val parseFailures = mutableListOf<String>()
-      for (name in fileNames) {
+      var hash = 17L
+
+      for (name in ordered) {
         val type = name.substringBefore(".")
-        if (type !in INCLUDED_TYPES) continue
-        val resources = byType.getOrPut(type) { mutableListOf() }
+        var count = 0
         lines(name).collect { line ->
           if (line.isBlank()) return@collect
-          try {
-            resources += JSON.decodeFromString<Resource>(line)
-          } catch (e: Exception) {
-            parseFailures += "$name: ${e::class.simpleName}: ${e.message?.take(160)}"
+          val resource =
+            try {
+              JSON.decodeFromString<Resource>(line)
+            } catch (e: Exception) {
+              parseFailures += "$name: ${e::class.simpleName}: ${e.message?.take(160)}"
+              return@collect
+            }
+          count++
+          hash = hash * 31 + resource.id.hashCode()
+          hash = hash * 31 + resource::class.simpleName.hashCode()
+          when (resource) {
+            is Patient -> resource.id?.let { patientIds += it }
+            is Organization -> if (organizationId.isEmpty()) organizationId = resource.id ?: ""
+            is Observation ->
+              observationCode(resource)?.let {
+                observationCodes[it] = (observationCodes[it] ?: 0) + 1
+              }
+            else -> Unit
           }
         }
+        // Accumulated, not assigned: packaging splits the big types across numbered files, so
+        // one type arrives as several.
+        counts[type] = (counts[type] ?: 0) + count
       }
-      return NdjsonDataset(byType, parseFailures, seed, requestedPopulation)
+
+      hash = hash * 31 + requestedPopulation
+      hash = hash * 31 + seed
+      val fingerprint = hash.toULong().toString(16).padStart(16, '0')
+      // Synthea's mix varies with the seed, hence discovering the commonest code rather than
+      // hard-coding one that might match no row at all.
+      val code = observationCodes.maxByOrNull { it.value }?.key ?: "8867-4"
+      if (cache != null && cacheKey != null) {
+        cache.write(
+          cacheKey,
+          JSON.encodeToString(
+            DatasetMetadata(
+              counts = counts,
+              patientIds = patientIds,
+              sampleObservationCode = code,
+              sampleOrganizationId = organizationId,
+              fingerprint = fingerprint,
+            ),
+          ),
+        )
+      }
+      return NdjsonDataset(
+        orderedFiles = ordered,
+        lines = lines,
+        counts = counts,
+        patientIds = patientIds,
+        sampleObservationCode = code,
+        sampleOrganizationId = organizationId,
+        parseFailures = parseFailures,
+        seed = seed,
+        fingerprint = fingerprint,
+      )
     }
+
+    /**
+     * A previous scan, or null to scan again.
+     *
+     * An unreadable entry is treated as a miss rather than a failure: a stale or truncated cache
+     * must never be the reason a benchmark run stops.
+     */
+    private suspend fun cached(cache: DatasetCache?, key: String?): DatasetMetadata? {
+      if (cache == null || key == null) return null
+      val stored = cache.read(key) ?: return null
+      return try {
+        JSON.decodeFromString<DatasetMetadata>(stored)
+      } catch (e: Exception) {
+        null
+      }
+    }
+
+    /** Referenced types first, so references resolve as the corpus is inserted. */
+    private fun inLoadOrder(fileNames: List<String>): List<String> =
+      fileNames
+        .filter { it.substringBefore(".") in INCLUDED_TYPES }
+        .sortedBy {
+          val index = LOAD_ORDER.indexOf(it.substringBefore("."))
+          if (index < 0) LOAD_ORDER.size else index
+        }
+
+    private fun observationCode(observation: Observation): String? =
+      observation.code.coding.firstOrNull()?.code?.value
 
     /**
      * The types the workloads touch. Synthea also emits Claim, ExplanationOfBenefit and

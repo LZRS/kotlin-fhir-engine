@@ -32,6 +32,8 @@ data class BenchmarkRequest(
   val datasetKind: DatasetKind = DatasetKind.SYNTHETIC,
   val warmupIterations: Int = 2,
   val measuredIterations: Int = 5,
+  /** Base URL of a FHIR server. The `server` group is skipped without one. */
+  val serverUrl: String? = null,
 ) {
 
   fun toConfig(): BenchmarkConfig =
@@ -41,6 +43,7 @@ data class BenchmarkRequest(
       warmupIterations = warmupIterations,
       measuredIterations = measuredIterations,
       groups = groups,
+      serverUrl = serverUrl,
     )
 
   companion object {
@@ -50,6 +53,7 @@ data class BenchmarkRequest(
     const val KEY_DATASET = "dataset"
     const val KEY_WARMUP = "warmup"
     const val KEY_ITERATIONS = "iterations"
+    const val KEY_SERVER = "server"
 
     /** Builds a request from flat string values, whatever the platform read them from. */
     fun from(values: Map<String, String?>): BenchmarkRequest =
@@ -71,6 +75,9 @@ data class BenchmarkRequest(
           },
         warmupIterations = values[KEY_WARMUP]?.toIntOrNull() ?: 2,
         measuredIterations = values[KEY_ITERATIONS]?.toIntOrNull() ?: 5,
+        // Blank rather than absent is the common case: the harness always sets the extra, and
+        // an unset Gradle property arrives as an empty string.
+        serverUrl = values[KEY_SERVER]?.takeIf { it.isNotBlank() },
       )
   }
 }

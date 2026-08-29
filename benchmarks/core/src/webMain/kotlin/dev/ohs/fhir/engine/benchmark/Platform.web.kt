@@ -77,3 +77,11 @@ internal expect fun webHardwareConcurrency(): Int?
 internal expect fun webTimelineMeasureCount(): Int
 
 internal expect fun webUserAgent(): String
+
+/**
+ * A browser run has no writable filesystem the next run would see, so every run rescans. Web
+ * populations are small enough that the scan is not what costs.
+ */
+internal actual suspend fun readScratchFile(name: String): String? = null
+
+internal actual suspend fun writeScratchFile(name: String, contents: String) = Unit

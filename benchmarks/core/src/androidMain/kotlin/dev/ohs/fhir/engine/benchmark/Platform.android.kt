@@ -67,3 +67,18 @@ internal actual suspend fun emitReport(fileName: String, json: String) {
 
 /** Matches `DatabaseBuilder.android.kt`. */
 private const val ENGINE_DATABASE_NAME = "resources.db"
+
+/**
+ * Ordinary app storage. It survives between workloads only because the sweep passes
+ * `leaveApksInstalledAfterRun`; without that, `connectedAndroidTest` uninstalls the driver and
+ * every run rescans the corpus from scratch.
+ */
+private fun scratchDirectory(): File? =
+  AndroidBenchmarkContext.context?.filesDir?.resolve("benchmark-scratch")?.apply { mkdirs() }
+
+internal actual suspend fun readScratchFile(name: String): String? =
+  scratchDirectory()?.resolve(name)?.takeIf { it.isFile }?.readText()
+
+internal actual suspend fun writeScratchFile(name: String, contents: String) {
+  scratchDirectory()?.resolve(name)?.writeText(contents)
+}

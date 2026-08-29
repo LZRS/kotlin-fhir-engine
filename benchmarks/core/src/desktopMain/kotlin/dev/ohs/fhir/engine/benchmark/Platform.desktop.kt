@@ -59,3 +59,15 @@ internal actual suspend fun emitReport(fileName: String, json: String) {
 /** `-Dbenchmark.report.dir` if set, else the module's build output. */
 private fun reportDirectory(): File =
   File(System.getProperty("benchmark.report.dir") ?: "build/reports/benchmarks")
+
+private fun scratchDirectory(): File =
+  File(System.getProperty("benchmark.storage.dir") ?: "build/benchmark-db", "scratch").apply {
+    mkdirs()
+  }
+
+internal actual suspend fun readScratchFile(name: String): String? =
+  scratchDirectory().resolve(name).takeIf { it.isFile }?.readText()
+
+internal actual suspend fun writeScratchFile(name: String, contents: String) {
+  scratchDirectory().resolve(name).writeText(contents)
+}

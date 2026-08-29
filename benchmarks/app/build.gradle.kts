@@ -74,6 +74,7 @@ kotlin {
       // has no runtime, even a source set with no Compose code. Only Android gets the UI.
       implementation(compose.runtime)
     }
+    commonTest.dependencies { implementation(libs.kotlin.test) }
     androidMain.dependencies {
       implementation(libs.kotlinx.coroutines.android)
       // Macrobenchmark drives profile compilation through this; it must be 1.4.0+ for API 34+.

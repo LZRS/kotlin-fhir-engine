@@ -17,11 +17,15 @@ The device path cannot be tested here. Everything that decides what to run, and
 what a run meant, can be.
 """
 
+import argparse
 import tempfile
 import unittest
 from pathlib import Path
 
 import android_benchmark_sweep as sweep
+
+
+SERVER = "http://localhost:8080/fhir"
 
 
 def write_catalogue(directory, **files):
@@ -61,6 +65,7 @@ class DiscoverWorkloadsTest(unittest.TestCase):
             CrudWorkloads='"crud.create_batch"\nmeasure("crud.create_batch")',
             SearchWorkloads='search("search.patient_by_family")',
             SyncWorkloads='"sync.download_batch"',
+            ServerWorkloads='"server.upload_creates"',
         )
 
         self.assertEqual(1, sweep.discover_workloads(self.dir).count("crud.create_batch"))
@@ -71,6 +76,7 @@ class DiscoverWorkloadsTest(unittest.TestCase):
             CrudWorkloads='override val id = "crud.create_batch"',
             SearchWorkloads="// none yet",
             SyncWorkloads='override val id = "sync.download_batch"',
+            ServerWorkloads='override val id = "server.upload_creates"',
         )
 
         with self.assertRaises(sweep.CatalogueError) as raised:
@@ -86,19 +92,31 @@ class SelectionTest(unittest.TestCase):
         "server.upload_creates",
     ]
 
-    def test_device_workloads_exclude_the_server_group(self):
+    def test_device_workloads_exclude_the_server_group_without_a_url(self):
         self.assertEqual(
             ["crud.create_batch", "search.patient_by_family", "sync.download_batch"],
             sweep.device_workloads(self.ALL),
         )
 
+    def test_device_workloads_include_the_server_group_given_a_url(self):
+        self.assertEqual(self.ALL, sweep.device_workloads(self.ALL, SERVER))
+
     def test_server_workloads_are_reported_rather_than_dropped(self):
         self.assertEqual(["server.upload_creates"], sweep.undriveable_workloads(self.ALL))
 
-    def test_a_requested_server_workload_is_rejected_before_gradle_runs(self):
+    def test_nothing_is_undriveable_once_a_server_url_is_given(self):
+        self.assertEqual([], sweep.undriveable_workloads(self.ALL, SERVER))
+
+    def test_a_requested_server_workload_is_rejected_without_a_url(self):
         with self.assertRaises(sweep.SelectionError) as raised:
             sweep.resolve_requested(["server.upload_creates"], self.ALL)
-        self.assertIn("no macrobenchmark class", str(raised.exception))
+        self.assertIn("--server", str(raised.exception))
+
+    def test_a_requested_server_workload_is_accepted_given_a_url(self):
+        self.assertEqual(
+            ["server.upload_creates"],
+            sweep.resolve_requested(["server.upload_creates"], self.ALL, SERVER),
+        )
 
     def test_an_unknown_workload_is_rejected(self):
         with self.assertRaises(sweep.SelectionError):
@@ -108,6 +126,94 @@ class SelectionTest(unittest.TestCase):
         self.assertTrue(
             sweep.class_for("search.patient_by_family").endswith("FhirEngineSearchMacrobenchmark")
         )
+
+    def test_class_for_the_server_group(self):
+        self.assertTrue(
+            sweep.class_for("server.upload_creates").endswith("FhirEngineServerMacrobenchmark")
+        )
+
+
+class DeviceRecordTest(unittest.TestCase):
+    """What identifies a run in a report someone else reads."""
+
+    PROPS = {
+        "ro.product.model": "SM-X135G",
+        "ro.product.manufacturer": "samsung",
+        "ro.build.version.release": "16",
+        "ro.build.version.sdk": "36",
+        "ro.build.fingerprint": "samsung/gta11dxx/gta11:16/ABC/123:user/release-keys",
+        "dalvik.vm.heapgrowthlimit": "256m",
+        "dalvik.vm.heapsize": "512m",
+    }
+
+    def test_records_what_a_reader_needs_to_place_the_numbers(self):
+        record = sweep.device_record(self.PROPS)
+
+        self.assertEqual("SM-X135G", record["model"])
+        self.assertEqual("samsung", record["manufacturer"])
+        self.assertEqual("16", record["androidVersion"])
+        self.assertEqual(36, record["apiLevel"])
+        self.assertEqual("512m", record["heapSizeLimit"])
+
+    def test_omits_the_serial_number(self):
+        # A serial identifies the physical unit and has no bearing on the numbers, so it stays
+        # out of the artifact that gets shared.
+        self.assertNotIn("serial", sweep.device_record(self.PROPS))
+
+    def test_survives_a_property_the_device_does_not_expose(self):
+        record = sweep.device_record({"ro.product.model": "SM-X135G"})
+
+        self.assertEqual("SM-X135G", record["model"])
+        self.assertIsNone(record["apiLevel"])
+
+
+class GradleCommandTest(unittest.TestCase):
+    """The server URL has to reach the instrumentation, or the device runs without one."""
+
+    def args(self, **overrides):
+        defaults = dict(
+            population=50,
+            profile="standard",
+            reuse_corpus=False,
+            server=None,
+        )
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
+
+    def test_omits_the_server_argument_when_no_url_is_given(self):
+        command = sweep.gradle_command("crud.create_batch", self.args(), 1, 60)
+        self.assertFalse([c for c in command if ".server=" in c])
+
+    def test_leaves_the_driver_installed_between_workloads(self):
+        # Without this AGP uninstalls the driver after every workload, and the seeded database
+        # goes with it -- so each of the 31 workloads re-inserts the whole corpus.
+        command = sweep.gradle_command("search.patient_by_family", self.args(), 1, 60)
+
+        self.assertIn(
+            "-Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true", command
+        )
+
+    def test_forwards_the_server_url_as_an_instrumentation_argument(self):
+        command = sweep.gradle_command("server.upload_creates", self.args(server=SERVER), 1, 60)
+        self.assertIn(
+            f"-Pandroid.testInstrumentationRunnerArguments.server={SERVER}", command
+        )
+
+
+class LocalPortTest(unittest.TestCase):
+    """Which port `adb reverse` has to forward, so the device can reach a host server."""
+
+    def test_a_localhost_url_names_its_port(self):
+        self.assertEqual(8080, sweep.local_port("http://localhost:8080/fhir"))
+
+    def test_the_loopback_address_is_local_too(self):
+        self.assertEqual(8080, sweep.local_port("http://127.0.0.1:8080/fhir"))
+
+    def test_a_local_url_without_a_port_uses_the_scheme_default(self):
+        self.assertEqual(80, sweep.local_port("http://localhost/fhir"))
+
+    def test_a_remote_url_needs_no_forwarding(self):
+        self.assertIsNone(sweep.local_port("https://hapi.example.org/fhir"))
 
 
 BENCHMARK_DATA = {
