@@ -51,3 +51,13 @@ internal expect suspend fun deleteBenchmarkDatabase(platformContext: Any)
 
 /** Writes [json] wherever this platform can be read from afterwards. */
 internal expect suspend fun emitReport(fileName: String, json: String)
+
+/**
+ * Somewhere to keep what a corpus scan learned, so the next process does not repeat it.
+ *
+ * Every macrobenchmark iteration is a fresh process, and scanning a 50,000-patient corpus costs
+ * minutes. Platforms with nowhere to write return null and simply pay it again.
+ */
+internal expect suspend fun readScratchFile(name: String): String?
+
+internal expect suspend fun writeScratchFile(name: String, contents: String)

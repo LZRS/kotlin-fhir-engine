@@ -23,6 +23,10 @@ android {
     providers.gradleProperty("benchmark.profile").orNull?.let {
       testInstrumentationRunnerArguments["profile"] = it
     }
+    // The server group has nowhere to sync without this; the other groups ignore it.
+    providers.gradleProperty("benchmark.server").orNull?.let {
+      testInstrumentationRunnerArguments["server"] = it
+    }
   }
 
   compileOptions {

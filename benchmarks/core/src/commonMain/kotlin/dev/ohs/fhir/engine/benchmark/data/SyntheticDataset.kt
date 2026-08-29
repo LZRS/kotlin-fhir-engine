@@ -39,6 +39,8 @@ import dev.ohs.fhir.model.r4.String as FhirString
 import dev.ohs.fhir.model.r4.Uri
 import dev.ohs.fhir.model.r4.terminologies.AdministrativeGender
 import kotlin.random.Random
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.asFlow
 import kotlinx.datetime.LocalDate
 
 /**
@@ -97,8 +99,13 @@ class SyntheticDataset(
 
   // Referenced resources first: organizations and practitioners before the patients pointing at
   // them, patients before the clinical resources pointing at patients.
-  override val allResources: List<Resource> =
+  private val all: List<Resource> =
     organizations + practitioners + patients + encounters + observations + conditions
+
+  override val resourceCount: Int = all.size
+
+  /** Generated in memory and small by construction, so the flow just replays the list. */
+  override fun resources(): Flow<Resource> = all.asFlow()
 
   override val patientIds: List<String> = patients.map { it.id!! }
 
@@ -126,7 +133,7 @@ class SyntheticDataset(
   /** Reports with differing fingerprints did not measure the same thing and cannot be compared. */
   private fun fingerprint(): String {
     var hash = 17L
-    for (resource in allResources) {
+    for (resource in all) {
       hash = hash * 31 + resource.id.hashCode()
       hash = hash * 31 + resource::class.simpleName.hashCode()
     }

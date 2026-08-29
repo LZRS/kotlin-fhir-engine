@@ -22,6 +22,9 @@ import dev.ohs.fhir.engine.search.search
 import dev.ohs.fhir.model.r4.Organization
 import dev.ohs.fhir.model.r4.Patient
 import dev.ohs.fhir.model.r4.Practitioner
+import dev.ohs.fhir.model.r4.Resource
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 
 /**
  * Disturbs SQLite's page cache by reading untouched tables; a port of android-fhir's
@@ -32,9 +35,44 @@ internal suspend fun FhirEngine.evictPageCache() {
   search<Practitioner> { count = 1 }
 }
 
-/** Inserts the whole dataset. Untimed setup for workloads that need populated tables. */
+/**
+ * Inserts the whole dataset a chunk at a time. Untimed setup for workloads that need populated
+ * tables.
+ *
+ * Chunked because the corpus is streamed: at 50,000 patients the parsed resources do not fit in a
+ * phone's heap, so they are inserted and released rather than gathered into one call.
+ */
 internal suspend fun BenchmarkEnv.seedDataset() {
-  engine.create(*dataset.allResources.toTypedArray())
+  val chunk = ArrayList<Resource>(SEED_CHUNK)
+  dataset.resources().collect { resource ->
+    chunk += resource
+    if (chunk.size == SEED_CHUNK) {
+      engine.create(*chunk.toTypedArray())
+      chunk.clear()
+    }
+  }
+  if (chunk.isNotEmpty()) engine.create(*chunk.toTypedArray())
+}
+
+/** Large enough that per-call overhead is amortised, small enough to stay well inside the heap. */
+internal const val SEED_CHUNK = 500
+
+/**
+ * Batches a stream into fixed-size lists.
+ *
+ * The download half of sync takes `Flow<List<Resource>>`; without this the only way to feed it the
+ * corpus is to materialise the corpus, which is what the streaming dataset exists to avoid.
+ */
+internal fun Flow<Resource>.chunked(size: Int): Flow<List<Resource>> = flow {
+  val chunk = ArrayList<Resource>(size)
+  collect { resource ->
+    chunk += resource
+    if (chunk.size == size) {
+      emit(ArrayList(chunk))
+      chunk.clear()
+    }
+  }
+  if (chunk.isNotEmpty()) emit(chunk)
 }
 
 /**

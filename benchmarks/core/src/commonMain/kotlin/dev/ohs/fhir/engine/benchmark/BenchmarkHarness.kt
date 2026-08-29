@@ -19,11 +19,15 @@ import dev.ohs.fhir.engine.FhirEngine
 import dev.ohs.fhir.engine.FhirEngineConfiguration
 import dev.ohs.fhir.engine.FhirEngineProvider
 import dev.ohs.fhir.engine.ServerConfiguration
+import dev.ohs.fhir.engine.benchmark.data.AugmentedDataset
+import dev.ohs.fhir.engine.benchmark.data.ClinicalMix
 import dev.ohs.fhir.engine.benchmark.data.Dataset
+import dev.ohs.fhir.engine.benchmark.data.DatasetCache
 import dev.ohs.fhir.engine.benchmark.data.NdjsonDataset
 import dev.ohs.fhir.engine.benchmark.data.SyntheticDataset
 import dev.ohs.fhir.engine.benchmark.workloads.ServerWorkloads
 import dev.ohs.fhir.engine.benchmark.workloads.Workloads
+import kotlinx.coroutines.flow.toList
 
 /** Wires engine, dataset and catalogue together, so every harness sets up identically. */
 object BenchmarkHarness {
@@ -74,7 +78,15 @@ object BenchmarkHarness {
     val workload = Workloads.byId(workloadId)
     val resolved = dataset ?: loadDataset(config)
     val platformContext = benchmarkPlatformContext()
-    val engine = openEngine(platformContext, config.serverUrl)
+    // Read-only workloads keep whatever the previous iteration left. Macrobenchmark restarts the
+    // process per iteration, so deleting here would re-seed the whole corpus every time —
+    // 50,000 patients inserted five times over to measure five queries.
+    val engine =
+      openEngine(
+        platformContext,
+        config.serverUrl,
+        resetDatabase = workload.isolation != Isolation.NONE,
+      )
     val env =
       BenchmarkEnv(
         engine = engine,
@@ -123,12 +135,15 @@ object BenchmarkHarness {
     if (names.isEmpty()) {
       missingSyntheaData("no .ndjson file for any of the types the workloads query")
     }
+    val corpus = corpusKey()
     val dataset =
       NdjsonDataset.load(
         fileNames = names,
         seed = config.seed,
         requestedPopulation = Profile.fromString(config.profile).population,
         lines = ::dataFileLines,
+        cache = ScratchFileCache,
+        cacheKey = "dataset-$corpus.json",
       )
     if (dataset.parseFailures.isNotEmpty()) {
       println(
@@ -139,7 +154,29 @@ object BenchmarkHarness {
     if (dataset.patientIds.isEmpty()) {
       missingSyntheaData("${names.size} file(s) read, but none of them yielded a Patient")
     }
-    return dataset
+    // The packaged corpus is patients and their encounters; the observations and conditions the
+    // search workloads query are built on top of it rather than exported from Synthea.
+    return AugmentedDataset(dataset, ClinicalMix(), seed = config.seed)
+  }
+
+  /**
+   * Identifies the corpus from the manifest packaging wrote beside it — population, seed,
+   * fingerprint and per-type counts. Cheap to read, and it changes whenever the corpus does, so a
+   * regenerated corpus can never be described by an older scan.
+   */
+  private suspend fun corpusKey(): String {
+    val manifest = dataFileLines("manifest.json").toList().joinToString("\n")
+    if (manifest.isBlank()) return "unknown"
+    var hash = 17L
+    for (character in manifest) hash = hash * 31 + character.code
+    return hash.toULong().toString(16).padStart(16, '0')
+  }
+
+  /** Backed by whatever survives a reinstall on this platform, or by nothing at all. */
+  private object ScratchFileCache : DatasetCache {
+    override suspend fun read(key: String): String? = readScratchFile(key)
+
+    override suspend fun write(key: String, contents: String) = writeScratchFile(key, contents)
   }
 
   /**
@@ -178,9 +215,13 @@ object BenchmarkHarness {
   }
 
   /** A fresh storage directory per call, so [Isolation.FRESH_DATABASE] gets a cold file. */
-  private suspend fun openEngine(platformContext: Any, serverUrl: String?): FhirEngine {
+  private suspend fun openEngine(
+    platformContext: Any,
+    serverUrl: String?,
+    resetDatabase: Boolean = true,
+  ): FhirEngine {
     if (FhirEngineProvider.isInitialized()) FhirEngineProvider.reset()
-    deleteBenchmarkDatabase(platformContext)
+    if (resetDatabase) deleteBenchmarkDatabase(platformContext)
     FhirEngineProvider.init(
       FhirEngineConfiguration(
         storageDirectory = benchmarkStorageDirectory(),

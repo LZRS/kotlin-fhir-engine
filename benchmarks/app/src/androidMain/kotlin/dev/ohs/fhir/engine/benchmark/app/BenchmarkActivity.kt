@@ -111,6 +111,7 @@ class BenchmarkActivity : ComponentActivity() {
             BenchmarkRequest.KEY_DATASET,
             BenchmarkRequest.KEY_WARMUP,
             BenchmarkRequest.KEY_ITERATIONS,
+            BenchmarkRequest.KEY_SERVER,
           )
           .associateWith { intent.getStringExtra(it) },
       )

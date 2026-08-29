@@ -18,11 +18,16 @@ package dev.ohs.fhir.engine.benchmark
 import kotlin.time.Clock
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.toKString
+import platform.Foundation.NSCachesDirectory
 import platform.Foundation.NSFileManager
+import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSString
 import platform.Foundation.NSTemporaryDirectory
 import platform.Foundation.NSUTF8StringEncoding
+import platform.Foundation.NSUserDomainMask
 import platform.Foundation.dataUsingEncoding
+import platform.Foundation.stringWithContentsOfFile
+import platform.Foundation.writeToFile
 import platform.UIKit.UIDevice
 import platform.posix.getenv
 
@@ -67,4 +72,27 @@ internal actual suspend fun emitReport(fileName: String, json: String) {
     println("BENCHMARK_REPORT $fileName")
     println(json)
   }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun scratchDirectory(): String? {
+  val base =
+    NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, true).firstOrNull()
+      as? String
+      ?: return null
+  val directory = "$base/benchmark-scratch"
+  NSFileManager.defaultManager.createDirectoryAtPath(directory, true, null, null)
+  return directory
+}
+
+@OptIn(ExperimentalForeignApi::class)
+internal actual suspend fun readScratchFile(name: String): String? =
+  scratchDirectory()?.let {
+    NSString.stringWithContentsOfFile("$it/$name", NSUTF8StringEncoding, null)
+  }
+
+@OptIn(ExperimentalForeignApi::class)
+internal actual suspend fun writeScratchFile(name: String, contents: String) {
+  val directory = scratchDirectory() ?: return
+  (contents as NSString).writeToFile("$directory/$name", true, NSUTF8StringEncoding, null)
 }

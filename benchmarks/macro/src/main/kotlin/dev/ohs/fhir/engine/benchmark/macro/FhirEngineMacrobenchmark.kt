@@ -63,6 +63,7 @@ abstract class FhirEngineMacrobenchmark {
           putExtra("workload", workload.id)
           putExtra("profile", PROFILE)
           putExtra("dataset", DATASET)
+          putExtra("server", SERVER)
         },
       )
 
@@ -84,8 +85,11 @@ abstract class FhirEngineMacrobenchmark {
             "${it.className}[res=${it.resourceName}, text=${it.text}]"
           }
         val what =
-          if (actual.startsWith(STATUS_FAILED)) "failed"
-          else "did not finish within ${TIMEOUT_MILLIS}ms"
+          if (actual.startsWith(STATUS_FAILED)) {
+            "failed"
+          } else {
+            "did not finish within ${TIMEOUT_MILLIS}ms"
+          }
         "Workload ${workload.id} $what. " +
           "Status: $actual. Current window: ${device.currentPackageName}. " +
           "Nodes for $TARGET_PACKAGE: ${visible.ifEmpty { "<none>" }}"
@@ -109,12 +113,19 @@ abstract class FhirEngineMacrobenchmark {
         .getString("profile", "standard")
 
     /**
-     * `synthea` needs the app built with the data staged into its assets. Without them the
-     * driver fails the run rather than measuring the synthetic dataset in its place.
+     * `synthea` needs the app built with the data staged into its assets. Without them the driver
+     * fails the run rather than measuring the synthetic dataset in its place.
      */
     val DATASET: String =
       androidx.test.platform.app.InstrumentationRegistry.getArguments()
         .getString("dataset", "synthetic")
+
+    /**
+     * Base URL for the `server` group, from `-Pbenchmark.server`. Empty rather than absent when
+     * unset, which the driver reads as no server; every other group ignores it.
+     */
+    val SERVER: String =
+      androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("server", "")
 
     val ITERATIONS: Int =
       androidx.test.platform.app.InstrumentationRegistry.getArguments()

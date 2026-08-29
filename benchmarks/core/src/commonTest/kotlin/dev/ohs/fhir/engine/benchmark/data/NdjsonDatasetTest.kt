@@ -21,6 +21,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 
 private fun patient(id: String) = """{"resourceType":"Patient","id":"$id"}"""
@@ -61,7 +62,7 @@ class NdjsonDatasetTest {
         lines = lines::invoke,
       )
 
-    assertEquals(listOf("o1", "p1"), dataset.allResources.map { it.id })
+    assertEquals(listOf("o1", "p1"), dataset.resources().toList().map { it.id })
     assertEquals(listOf("p1"), dataset.patientIds)
     assertEquals(1, dataset.population)
   }
@@ -140,6 +141,205 @@ class NdjsonDatasetTest {
 
     assertEquals(0, dataset.population)
     assertTrue(dataset.patientIds.isEmpty())
-    assertTrue(dataset.allResources.isEmpty())
+    assertTrue(dataset.resources().toList().isEmpty())
+    assertEquals(0, dataset.resourceCount)
+  }
+
+  @Test
+  fun `adds up a type split across several files`() = runTest {
+    // A 50,000-patient Observation file runs to gigabytes, so packaging splits the big types.
+    // Counting per file rather than per type would report only the last chunk.
+    val lines =
+      FakeLines(
+        mapOf(
+          "Patient.00.ndjson" to listOf(patient("p1"), patient("p2")),
+          "Patient.01.ndjson" to listOf(patient("p3")),
+        ),
+      )
+
+    val dataset =
+      NdjsonDataset.load(
+        fileNames = listOf("Patient.00.ndjson", "Patient.01.ndjson"),
+        seed = 1,
+        requestedPopulation = 3,
+        lines = lines::invoke,
+      )
+
+    assertEquals(3, dataset.resourceCount)
+    assertEquals(mapOf("Patient" to 3), dataset.manifest().resourceCounts)
+    assertEquals(listOf("p1", "p2", "p3"), dataset.patientIds)
+  }
+
+  @Test
+  fun `re-reads the corpus instead of holding it`() = runTest {
+    // The whole point at benchmark populations: 50,000 patients parse to more than a phone's
+    // entire heap, so the dataset keeps counts and ids and goes back to the files for the rest.
+    val lines = FakeLines(mapOf("Patient.ndjson" to listOf(patient("p1"), patient("p2"))))
+    val dataset =
+      NdjsonDataset.load(
+        fileNames = listOf("Patient.ndjson"),
+        seed = 1,
+        requestedPopulation = 2,
+        lines = lines::invoke,
+      )
+    val afterLoad = lines.requested.size
+
+    dataset.resources().toList()
+    dataset.resources().toList()
+
+    assertEquals(afterLoad + 2, lines.requested.size)
+  }
+
+  @Test
+  fun `counts every resource without collecting them`() = runTest {
+    val lines =
+      FakeLines(
+        mapOf(
+          "Patient.ndjson" to listOf(patient("p1"), patient("p2")),
+          "Organization.ndjson" to listOf(organization("o1")),
+        ),
+      )
+
+    val dataset =
+      NdjsonDataset.load(
+        fileNames = listOf("Patient.ndjson", "Organization.ndjson"),
+        seed = 1,
+        requestedPopulation = 2,
+        lines = lines::invoke,
+      )
+
+    assertEquals(3, dataset.resourceCount)
+  }
+
+  @Test
+  fun `keeps the manifest counts across a re-read`() = runTest {
+    val lines =
+      FakeLines(
+        mapOf(
+          "Patient.ndjson" to listOf(patient("p1")),
+          "Organization.ndjson" to listOf(organization("o1")),
+        ),
+      )
+
+    val dataset =
+      NdjsonDataset.load(
+        fileNames = listOf("Patient.ndjson", "Organization.ndjson"),
+        seed = 1,
+        requestedPopulation = 1,
+        lines = lines::invoke,
+      )
+    val before = dataset.manifest()
+    dataset.resources().toList()
+
+    // A fingerprint that changed after a read would make two reports of one corpus look like
+    // reports of two different ones.
+    assertEquals(before, dataset.manifest())
+    assertEquals(mapOf("Patient" to 1, "Organization" to 1), before.resourceCounts)
+  }
+}
+
+/** Stands in for the platform's cache file. */
+private class FakeCache(private val entries: MutableMap<String, String> = mutableMapOf()) :
+  DatasetCache {
+  var reads = 0
+  var writes = 0
+
+  override suspend fun read(key: String): String? {
+    reads++
+    return entries[key]
+  }
+
+  override suspend fun write(key: String, contents: String) {
+    writes++
+    entries[key] = contents
+  }
+
+  fun poison(key: String) {
+    entries[key] = "{not json"
+  }
+}
+
+/**
+ * Parsing 206 MB to learn 50,000 patient ids costs about four minutes on the benchmark tablet, and
+ * macrobenchmark restarts the process for every iteration. The scan is cached so only the first one
+ * pays it.
+ */
+class NdjsonDatasetCacheTest {
+
+  private val corpus =
+    mapOf(
+      "Organization.ndjson" to listOf(organization("o1")),
+      "Patient.ndjson" to listOf(patient("p1"), patient("p2")),
+    )
+
+  private suspend fun load(lines: FakeLines, cache: DatasetCache?) =
+    NdjsonDataset.load(
+      fileNames = listOf("Organization.ndjson", "Patient.ndjson"),
+      seed = 1,
+      requestedPopulation = 2,
+      lines = lines::invoke,
+      cache = cache,
+      cacheKey = KEY,
+    )
+
+  @Test
+  fun `a cold load stores what it learned`() = runTest {
+    val cache = FakeCache()
+
+    load(FakeLines(corpus), cache)
+
+    assertEquals(1, cache.writes)
+  }
+
+  @Test
+  fun `a warm load opens no data file at all`() = runTest {
+    val cache = FakeCache()
+    load(FakeLines(corpus), cache)
+
+    val lines = FakeLines(corpus)
+    load(lines, cache)
+
+    // The whole point: the second process reads a few kilobytes instead of the corpus.
+    assertEquals(emptyList(), lines.requested)
+  }
+
+  @Test
+  fun `a warm load describes the corpus exactly as the cold one did`() = runTest {
+    val cache = FakeCache()
+    val cold = load(FakeLines(corpus), cache)
+
+    val warm = load(FakeLines(corpus), cache)
+
+    assertEquals(cold.patientIds, warm.patientIds)
+    assertEquals(cold.population, warm.population)
+    assertEquals(cold.resourceCount, warm.resourceCount)
+    assertEquals(cold.manifest(), warm.manifest())
+    assertEquals(cold.sampleOrganizationId, warm.sampleOrganizationId)
+  }
+
+  @Test
+  fun `a warm load still streams resources from the files`() = runTest {
+    val cache = FakeCache()
+    load(FakeLines(corpus), cache)
+    val lines = FakeLines(corpus)
+    val warm = load(lines, cache)
+
+    val ids = warm.resources().toList().map { it.id }
+
+    assertEquals(listOf("o1", "p1", "p2"), ids)
+  }
+
+  @Test
+  fun `an unreadable cache entry falls back to scanning`() = runTest {
+    val cache = FakeCache()
+    cache.poison(KEY)
+
+    val dataset = load(FakeLines(corpus), cache)
+
+    assertEquals(listOf("p1", "p2"), dataset.patientIds)
+  }
+
+  private companion object {
+    const val KEY = "corpus-abc123"
   }
 }

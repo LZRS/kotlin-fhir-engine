@@ -41,6 +41,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CATALOGUE_DIR = (
@@ -53,15 +54,17 @@ MACRO_TASK = ":benchmarks:macro:connectedReleaseAndroidTest"
 CORPUS_MANIFEST = REPO_ROOT / "benchmarks/core/build/benchmark-data/synthea/manifest.json"
 SWEEP_ROOT = REPO_ROOT / "benchmarks/macro/build/sweeps"
 
-# Groups with a macrobenchmark class. `server` has none: it needs a base URL, which only
-# desktopTest can supply, so nothing on device can drive it.
-DEVICE_GROUPS = ("crud", "search", "sync")
+# `server` is driveable like the rest, but only once --server names a base URL; without one
+# the engine has nowhere to sync to and every workload in the group fails identically.
+SERVER_GROUP = "server"
+DEVICE_GROUPS = ("crud", "search", "sync", SERVER_GROUP)
 GROUP_CLASSES = {
     "crud": f"{MACRO_PACKAGE}.FhirEngineCrudMacrobenchmark",
     "search": f"{MACRO_PACKAGE}.FhirEngineSearchMacrobenchmark",
     "sync": f"{MACRO_PACKAGE}.FhirEngineSyncMacrobenchmark",
+    SERVER_GROUP: f"{MACRO_PACKAGE}.FhirEngineServerMacrobenchmark",
 }
-GROUP_ORDER = DEVICE_GROUPS + ("server",)
+GROUP_ORDER = DEVICE_GROUPS
 
 # Ids are string literals in the catalogue. Deriving them beats a copy that goes stale
 # silently; the guard in discover_workloads is what makes the regex safe to rely on.
@@ -133,32 +136,50 @@ def discover_workloads(directory=CATALOGUE_DIR):
     return sorted(seen, key=lambda i: (GROUP_ORDER.index(group_of(i)), seen.index(i)))
 
 
-def device_workloads(workload_ids):
-    return [i for i in workload_ids if group_of(i) in DEVICE_GROUPS]
+def driveable(workload_id, server_url=None):
+    group = group_of(workload_id)
+    if group == SERVER_GROUP:
+        return server_url is not None
+    return group in DEVICE_GROUPS
 
 
-def undriveable_workloads(workload_ids):
-    return [i for i in workload_ids if group_of(i) not in DEVICE_GROUPS]
+def device_workloads(workload_ids, server_url=None):
+    return [i for i in workload_ids if driveable(i, server_url)]
+
+
+def undriveable_workloads(workload_ids, server_url=None):
+    return [i for i in workload_ids if not driveable(i, server_url)]
 
 
 def class_for(workload_id):
     return GROUP_CLASSES[group_of(workload_id)]
 
 
-def resolve_requested(requested, known):
+def resolve_requested(requested, known, server_url=None):
     """Checks ids before any Gradle runs, so a typo costs a second rather than a build."""
     resolved = []
     for workload_id in requested:
         if workload_id not in known:
             raise SelectionError(f"Unknown workload id: {workload_id}")
-        if group_of(workload_id) not in DEVICE_GROUPS:
+        if not driveable(workload_id, server_url):
             raise SelectionError(
-                f"{workload_id} is in the {group_of(workload_id)} group, which has "
-                "no macrobenchmark class: it needs a server URL, which only "
-                "desktopTest can supply.",
+                f"{workload_id} is in the {SERVER_GROUP} group, which syncs against a real "
+                "FHIR server. Pass --server <base url> to run it.",
             )
         resolved.append(workload_id)
     return resolved
+
+
+def local_port(server_url):
+    """The port to forward with `adb reverse`, or None when the server needs no forwarding.
+
+    A device resolves `localhost` to itself, so a URL naming the host's loopback needs the
+    port forwarded or every request lands on the phone and fails to connect.
+    """
+    parsed = urlparse(server_url)
+    if parsed.hostname not in ("localhost", "127.0.0.1", "::1"):
+        return None
+    return parsed.port or (443 if parsed.scheme == "https" else 80)
 
 
 # ---------------------------------------------------------------------------------------
@@ -296,7 +317,58 @@ def adb(*args, check=True):
     ).stdout
 
 
-def preflight():
+# Properties worth carrying into a shared report: enough to place a number on a device
+# without naming the physical unit.
+DEVICE_PROPERTIES = (
+    "ro.product.model",
+    "ro.product.manufacturer",
+    "ro.build.version.release",
+    "ro.build.version.sdk",
+    "ro.build.fingerprint",
+    "dalvik.vm.heapgrowthlimit",
+    "dalvik.vm.heapsize",
+)
+
+
+def device_record(props):
+    """The device as a reader of the report sees it.
+
+    Deliberately without the serial: it identifies the unit, not the measurement, and this ends
+    up in an artifact that gets passed around.
+    """
+    sdk = props.get("ro.build.version.sdk")
+    return {
+        "model": props.get("ro.product.model"),
+        "manufacturer": props.get("ro.product.manufacturer"),
+        "androidVersion": props.get("ro.build.version.release"),
+        "apiLevel": int(sdk) if sdk and sdk.isdigit() else None,
+        "buildFingerprint": props.get("ro.build.fingerprint"),
+        "heapGrowthLimit": props.get("dalvik.vm.heapgrowthlimit"),
+        "heapSizeLimit": props.get("dalvik.vm.heapsize"),
+    }
+
+
+def engine_revision():
+    """The tree the numbers came from. Without it a report cannot be tied to any code."""
+    try:
+        sha = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        dirty = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except (subprocess.CalledProcessError, OSError):
+        return None
+    return {"commit": sha, "dirty": bool(dirty)}
+
+
+def preflight(server_url=None):
     """One physical device, awake. An emulator measures the host, not the engine."""
     lines = [l for l in adb("devices").splitlines()[1:] if l.strip()]
     ready = [l.split()[0] for l in lines if l.split()[-1] == "device"]
@@ -305,10 +377,19 @@ def preflight():
             f"Need exactly one device in state 'device'; adb reports {len(ready)}:\n"
             + "\n".join(lines),
         )
-    model = adb("shell", "getprop", "ro.product.model").strip()
+    props = {
+        name: adb("shell", "getprop", name).strip() for name in DEVICE_PROPERTIES
+    }
+    model = props.get("ro.product.model", "")
     if adb("shell", "getprop", "ro.kernel.qemu").strip() == "1" or model.startswith("sdk"):
         print(f"WARNING: {model} looks like an emulator. Numbers from one are host-bound.")
-    return {"serial": ready[0], "model": model}
+    port = local_port(server_url)
+    if port is not None:
+        # Survives the process kill between iterations; it is a property of the adb
+        # connection, not of the app.
+        adb("reverse", f"tcp:{port}", f"tcp:{port}")
+        print(f"Forwarded tcp:{port} to the host, so the device reaches {server_url}.")
+    return device_record(props) | {"server": server_url}
 
 
 def gradle_command(workload_id, args, iterations, timeout_seconds):
@@ -326,8 +407,14 @@ def gradle_command(workload_id, args, iterations, timeout_seconds):
         f"{runner_arg}.profile={args.profile}",
         f"{runner_arg}.iterations={iterations}",
         f"{runner_arg}.timeoutMillis={in_test_ms}",
+        # AGP uninstalls the driver after each test run, which deletes the seeded database and the
+        # cached corpus scan with it. Keeping it installed is what lets one workload's seeding
+        # serve the next; without it every workload starts from an empty database.
+        "-Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true",
         "--console=plain",
     ]
+    if args.server:
+        command.insert(-1, f"{runner_arg}.server={args.server}")
     if args.reuse_corpus:
         # Gradle records the population it last generated with, so asking for a different
         # one regenerates even when the files are already on disk.
@@ -454,6 +541,9 @@ def write_summary(run_dir, records, device, args):
         "population": args.population,
         "profile": args.profile,
         "timeoutMinutes": args.timeout,
+        "server": args.server,
+        "engine": engine_revision(),
+        "corpus": resource_counts(),
         "counts": summarise(records),
         "results": records,
     }
@@ -486,6 +576,12 @@ def parse_args(argv):
         action="store_true",
         help="skip Synthea generation and packaging, using what is already on disk",
     )
+    parser.add_argument(
+        "--server",
+        metavar="URL",
+        help="base URL of a FHIR server, which the server group needs; a localhost URL is "
+        "forwarded to the device with adb reverse",
+    )
     parser.add_argument("--dry-run", action="store_true", help="print commands only")
     return parser.parse_args(argv)
 
@@ -494,13 +590,13 @@ def main(argv=None):
     args = parse_args(argv)
     known = discover_workloads()
     if args.only:
-        selected = resolve_requested(args.only, known)
+        selected = resolve_requested(args.only, known, args.server)
     else:
-        selected = device_workloads(known)
+        selected = device_workloads(known, args.server)
         if args.groups:
             selected = [i for i in selected if group_of(i) in args.groups]
 
-    device = {} if args.dry_run else preflight()
+    device = {} if args.dry_run else preflight(args.server)
     run_dir = SWEEP_ROOT / datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
     run_dir.mkdir(parents=True, exist_ok=True)
     print(f"Sweep {run_dir.relative_to(REPO_ROOT)} — {len(selected)} workloads on {device.get('model', '?')}")
@@ -511,13 +607,13 @@ def main(argv=None):
     records = []
     # Listed rather than omitted: a group that disappears from a report looks like a group
     # that passed.
-    for workload_id in undriveable_workloads(known):
+    for workload_id in undriveable_workloads(known, args.server):
         records.append(
             {
                 "workload": workload_id,
                 "phase": "-",
                 "status": "skipped",
-                "note": "no macrobenchmark class; needs a server URL",
+                "note": "needs a FHIR server; pass --server",
             },
         )
 

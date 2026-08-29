@@ -19,6 +19,7 @@ import dev.ohs.fhir.engine.FhirEngine
 import dev.ohs.fhir.engine.benchmark.BenchmarkEnv
 import dev.ohs.fhir.engine.benchmark.Isolation
 import dev.ohs.fhir.engine.benchmark.Workload
+import dev.ohs.fhir.engine.benchmark.nowIso8601
 import dev.ohs.fhir.engine.get
 import dev.ohs.fhir.engine.sync.AcceptRemoteConflictResolver
 import dev.ohs.fhir.engine.sync.ConflictResolver
@@ -53,6 +54,30 @@ object ServerWorkloads {
   /** Patient only: a full Synthea corpus would measure the server far more than the engine. */
   private const val UPLOAD_BATCH = 100
 
+  /**
+   * Identifies this process. Macrobenchmark restarts the driver between iterations, so anything
+   * counted in memory restarts at the same value and regenerates the previous iteration's ids.
+   */
+  private val RUN_TOKEN = nowIso8601()
+
+  /**
+   * Ids for one iteration's uploads, unique across both processes and iterations.
+   *
+   * A repeated id is not a failure the run would report: the server already holds the resource, so
+   * the PUT lands as an update and the workload measures update cost under a create's name.
+   */
+  internal fun uploadIds(
+    prefix: String,
+    runToken: String,
+    sequence: Int,
+    count: Int,
+  ): List<String> {
+    // `:` and `+` occur in a timestamp and in neither the FHIR id grammar nor a valid bundle
+    // entry URL, so a raw token would have the server reject every upload.
+    val salt = runToken.filter { it.isLetterOrDigit() }
+    return (0 until count).map { "$prefix-$salt-$sequence-$it" }
+  }
+
   /** Bundled rather than one request per change, which is what a real client would do. */
   private fun uploadStrategy() =
     UploadStrategy.forBundleRequest(
@@ -72,16 +97,13 @@ object ServerWorkloads {
     // otherwise the first iteration uploads a backlog and the rest upload nothing.
     override val isolation = Isolation.CLEAR_TABLES
 
-    private var revision = 0
+    private var sequence = 0
 
     override suspend fun beforeEach(env: BenchmarkEnv) {
-      revision++
-      repeat(UPLOAD_BATCH) { index ->
+      val ids = uploadIds("bench-upload", RUN_TOKEN, sequence++, UPLOAD_BATCH)
+      for (id in ids) {
         env.engine.create(
-          Patient(
-            id = "bench-upload-$revision-$index",
-            name = listOf(HumanName(family = FhirString("Upload$revision"))),
-          ),
+          Patient(id = id, name = listOf(HumanName(family = FhirString("Upload$sequence")))),
         )
       }
     }
@@ -98,11 +120,13 @@ object ServerWorkloads {
     override val opsPerIteration = UPLOAD_BATCH
     override val isolation = Isolation.CLEAR_TABLES
 
-    private var revision = 0
+    private var sequence = 0
 
     override suspend fun beforeEach(env: BenchmarkEnv) {
-      revision++
-      val ids = (0 until UPLOAD_BATCH).map { "bench-update-$it" }
+      // Fresh ids per iteration here too, so the measured update is of a resource this
+      // iteration put there rather than one an earlier iteration left behind.
+      val revision = sequence++
+      val ids = uploadIds("bench-update", RUN_TOKEN, revision, UPLOAD_BATCH)
       // Created and pushed first, so the measured sync carries updates and nothing else.
       ids.forEach { id -> env.engine.create(Patient(id = id)) }
       env.syncTask().runSyncOrThrow()

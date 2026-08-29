@@ -23,15 +23,20 @@ import dev.ohs.fhir.engine.get
 import dev.ohs.fhir.engine.sync.AcceptRemoteConflictResolver
 import dev.ohs.fhir.model.r4.HumanName
 import dev.ohs.fhir.model.r4.Patient
-import dev.ohs.fhir.model.r4.Resource
 import dev.ohs.fhir.model.r4.String as FhirString
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.takeWhile
+import kotlinx.coroutines.flow.toList
 
 /**
  * Server-free sync workloads. Only download is reachable in-process: `syncUpload` expects response
  * mapping types that are `internal`, so an external caller can only ever report failure.
  */
 object SyncWorkloads {
+
+  /** Page size for the simulated download. Matches what a server would realistically return. */
+  private const val DOWNLOAD_CHUNK = 500
 
   fun all(): List<Workload> = listOf(DownloadBatch, DownloadWithConflicts, LocalChangeChurn)
 
@@ -42,15 +47,16 @@ object SyncWorkloads {
     override var opsPerIteration = 1
     override val isolation = Isolation.CLEAR_TABLES
 
-    private var batch: List<Resource> = emptyList()
-
     override suspend fun prepare(env: BenchmarkEnv) {
-      batch = env.dataset.allResources
-      opsPerIteration = batch.size
+      opsPerIteration = env.dataset.resourceCount
     }
 
     override suspend fun run(env: BenchmarkEnv) {
-      env.engine.syncDownload(AcceptRemoteConflictResolver) { flow { emit(batch) } }
+      // Chunked from the stream rather than one list: a real download arrives in pages anyway,
+      // and the whole corpus does not fit in memory at benchmark populations.
+      env.engine.syncDownload(AcceptRemoteConflictResolver) {
+        env.dataset.resources().chunked(DOWNLOAD_CHUNK)
+      }
     }
   }
 
@@ -64,41 +70,50 @@ object SyncWorkloads {
     override var opsPerIteration = 1
     override val isolation = Isolation.CLEAR_TABLES
 
-    private var batch: List<Resource> = emptyList()
-    private var preexisting: List<Patient> = emptyList()
+    private var half = 0
 
     override suspend fun prepare(env: BenchmarkEnv) {
-      batch = env.dataset.allResources
-      preexisting = batch.filterIsInstance<Patient>().take(batch.size / 2)
-      opsPerIteration = batch.size
+      half = env.dataset.population / 2
+      opsPerIteration = env.dataset.resourceCount
     }
 
     override suspend fun beforeEach(env: BenchmarkEnv) {
-      env.engine.create(*preexisting.toTypedArray())
-      // Without a real diff the engine drops the update, leaving nothing to conflict with and
-      // quietly turning this into a plain download.
+      // Created and edited one at a time rather than gathered first: half a 50,000-patient corpus
+      // held as objects is already past the heap. Each patient still ends with a local change,
+      // which is all the resolver needs.
       revision++
-      for (patient in preexisting) {
-        env.engine.update(
-          env.engine
-            .get<Patient>(patient.id!!)
-            .copy(
-              name =
-                listOf(
-                  HumanName(
-                    family = FhirString(value = "LocalEdit$revision"),
-                    given = listOf(FhirString(value = "Benchmark")),
+      var seeded = 0
+      env.dataset
+        .resources()
+        .filterIsInstance<Patient>()
+        .takeWhile { seeded < half }
+        .collect { patient ->
+          seeded++
+          env.engine.create(patient)
+          // Without a real diff the engine drops the update, leaving nothing to conflict with and
+          // quietly turning this into a plain download.
+          env.engine.update(
+            env.engine
+              .get<Patient>(patient.id!!)
+              .copy(
+                name =
+                  listOf(
+                    HumanName(
+                      family = FhirString(value = "LocalEdit$revision"),
+                      given = listOf(FhirString(value = "Benchmark")),
+                    ),
                   ),
-                ),
-            ),
-        )
-      }
+              ),
+          )
+        }
     }
 
     private var revision = 0
 
     override suspend fun run(env: BenchmarkEnv) {
-      env.engine.syncDownload(AcceptRemoteConflictResolver) { flow { emit(batch) } }
+      env.engine.syncDownload(AcceptRemoteConflictResolver) {
+        env.dataset.resources().chunked(DOWNLOAD_CHUNK)
+      }
     }
   }
 
@@ -112,7 +127,7 @@ object SyncWorkloads {
     private var targets: List<Patient> = emptyList()
 
     override suspend fun prepare(env: BenchmarkEnv) {
-      targets = env.dataset.allResources.filterIsInstance<Patient>().take(CHURN_COUNT)
+      targets = env.dataset.resources().filterIsInstance<Patient>().take(CHURN_COUNT).toList()
       // One create, two updates and a delete for every tenth resource.
       opsPerIteration = targets.size * 3 + targets.size / 10
     }

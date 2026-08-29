@@ -23,6 +23,8 @@ import dev.ohs.fhir.engine.get
 import dev.ohs.fhir.model.r4.HumanName
 import dev.ohs.fhir.model.r4.Patient
 import dev.ohs.fhir.model.r4.String as FhirString
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.toList
 
 /**
  * CRUD workloads, porting android-fhir's `CrudApiViewModel`. Each performs hundreds of operations
@@ -52,7 +54,10 @@ object CrudWorkloads {
     }
 
     override suspend fun run(env: BenchmarkEnv) {
-      env.engine.create(*env.dataset.allResources.filterIsInstance<Patient>().toTypedArray())
+      // Gathered rather than streamed: one batch call is the thing being measured. At a large
+      // corpus this is the workload most likely to exhaust the heap, which is a finding.
+      val patients = env.dataset.resources().filterIsInstance<Patient>().toList()
+      env.engine.create(*patients.toTypedArray())
     }
   }
 
@@ -64,13 +69,11 @@ object CrudWorkloads {
     override val isolation = Isolation.FRESH_DATABASE
 
     override suspend fun prepare(env: BenchmarkEnv) {
-      opsPerIteration = env.dataset.allResources.size
+      opsPerIteration = env.dataset.resourceCount
     }
 
     override suspend fun run(env: BenchmarkEnv) {
-      for (resource in env.dataset.allResources) {
-        env.engine.create(resource)
-      }
+      env.dataset.resources().collect { resource -> env.engine.create(resource) }
     }
   }
 
@@ -168,14 +171,12 @@ object CrudWorkloads {
     override val isolation = Isolation.FRESH_DATABASE
 
     override suspend fun prepare(env: BenchmarkEnv) {
-      opsPerIteration = env.dataset.allResources.size
+      opsPerIteration = env.dataset.resourceCount
     }
 
     override suspend fun run(env: BenchmarkEnv) {
       env.engine.withTransaction {
-        for (resource in env.dataset.allResources) {
-          create(resource)
-        }
+        env.dataset.resources().collect { resource -> create(resource) }
       }
     }
   }

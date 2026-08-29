@@ -1,10 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+  <!-- The server group syncs against a real FHIR server. Without this the first request fails
+       with a SecurityException rather than a network error, which reads like an engine bug. -->
+  <uses-permission android:name="android.permission.INTERNET" />
+
+  <!-- usesCleartextTraffic: -Pbenchmark.server names an arbitrary host, and a local HAPI is
+       plain http. This app is a measurement driver and is never published, so permitting
+       cleartext outright is preferable to a config that has to be edited per server. -->
+  <!-- largeHeap: the corpus is streamed, but crud.create_batch materialises every Patient on
+       purpose because one batch call is what it measures. On the test device this lifts the
+       ceiling from 256 MB to 512 MB. -->
   <application
       android:allowBackup="false"
+      android:largeHeap="true"
       android:label="FHIR Engine Benchmarks"
-      android:supportsRtl="true">
+      android:supportsRtl="true"
+      android:usesCleartextTraffic="true">
 
     <!-- Macrobenchmark reads trace sections out of a Perfetto trace, which requires the app to be
          profileable by shell and NOT debuggable. -->

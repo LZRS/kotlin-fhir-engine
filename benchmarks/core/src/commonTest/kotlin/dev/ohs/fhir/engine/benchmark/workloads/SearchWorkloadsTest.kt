@@ -57,7 +57,7 @@ class SearchWorkloadsTest {
     assertEquals(
       ids.size,
       ids.toSet().size,
-      "Duplicate ids: ${ids.groupingBy { it }.eachCount().filter { it.value > 1 }}"
+      "Duplicate ids: ${ids.groupingBy { it }.eachCount().filter { it.value > 1 }}",
     )
   }
 }
