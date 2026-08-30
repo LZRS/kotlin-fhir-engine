@@ -66,17 +66,50 @@ The first run downloads a ~200 MB jar into `~/.gradle/caches/synthea/<version>/`
 project so it survives `clean`. The version and its SHA-256 are pinned in `gradle.properties`;
 changing either changes the report fingerprint and makes earlier reports incomparable.
 
-**`benchmark.population` means Synthea patients, not synthetic-profile patients.** Synthea generates
-full medical histories, so the two scales are nothing alike:
+**Regenerating destroys what is already packaged.** `generateSyntheaData` deletes its output before
+running, and the population comes from `benchmark.population`, which defaults to `10`. A command
+that forgets the flag would therefore replace a 50,000-patient corpus that took half an hour to
+build. `guardBenchmarkCorpus` fails the build instead:
 
-| `-Pbenchmark.population` | Patients | Resources loaded |
-|---|---|---|
-| `10` (default) | 11 | ~7,200 |
-| `100` | 121 | ~122,000 |
+```
+A benchmark corpus of 50000 patients is already packaged, but this run asks for 10 and
+generating would delete it. Pass -Pbenchmark.population=50000 to use what is there, or
+-Pbenchmark.regenerate to replace it.
+```
+
+### What the corpus contains, and what is generated
+
+Synthea runs with `-m pregnancy` and exports patients only. The full module set produces about 131
+resources per patient — roughly 5 GB at 50,000 patients, and over half a day to insert on a
+benchmark tablet, most of it observations no query would otherwise need in that volume.
+
+So the corpus carries patients, encounters, organizations and practitioners; the observations and
+conditions the search workloads query are **generated in code** against its real patient ids
+(`AugmentedDataset`). That makes the per-patient clinical volume a number this repository sets
+rather than one Synthea decides — currently 8 observations and 2 conditions, in `ClinicalMix`.
+
+| `-Pbenchmark.population` | From the corpus | Generated | Total loaded |
+|---|---|---|---|
+| `10` (default) | ~75 | 100 | ~175 |
+| `500` | ~2,350 | 5,000 | ~7,350 |
+| `50000` | ~167,000 | 500,000 | ~667,000 |
+
+The report records this: the dataset kind becomes `synthea+generated` and the fingerprint gains the
+mix, so a run with a different mix over the same corpus is never mistaken for a comparable one.
 
 Only the resource types the workloads touch are loaded. Synthea also emits `Claim`,
 `ExplanationOfBenefit` and `DocumentReference`, which together dwarf everything else and which no
 query looks at; loading them exhausts the heap for no benefit.
+
+### Reading a corpus larger than memory
+
+The corpus is streamed, never held. A 50,000-patient corpus parses to more than the 256 MB heap a
+normal Android app gets, so `NdjsonDataset` keeps only counts, patient ids and a fingerprint, and
+goes back to the files whenever the resources themselves are needed.
+
+That scan still costs minutes at 50,000 patients, and every macrobenchmark iteration is a fresh
+process. It is therefore cached beside the app, keyed by the corpus manifest, so only the first
+process pays it.
 
 Synthea's own output is not reproducible file-for-file — it stamps a run timestamp into some
 filenames, e.g. `Organization.1787101630467.ndjson` — so packaging merges everything for a type
@@ -258,6 +291,12 @@ pass.
 Each workload gets two timeouts: an outer wall clock that kills the process group, and the driver's
 own wait set below it, so the test reports which workload stalled rather than being killed
 mid-sentence.
+
+The sweep passes `-Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true`. Without it AGP
+uninstalls the driver after every workload, taking the seeded database and the cached corpus scan
+with it, and each of the 31 workloads starts from an empty database. Read-only workloads
+(`Isolation.NONE`) keep whatever the previous one left, so the corpus is inserted once rather than
+once per workload — measured at 580s down to 70s between iterations on a Galaxy Tab A9.
 
 Every run is classified from its logcat, its Gradle log and its metrics:
 
