@@ -90,7 +90,9 @@ BENCHMARK_DATA_GLOB = (
     "**/*-benchmarkData.json"
 )
 
-DATASET_LINE = re.compile(r"dataset=(\S+) population=(\d+) fingerprint=(\w+)")
+# The fingerprint carries a hyphen once AugmentedDataset appends the clinical mix, and \w would
+# stop at it — recording two different datasets under one identity.
+DATASET_LINE = re.compile(r"dataset=(\S+) population=(\d+) fingerprint=([\w-]+)")
 
 
 class CatalogueError(Exception):

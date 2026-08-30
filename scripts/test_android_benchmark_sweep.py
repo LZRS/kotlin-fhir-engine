@@ -305,6 +305,49 @@ class ClassifyTest(unittest.TestCase):
         self.assertIn("IllegalStateException", outcome.detail)
 
 
+class DatasetSummaryTest(unittest.TestCase):
+    """The driver's log line is the only proof of which dataset a number came from."""
+
+    def test_reads_a_plain_corpus_line(self):
+        logcat = "I BenchmarkDriver: dataset=synthea population=500 fingerprint=76df0a368ccf69c5"
+
+        self.assertEqual(
+            {"kind": "synthea", "population": 500, "fingerprint": "76df0a368ccf69c5"},
+            sweep.dataset_summary(logcat),
+        )
+
+    def test_keeps_the_whole_fingerprint_of_a_generated_dataset(self):
+        # AugmentedDataset appends the clinical mix, so the fingerprint carries a hyphen. Cutting
+        # it off makes two runs with different mixes over one corpus look like the same dataset,
+        # which is the exact confusion the fingerprint exists to prevent.
+        logcat = (
+            "I BenchmarkDriver: dataset=synthea+generated population=500 "
+            "fingerprint=76df0a368ccf69c5-g8x2s20260819"
+        )
+
+        self.assertEqual(
+            {
+                "kind": "synthea+generated",
+                "population": 500,
+                "fingerprint": "76df0a368ccf69c5-g8x2s20260819",
+            },
+            sweep.dataset_summary(logcat),
+        )
+
+    def test_two_mixes_over_one_corpus_are_told_apart(self):
+        line = (
+            "I BenchmarkDriver: dataset=synthea+generated population=500 fingerprint=abc123-g%sx2s1"
+        )
+
+        eight = sweep.dataset_summary(line % 8)["fingerprint"]
+        four = sweep.dataset_summary(line % 4)["fingerprint"]
+
+        self.assertNotEqual(eight, four)
+
+    def test_says_nothing_when_the_driver_never_logged_one(self):
+        self.assertIsNone(sweep.dataset_summary("nothing here"))
+
+
 class CorpusNoteTest(unittest.TestCase):
     COUNTS = {"Patient": 50000, "Encounter": 41770, "Organization": 37699}
 
