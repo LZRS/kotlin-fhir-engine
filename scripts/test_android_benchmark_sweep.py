@@ -277,6 +277,19 @@ class ClassifyTest(unittest.TestCase):
         )
         self.assertEqual("oom", outcome.status)
 
+    def test_a_kill_of_the_test_process_counts_as_out_of_memory(self):
+        # A long measured section produces a Perfetto trace big enough that reading it back kills
+        # the instrumentation process, not the driver. Reporting that as a plain failure hides
+        # that the cause was memory.
+        logcat = (
+            "I lmkd    : Reclaim 'dev.ohs.fhir.engine.benchmark.macro' (29177), uid 10292, "
+            "oom_score_adj 0, state 19 to free 142432kB rss; reason: min watermark is breached"
+        )
+
+        outcome = sweep.classify(1, False, logcat, "Process crashed.", None)
+
+        self.assertEqual("oom", outcome.status)
+
     def test_a_kill_of_an_unrelated_package_is_not_our_out_of_memory(self):
         outcome = sweep.classify(
             returncode=1,
