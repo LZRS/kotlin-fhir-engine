@@ -372,6 +372,26 @@ benchmarks/tools/populate-benchmark-server.sh       # ditto
 benchmarks/tools/stop-benchmark-server.sh
 ```
 
+### Loading the server
+
+`populate-benchmark-server.sh` only matters for `server.download`; the two upload workloads
+generate their own patients. It sends transaction bundles rather than one request per resource,
+which at 50,000 patients is the difference between roughly 840 requests and 167,000:
+
+```
+Loaded 2,673 resources in 5s (538/s) into http://localhost:8080/fhir
+```
+
+Two properties of the corpus make that work. `--exporter.fhir.bulk_data=true` resolves every
+reference to a literal `Type/id`, so entries carry no `urn:uuid` placeholders needing rewrites; and
+entries are `PUT` at those ids, so the server keeps the corpus's identifiers and a repeated load
+updates rather than duplicates.
+
+Synthea re-emits an organization or practitioner once per resource referencing it — about two
+thirds of those two files are repeats — and a transaction bundle carrying one id twice is rejected
+outright with `HAPI-0535`. The loader drops repeats as it streams, which is why a 1,165-line
+`Organization.ndjson` lands as 405 rows.
+
 `-Pbenchmark.server` can point at any reachable FHIR server; the script is a convenience, not a
 requirement. Without the flag the `server` workloads are skipped and the run says so, rather than
 passing silently with nothing measured.
