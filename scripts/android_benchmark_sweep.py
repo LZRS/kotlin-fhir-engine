@@ -443,6 +443,8 @@ def gradle_command(workload_id, args, iterations, timeout_seconds):
     ]
     if args.server:
         command.insert(-1, f"{runner_arg}.server={args.server}")
+    if args.mix:
+        command.insert(-1, f"{runner_arg}.mix={args.mix}")
     if args.reuse_corpus:
         # Gradle records the population it last generated with, so asking for a different
         # one regenerates even when the files are already on disk.
@@ -572,6 +574,7 @@ def write_summary(run_dir, records, device, args):
         "profile": args.profile,
         "timeoutMinutes": args.timeout,
         "server": args.server,
+        "mix": args.mix,
         "engine": engine_revision(),
         "corpus": resource_counts(),
         "counts": summarise(records),
@@ -611,6 +614,10 @@ def parse_args(argv):
         metavar="URL",
         help="base URL of a FHIR server, which the server group needs; a localhost URL is "
         "forwarded to the device with adb reverse",
+    )
+    parser.add_argument(
+        "--mix",
+        help="clinical resources generated per patient, <obs>x<cond> or off; default 8x2",
     )
     parser.add_argument("--dry-run", action="store_true", help="print commands only")
     return parser.parse_args(argv)

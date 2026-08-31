@@ -37,6 +37,27 @@ import kotlinx.coroutines.flow.flow
 data class ClinicalMix(val observations: Int = 8, val conditions: Int = 2) {
   val perPatient: Int
     get() = observations + conditions
+
+  companion object {
+    /**
+     * Reads the compact `<observations>x<conditions>` form, e.g. `8x2`. `off` means generate
+     * nothing, which is how a run stays comparable to a harness that measured the corpus alone.
+     * Malformed input fails rather than guessing: a typo silently becoming the default would change
+     * what a whole run measured.
+     */
+    fun parse(value: String?): ClinicalMix {
+      val trimmed = value?.trim().orEmpty()
+      if (trimmed.isEmpty()) return ClinicalMix()
+      if (trimmed.equals("off", ignoreCase = true)) return ClinicalMix(0, 0)
+      val parts = trimmed.lowercase().split("x")
+      require(parts.size == 2) {
+        "benchmark.mix must be <observations>x<conditions> or off: $trimmed"
+      }
+      val observations = requireNotNull(parts[0].toIntOrNull()) { "Not a number: ${parts[0]}" }
+      val conditions = requireNotNull(parts[1].toIntOrNull()) { "Not a number: ${parts[1]}" }
+      return ClinicalMix(observations, conditions)
+    }
+  }
 }
 
 /**

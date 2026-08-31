@@ -155,8 +155,11 @@ object BenchmarkHarness {
       missingSyntheaData("${names.size} file(s) read, but none of them yielded a Patient")
     }
     // The packaged corpus is patients and their encounters; the observations and conditions the
-    // search workloads query are built on top of it rather than exported from Synthea.
-    return AugmentedDataset(dataset, ClinicalMix(), seed = config.seed)
+    // search workloads query are built on top of it rather than exported from Synthea. `off`
+    // skips the wrap entirely, for runs that must match a corpus-only database.
+    val mix = ClinicalMix.parse(config.clinicalMix)
+    if (mix.perPatient == 0) return dataset
+    return AugmentedDataset(dataset, mix, seed = config.seed)
   }
 
   /**

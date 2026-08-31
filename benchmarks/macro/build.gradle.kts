@@ -27,6 +27,9 @@ android {
     providers.gradleProperty("benchmark.server").orNull?.let {
       testInstrumentationRunnerArguments["server"] = it
     }
+    providers.gradleProperty("benchmark.mix").orNull?.let {
+      testInstrumentationRunnerArguments["mix"] = it
+    }
   }
 
   compileOptions {

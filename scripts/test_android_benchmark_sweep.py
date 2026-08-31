@@ -176,6 +176,7 @@ class GradleCommandTest(unittest.TestCase):
             profile="standard",
             reuse_corpus=False,
             server=None,
+            mix=None,
         )
         defaults.update(overrides)
         return argparse.Namespace(**defaults)
@@ -192,6 +193,18 @@ class GradleCommandTest(unittest.TestCase):
         self.assertIn(
             "-Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true", command
         )
+
+    def test_forwards_the_clinical_mix_when_given(self):
+        # Comparing against a corpus-only harness needs mix=off to reach the driver, or the run
+        # silently measures a database four times the size of the one being compared to.
+        command = sweep.gradle_command("search.patient_by_family", self.args(mix="off"), 1, 60)
+
+        self.assertIn("-Pandroid.testInstrumentationRunnerArguments.mix=off", command)
+
+    def test_omits_the_mix_argument_by_default(self):
+        command = sweep.gradle_command("search.patient_by_family", self.args(), 1, 60)
+
+        self.assertFalse([c for c in command if ".mix=" in c])
 
     def test_forwards_the_server_url_as_an_instrumentation_argument(self):
         command = sweep.gradle_command("server.upload_creates", self.args(server=SERVER), 1, 60)

@@ -22,6 +22,7 @@ import dev.ohs.fhir.model.r4.Patient
 import dev.ohs.fhir.model.r4.Resource
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asFlow
@@ -62,6 +63,32 @@ class AugmentedDatasetTest {
   private val mix = ClinicalMix(observations = 8, conditions = 2)
 
   private fun augmented(patients: Int) = AugmentedDataset(PatientsOnly(patients), mix, seed = 7)
+
+  @Test
+  fun `parses a mix from its compact form`() {
+    assertEquals(ClinicalMix(observations = 8, conditions = 2), ClinicalMix.parse("8x2"))
+    assertEquals(ClinicalMix(observations = 4, conditions = 0), ClinicalMix.parse("4x0"))
+  }
+
+  @Test
+  fun `parses off as no generation at all`() {
+    // Comparing against a harness that ran the corpus alone needs the same database, so the mix
+    // has to be able to say "add nothing".
+    assertEquals(ClinicalMix(observations = 0, conditions = 0), ClinicalMix.parse("off"))
+    assertEquals(0, ClinicalMix.parse("off").perPatient)
+  }
+
+  @Test
+  fun `rejects a malformed mix instead of guessing`() {
+    assertFailsWith<IllegalArgumentException> { ClinicalMix.parse("8") }
+    assertFailsWith<IllegalArgumentException> { ClinicalMix.parse("axb") }
+  }
+
+  @Test
+  fun `falls back to the default for a blank mix`() {
+    assertEquals(ClinicalMix(), ClinicalMix.parse(""))
+    assertEquals(ClinicalMix(), ClinicalMix.parse(null))
+  }
 
   @Test
   fun `counts the corpus and what was generated for it`() {

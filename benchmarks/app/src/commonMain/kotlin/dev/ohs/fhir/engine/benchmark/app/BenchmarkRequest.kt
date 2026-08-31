@@ -36,6 +36,8 @@ data class BenchmarkRequest(
   val serverUrl: String? = null,
   /** Exact workloads to run, instead of whole groups. */
   val workloadIds: List<String> = emptyList(),
+  /** Clinical resources generated per patient; blank means the default mix. */
+  val clinicalMix: String = "",
 ) {
 
   fun toConfig(): BenchmarkConfig =
@@ -47,6 +49,7 @@ data class BenchmarkRequest(
       groups = groups,
       serverUrl = serverUrl,
       workloadIds = workloadIds,
+      clinicalMix = clinicalMix.ifBlank { "8x2" },
     )
 
   companion object {
@@ -58,6 +61,7 @@ data class BenchmarkRequest(
     const val KEY_ITERATIONS = "iterations"
     const val KEY_SERVER = "server"
     const val KEY_WORKLOADS = "workloads"
+    const val KEY_MIX = "mix"
 
     /** Builds a request from flat string values, whatever the platform read them from. */
     fun from(values: Map<String, String?>): BenchmarkRequest =
@@ -88,6 +92,7 @@ data class BenchmarkRequest(
             ?.map { it.trim() }
             ?.filter { it.isNotEmpty() }
             .orEmpty(),
+        clinicalMix = values[KEY_MIX]?.trim().orEmpty(),
       )
   }
 }
