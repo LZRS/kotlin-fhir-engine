@@ -386,6 +386,20 @@ def engine_revision():
     return {"commit": sha, "dirty": bool(dirty)}
 
 
+def ensure_port_forward(server_url):
+    """Points the device's loopback port at the host's, and says whether it had to.
+
+    Re-established before every workload rather than once at the start: the forward belongs to
+    the adb connection, so a device that drops off USB mid-sweep comes back without it, and every
+    later server workload then fails to connect to a server that is running fine.
+    """
+    port = local_port(server_url)
+    if port is None:
+        return False
+    adb("reverse", f"tcp:{port}", f"tcp:{port}", check=False)
+    return True
+
+
 def preflight(server_url=None):
     """One physical device, awake. An emulator measures the host, not the engine."""
     lines = [l for l in adb("devices").splitlines()[1:] if l.strip()]
@@ -401,12 +415,8 @@ def preflight(server_url=None):
     model = props.get("ro.product.model", "")
     if adb("shell", "getprop", "ro.kernel.qemu").strip() == "1" or model.startswith("sdk"):
         print(f"WARNING: {model} looks like an emulator. Numbers from one are host-bound.")
-    port = local_port(server_url)
-    if port is not None:
-        # Survives the process kill between iterations; it is a property of the adb
-        # connection, not of the app.
-        adb("reverse", f"tcp:{port}", f"tcp:{port}")
-        print(f"Forwarded tcp:{port} to the host, so the device reaches {server_url}.")
+    if ensure_port_forward(server_url):
+        print(f"Forwarded {local_port(server_url)} to the host, so the device reaches {server_url}.")
     return device_record(props) | {"server": server_url}
 
 
@@ -496,6 +506,8 @@ def run_workload(workload_id, args, phase, iterations, run_dir, counts):
         }
 
     adb("logcat", "-c", check=False)
+    # Cheap, and the forward is gone if the device reconnected since the last workload.
+    ensure_port_forward(args.server)
     gradle_log = workload_dir / "gradle.log"
     returncode, timed_out, wall = run_gradle(command, gradle_log, timeout_seconds)
 
