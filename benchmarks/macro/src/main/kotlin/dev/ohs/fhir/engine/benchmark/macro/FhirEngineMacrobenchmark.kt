@@ -64,6 +64,7 @@ abstract class FhirEngineMacrobenchmark {
           putExtra("profile", PROFILE)
           putExtra("dataset", DATASET)
           putExtra("server", SERVER)
+          putExtra("mix", MIX)
         },
       )
 
@@ -126,6 +127,10 @@ abstract class FhirEngineMacrobenchmark {
      */
     val SERVER: String =
       androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("server", "")
+
+    /** Clinical resources generated per patient; `off` keeps the database corpus-only. */
+    val MIX: String =
+      androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("mix", "")
 
     val ITERATIONS: Int =
       androidx.test.platform.app.InstrumentationRegistry.getArguments()

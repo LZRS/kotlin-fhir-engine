@@ -51,6 +51,8 @@ data class BenchmarkConfig(
   val serverUrl: String? = null,
   /** Exact workloads to run. When set, [groups] is ignored. */
   val workloadIds: List<String> = emptyList(),
+  /** Clinical resources generated per patient, `<observations>x<conditions>` or `off`. */
+  val clinicalMix: String = "8x2",
 ) {
   companion object {
     fun of(
@@ -62,6 +64,7 @@ data class BenchmarkConfig(
       groups: List<String> = listOf("crud", "search", "sync"),
       serverUrl: String? = null,
       workloadIds: List<String> = emptyList(),
+      clinicalMix: String = "8x2",
     ) =
       BenchmarkConfig(
         profile = profile.name.lowercase(),
@@ -75,6 +78,7 @@ data class BenchmarkConfig(
         // Uploads hide it, because a transaction bundle posts to the base itself.
         serverUrl = serverUrl?.trim()?.takeIf { it.isNotEmpty() }?.removeSuffix("/")?.plus("/"),
         workloadIds = workloadIds,
+        clinicalMix = clinicalMix,
       )
 
     const val DEFAULT_SEED = 20260819

@@ -113,6 +113,7 @@ class BenchmarkActivity : ComponentActivity() {
             BenchmarkRequest.KEY_ITERATIONS,
             BenchmarkRequest.KEY_SERVER,
             BenchmarkRequest.KEY_WORKLOADS,
+            BenchmarkRequest.KEY_MIX,
           )
           .associateWith { intent.getStringExtra(it) },
       )
