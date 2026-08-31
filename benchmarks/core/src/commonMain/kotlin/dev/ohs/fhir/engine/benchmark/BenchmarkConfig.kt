@@ -49,6 +49,8 @@ data class BenchmarkConfig(
   val groups: List<String>,
   /** Base URL of a FHIR server, or null. Only the `server` group needs one. */
   val serverUrl: String? = null,
+  /** Exact workloads to run. When set, [groups] is ignored. */
+  val workloadIds: List<String> = emptyList(),
 ) {
   companion object {
     fun of(
@@ -59,6 +61,7 @@ data class BenchmarkConfig(
       measuredIterations: Int = 5,
       groups: List<String> = listOf("crud", "search", "sync"),
       serverUrl: String? = null,
+      workloadIds: List<String> = emptyList(),
     ) =
       BenchmarkConfig(
         profile = profile.name.lowercase(),
@@ -71,6 +74,7 @@ data class BenchmarkConfig(
         // loses its last segment: `.../fhir` + `Patient?...` requests `.../Patient` and 404s.
         // Uploads hide it, because a transaction bundle posts to the base itself.
         serverUrl = serverUrl?.trim()?.takeIf { it.isNotEmpty() }?.removeSuffix("/")?.plus("/"),
+        workloadIds = workloadIds,
       )
 
     const val DEFAULT_SEED = 20260819
