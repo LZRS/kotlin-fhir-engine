@@ -352,15 +352,34 @@ class CorpusNoteTest(unittest.TestCase):
     COUNTS = {"Patient": 50000, "Encounter": 41770, "Organization": 37699}
 
     def test_flags_a_workload_whose_resource_type_is_absent_from_the_corpus(self):
+        # Procedure rather than Observation: nothing generates it, so its absence is real.
         self.assertEqual(
-            "corpus has no Observation",
-            sweep.corpus_note("search.observation_by_code", self.COUNTS),
+            "corpus has no Procedure",
+            sweep.corpus_note("search.procedure_by_code", self.COUNTS),
         )
 
     def test_flags_the_absent_type_of_a_workload_that_names_two(self):
         self.assertEqual(
-            "corpus has no Observation",
-            sweep.corpus_note("search.patient_revinclude_observation", self.COUNTS),
+            "corpus has no Procedure",
+            sweep.corpus_note("search.patient_revinclude_procedure", self.COUNTS),
+        )
+
+    def test_says_nothing_about_a_type_the_run_generates(self):
+        # AugmentedDataset builds observations and conditions against the corpus's patients, so
+        # they are absent from the corpus manifest but present in the database the query ran
+        # against. Warning here marks a real measurement as an empty one.
+        self.assertIsNone(
+            sweep.corpus_note(
+                "search.observation_by_code", {"Patient": 1000}, generated=("Observation",)
+            )
+        )
+
+    def test_still_flags_a_type_nothing_provides(self):
+        self.assertEqual(
+            "corpus has no Condition",
+            sweep.corpus_note(
+                "search.patient_has_condition", {"Patient": 1000}, generated=("Observation",)
+            ),
         )
 
     def test_says_nothing_when_every_type_the_workload_names_is_present(self):
