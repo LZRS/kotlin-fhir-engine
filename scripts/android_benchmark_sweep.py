@@ -212,8 +212,14 @@ def metrics_for(benchmark_data, workload_id):
 
 
 def _memory_kill_line(text):
+    """A memory kill of either of our processes.
+
+    The test process counts as well as the driver: a long measured section produces a Perfetto
+    trace large enough that reading it back gets the instrumentation killed, and calling that a
+    plain failure hides that the cause was memory.
+    """
     for line in text.splitlines():
-        if DRIVER_PACKAGE not in line:
+        if DRIVER_PACKAGE not in line and MACRO_PACKAGE not in line:
             continue
         if any(marker in line for marker in ("lmkd", "lowmemorykiller", "am_kill")):
             return line.strip()
