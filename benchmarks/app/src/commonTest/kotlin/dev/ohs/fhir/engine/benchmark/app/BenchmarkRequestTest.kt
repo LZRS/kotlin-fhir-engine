@@ -65,6 +65,39 @@ class BenchmarkRequestTest {
     assertEquals(listOf("crud", "search", "sync"), BenchmarkRequest.from(emptyMap()).groups)
   }
 
+  @Test
+  fun `reads an explicit list of workloads`() {
+    // Group mode otherwise runs whole groups. The workloads too slow to trace are spread across
+    // groups, so naming them is the only way to measure exactly those in one in-process run.
+    val request =
+      BenchmarkRequest.from(
+        mapOf(BenchmarkRequest.KEY_WORKLOADS to "crud.update, sync.download_batch"),
+      )
+
+    assertEquals(listOf("crud.update", "sync.download_batch"), request.workloadIds)
+  }
+
+  @Test
+  fun `has no explicit workloads when the key is missing`() {
+    assertEquals(emptyList(), BenchmarkRequest.from(emptyMap()).workloadIds)
+  }
+
+  @Test
+  fun `ignores a blank workload list`() {
+    assertEquals(
+      emptyList(),
+      BenchmarkRequest.from(mapOf(BenchmarkRequest.KEY_WORKLOADS to " , ")).workloadIds,
+    )
+  }
+
+  @Test
+  fun `carries the explicit workloads into the config`() {
+    val config =
+      BenchmarkRequest.from(mapOf(BenchmarkRequest.KEY_WORKLOADS to "crud.update")).toConfig()
+
+    assertEquals(listOf("crud.update"), config.workloadIds)
+  }
+
   private companion object {
     const val SERVER = "http://localhost:8080/fhir"
   }

@@ -203,7 +203,14 @@ object BenchmarkHarness {
    * run when `-Pbenchmark.server` names one. Silently returning nothing would look like a pass.
    */
   private fun selectWorkloads(config: BenchmarkConfig): List<Workload> {
-    val selected = Workloads.byGroups(config.groups)
+    // Named workloads win over groups: the ones too slow for a trace are spread across groups,
+    // and naming them is the only way to measure exactly those in one in-process run.
+    val selected =
+      if (config.workloadIds.isNotEmpty()) {
+        config.workloadIds.map { Workloads.byId(it) }
+      } else {
+        Workloads.byGroups(config.groups)
+      }
     if (config.serverUrl != null) return selected
     val (needsServer, rest) = selected.partition { it.group == ServerWorkloads.GROUP }
     if (needsServer.isNotEmpty()) {

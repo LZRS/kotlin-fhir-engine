@@ -34,6 +34,8 @@ data class BenchmarkRequest(
   val measuredIterations: Int = 5,
   /** Base URL of a FHIR server. The `server` group is skipped without one. */
   val serverUrl: String? = null,
+  /** Exact workloads to run, instead of whole groups. */
+  val workloadIds: List<String> = emptyList(),
 ) {
 
   fun toConfig(): BenchmarkConfig =
@@ -44,6 +46,7 @@ data class BenchmarkRequest(
       measuredIterations = measuredIterations,
       groups = groups,
       serverUrl = serverUrl,
+      workloadIds = workloadIds,
     )
 
   companion object {
@@ -54,6 +57,7 @@ data class BenchmarkRequest(
     const val KEY_WARMUP = "warmup"
     const val KEY_ITERATIONS = "iterations"
     const val KEY_SERVER = "server"
+    const val KEY_WORKLOADS = "workloads"
 
     /** Builds a request from flat string values, whatever the platform read them from. */
     fun from(values: Map<String, String?>): BenchmarkRequest =
@@ -78,6 +82,12 @@ data class BenchmarkRequest(
         // Blank rather than absent is the common case: the harness always sets the extra, and
         // an unset Gradle property arrives as an empty string.
         serverUrl = values[KEY_SERVER]?.takeIf { it.isNotBlank() },
+        workloadIds =
+          values[KEY_WORKLOADS]
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            .orEmpty(),
       )
   }
 }
