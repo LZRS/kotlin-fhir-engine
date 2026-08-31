@@ -70,6 +70,10 @@ GROUP_ORDER = DEVICE_GROUPS
 # silently; the guard in discover_workloads is what makes the regex safe to rely on.
 WORKLOAD_ID_PATTERN = re.compile(r'"((?:crud|search|sync|server)\.[a-z0-9_]+)"')
 
+# Built per patient by AugmentedDataset rather than exported by Synthea, so they are in the
+# database but never in the corpus manifest. Mirrors ClinicalMix.
+GENERATED_TYPES = ("Observation", "Condition")
+
 # Types a workload id can name. Used only to say when a query had nothing to match.
 KNOWN_TYPES = (
     "Patient",
@@ -247,13 +251,19 @@ def classify(returncode, timed_out, logcat, gradle_log, sum_ms):
     return Outcome("no-metric", "trace section measured zero")
 
 
-def corpus_note(workload_id, resource_counts):
-    """Says when a workload queried a type the corpus does not contain.
+def corpus_note(workload_id, resource_counts, generated=GENERATED_TYPES):
+    """Says when a workload queried a type nothing put in the database.
 
-    Without this an empty result set reads as a fast one.
+    Without this an empty result set reads as a fast one. [generated] are the types the driver
+    builds at run time rather than reading from the corpus, so they are present in the database
+    while absent from the corpus manifest.
     """
     flat = workload_id.replace("_", "").lower()
-    missing = [t for t in KNOWN_TYPES if t.lower() in flat and not resource_counts.get(t)]
+    missing = [
+        t
+        for t in KNOWN_TYPES
+        if t.lower() in flat and not resource_counts.get(t) and t not in generated
+    ]
     return "corpus has no " + ", ".join(missing) if missing else None
 
 
