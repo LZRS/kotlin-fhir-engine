@@ -75,16 +75,50 @@ internal fun Flow<Resource>.chunked(size: Int): Flow<List<Resource>> = flow {
   if (chunk.isNotEmpty()) emit(chunk)
 }
 
+/** What to do about a database that may or may not already hold the corpus. */
+internal enum class SeedDecision {
+  /** It is all there. */
+  SKIP,
+
+  /** Nothing there yet. */
+  SEED,
+
+  /** Something there, but not this corpus. Clear it first. */
+  RESEED,
+}
+
 /**
- * Seeds only if the tables are empty.
+ * Whether the database already holds the corpus, judged on the patient count.
+ *
+ * Anything other than the exact count means the database is not this corpus: a seed cut short
+ * leaves it partially filled, and a run against a different population leaves it overfull. Both
+ * would otherwise be read as "already seeded" and every later workload would query a corpus that is
+ * not the one the report names.
+ */
+internal fun seedDecision(present: Long, expected: Int): SeedDecision =
+  when {
+    present == expected.toLong() -> SeedDecision.SKIP
+    present == 0L -> SeedDecision.SEED
+    else -> SeedDecision.RESEED
+  }
+
+/**
+ * Seeds unless the corpus is already there in full.
  *
  * The read-only workloads run at [dev.ohs.fhir.engine.benchmark.Isolation.NONE] and share one
  * database, so the first of them populates it for all the rest. Seeding unconditionally in every
  * prepare() re-inserts the whole corpus once per workload, which is invisible at synthetic sizes
- * and takes minutes on real Synthea data.
+ * and takes over an hour on a 50,000-patient one.
  */
 internal suspend fun BenchmarkEnv.seedDatasetIfEmpty() {
-  if (engine.count<Patient> {} == 0L) seedDataset()
+  when (seedDecision(engine.count<Patient> {}, dataset.population)) {
+    SeedDecision.SKIP -> return
+    SeedDecision.SEED -> seedDataset()
+    SeedDecision.RESEED -> {
+      engine.clearDatabase()
+      seedDataset()
+    }
+  }
 }
 
 /** Shuffled so reads avoid sequential page access; fixed so every platform touches the same ids. */
