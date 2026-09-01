@@ -465,6 +465,73 @@ these say whether the engine works on the platform and roughly where the costs s
 iPhone would do. A real device needs the data bundled into the test app, which this harness does not
 do.
 
+## Sample results
+
+##### [**_SM-X135G — Samsung Galaxy Tab A9_**](https://www.gsmarena.com/samsung_galaxy_tab_a9-12558.php)
+
+**CPU** - Octa-core (2x2.2 GHz Cortex-A76 & 6x2.0 GHz Cortex-A55) — MediaTek Helio G99
+
+API 36 (Android 16)
+
+*_Dataset: the android-fhir `bulk_data` corpus — 20,000 patients, 67,959 resources (Patient/Encounter/Organization/Practitioner), generated clinical mix off. Single measured iteration per workload._*
+
+###### Data Access API results
+
+Generated from `crud.*` workloads in `benchmarks/core`, driven per-workload by `FhirEngineCrudMacrobenchmark`; whole-dataset inserts run through the in-process harness.
+
+| API | Average duration (ms) | Notes |
+|:----|----------------------:|-------|
+| create (one transaction) | ~5.80 | whole dataset: 6 m 34.5 s for 67,958 resources |
+| create (single batch call) | ~8.14 | 20,000 patients in one `create(vararg)`: 2 m 42.8 s |
+| create (one call per resource) | ~18.53 | whole dataset: 20 m 59.0 s |
+| get | ~6.28 | 500 reads by id |
+| update | ~43.66 | 500 updates in place |
+| delete | ~10.44 | 500 deletes by id |
+
+###### Search DSL API
+
+Generated from `search.*` workloads; each figure is the average of 20 repeats of the query.
+
+| | Population size | Average duration (ms) | Notes |
+|--|----------------:|----------------------:|-------|
+| patient_by_given_prefix | 20k | ~375.97 | string prefix on given name |
+| patient_by_family | 20k | ~87.33 | string match on family name |
+| patient_by_gender_token | 20k | ~4,358.92 | token match on gender |
+| patient_by_active_token | 20k | ~1.05 | token match on active |
+| patient_birthdate_range | 20k | ~3,670.69 | date range |
+| patient_sort_given_asc | 20k | ~8,925.91 | sorted ascending by given name |
+| patient_sort_given_desc | 20k | ~9,152.65 | sorted descending by given name |
+| patient_paged | 20k | ~839.04 | paged result set |
+| patient_by_organization_reference | 20k | ~0.98 | reference to organization |
+| observation_by_code | 20k | ~1.83 | token match on observation code * |
+| observation_by_value_quantity | 20k | ~1.71 | quantity comparison * |
+| patient_two_filters_and | 20k | ~790.30 | two filters, AND |
+| patient_revinclude_observation | 20k | ~8,747.96 | reverse include of observations * |
+| patient_include_organization | 20k | ~8,921.67 | forward include of organizations |
+| patient_has_condition | 20k | ~1.63 | chained `_has` on condition * |
+| x_fhir_query_string | 20k | ~53.46 | raw x-fhir-query string |
+| patient_count | 20k | ~2.75 | count only |
+| patient_given_or_birthdate | 20k | ~966.65 | string OR date |
+| patient_given_disjunct_values | 20k | ~813.55 | disjunct values, OR |
+| encounter_by_last_updated | 20k | ~295.89 | sorted by `_lastUpdated` |
+| risk_assessment_by_probability | 20k | ~10.70 | number comparison † |
+| risk_assessment_probability_or_status | 20k | ~6.66 | number OR token † |
+
+*\* the dataset carries no Observation or Condition resources, so these query empty tables*  
+*† measured against 200 seeded RiskAssessments*
+
+###### Sync API results
+
+Against a local HAPI holding 37,884 resources, reached over `adb reverse`.
+
+| Phase | Duration | Resources | Notes |
+|:------|---------:|----------:|-------|
+| Download from server | 5 m 14.0 s | 20,000 | all Patients from HAPI at `_count=100` |
+| Upload (creates, transaction bundle) | 0.66 s | 100 | bundled `PUT` |
+| Upload (updates, transaction bundle) | 0.71 s | 100 | bundled `PATCH` |
+| In-process download, empty database | 21 m 59.8 s | 67,958 | conflict detection, indexing, write |
+| In-process download over local edits | 35 m 41.7 s | 67,958 | conflict resolver runs on half the patients |
+
 ## Reading the results
 
 Every report records the platform and a dataset `fingerprint`. **Two reports are comparable only if
