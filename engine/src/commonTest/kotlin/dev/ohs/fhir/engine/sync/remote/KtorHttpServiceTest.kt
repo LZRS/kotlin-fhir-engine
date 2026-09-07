@@ -26,8 +26,10 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respondOk
+import io.ktor.client.engine.mock.toByteArray
 import io.ktor.client.request.HttpRequestData
 import io.ktor.http.Headers
+import io.ktor.http.HttpHeaders
 import kotlin.test.Test
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -153,4 +155,75 @@ class KtorHttpServiceTest {
       result.type.value.shouldBe(Bundle.BundleType.Transaction_Response)
       result.id.shouldBe("transaction-response-1")
     }
+
+  @Test
+  fun should_gzip_upload_body_when_uploadWithGzip_enabled() = runTest {
+    var sentBody: ByteArray? = null
+    var sentContentEncoding: String? = null
+    val httpService =
+      KtorHttpService.Builder("/", NetworkConfiguration(uploadWithGzip = true))
+        .build(
+          engine =
+            MockEngine { request ->
+              sentBody = request.body.toByteArray()
+              sentContentEncoding =
+                request.body.headers[HttpHeaders.ContentEncoding]
+                  ?: request.headers[HttpHeaders.ContentEncoding]
+              respondOk(
+                parser.encodeToString(
+                  Bundle(
+                    id = "transaction-response-1",
+                    type = Enumeration(value = Bundle.BundleType.Transaction_Response),
+                  ),
+                ),
+              )
+            },
+        )
+    val request =
+      Bundle(id = "transaction-1", type = Enumeration(value = Bundle.BundleType.Transaction))
+
+    httpService.post("", request, emptyMap())
+
+    val body = sentBody!!
+    if (supportsRequestCompression()) {
+      sentContentEncoding.shouldBe("gzip")
+      body[0].shouldBe(0x1f.toByte())
+      body[1].shouldBe(0x8b.toByte())
+    } else {
+      sentContentEncoding.shouldBe(null)
+      body.decodeToString().startsWith("{").shouldBe(true)
+    }
+  }
+
+  @Test
+  fun should_not_gzip_upload_body_by_default() = runTest {
+    var sentBody: ByteArray? = null
+    var sentContentEncoding: String? = null
+    val httpService =
+      KtorHttpService.Builder("/", NetworkConfiguration())
+        .build(
+          engine =
+            MockEngine { request ->
+              sentBody = request.body.toByteArray()
+              sentContentEncoding =
+                request.body.headers[HttpHeaders.ContentEncoding]
+                  ?: request.headers[HttpHeaders.ContentEncoding]
+              respondOk(
+                parser.encodeToString(
+                  Bundle(
+                    id = "transaction-response-1",
+                    type = Enumeration(value = Bundle.BundleType.Transaction_Response),
+                  ),
+                ),
+              )
+            },
+        )
+    val request =
+      Bundle(id = "transaction-1", type = Enumeration(value = Bundle.BundleType.Transaction))
+
+    httpService.post("", request, emptyMap())
+
+    sentContentEncoding.shouldBe(null)
+    sentBody!!.decodeToString().startsWith("{").shouldBe(true)
+  }
 }

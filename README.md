@@ -268,6 +268,18 @@ All scheduling paths emit a flow of status updates:
 
 For periodic sync, `PeriodicSyncJobStatus` combines `currentSyncJobStatus` with `lastSyncJobStatus`, the terminal result of the most recently completed cycle.
 
+#### Compressing uploads (gzip)
+
+`NetworkConfiguration(uploadWithGzip = true)` compresses upload request bodies with gzip.
+
+This only works on Android and Desktop. Ktor can only compress request bodies on the JVM. On iOS
+and js/wasmJs it would label the body as gzip but send it uncompressed, and the server would
+reject it. The engine therefore ignores the flag on those platforms, sends uploads uncompressed,
+and logs a warning. Tracked upstream as
+[KTOR-8198](https://youtrack.jetbrains.com/issue/KTOR-8198).
+
+Downloads are not affected. Response decompression works on every platform.
+
 ### Web (Wasm)
 
 Persistence uses [Room](https://developer.android.com/kotlin/multiplatform/room). Web support

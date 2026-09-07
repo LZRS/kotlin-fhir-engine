@@ -103,7 +103,8 @@ data class ServerConfiguration(
  * @property readTimeOut Read timeout in seconds for network connections. Defaults to 10 seconds.
  * @property writeTimeOut Write timeout in seconds for network connections. Defaults to 10 seconds.
  * @property uploadWithGzip Enables compression of requests when uploading to a server that supports
- *   gzip. Defaults to false.
+ *   gzip. Defaults to false. Only works on Android and Desktop. See
+ *   https://github.com/ohs-foundation/kotlin-fhir-engine/blob/main/README.md#compressing-uploads-gzip
  * @property httpCache Optional [CacheConfiguration] to enable Cache-Control headers for network
  *   requests.
  */

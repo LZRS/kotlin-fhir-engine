@@ -52,8 +52,19 @@ import kotlinx.serialization.json.jsonObject
 internal class KtorHttpService(
   private val client: HttpClient,
   private val fhirJson: Json = Json,
-  private val compressUploads: Boolean = false,
+  compressUploads: Boolean = false,
 ) : FhirHttpService {
+
+  private val compressUploads: Boolean
+
+  init {
+    if (compressUploads && !supportsRequestCompression()) {
+      KermitLogger.w {
+        "uploadWithGzip is not supported on this platform. Uploads are sent uncompressed."
+      }
+    }
+    this.compressUploads = compressUploads && supportsRequestCompression()
+  }
 
   /**
    * Sanitizes JSON to work around bugs in the kotlin-fhir library (fhir-model beta):
@@ -186,7 +197,7 @@ internal class KtorHttpService(
         socketTimeoutMillis = networkConfiguration.writeTimeOut * 1000
       }
 
-      if (networkConfiguration.uploadWithGzip) {
+      if (networkConfiguration.uploadWithGzip && supportsRequestCompression()) {
         install(ContentEncoding) {
           gzip()
           mode = ContentEncodingConfig.Mode.All
