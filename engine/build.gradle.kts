@@ -152,6 +152,19 @@ dependencies {
     .forEach { add(it, libs.androidx.room3.compiler) }
 }
 
+tasks
+  .withType<Test>()
+  .matching { it.name == "testAndroidHostTest" }
+  .configureEach {
+    filter {
+      // These tests need an Android Context, which host tests cannot provide. They run on every
+      // other target and belong in androidDeviceTest once it is wired.
+      excludeTestsMatching("dev.ohs.fhir.engine.FhirEngineProviderTest")
+      excludeTestsMatching("dev.ohs.fhir.engine.impl.FhirEngineImplTest")
+      excludeTestsMatching("dev.ohs.fhir.engine.search.query.XFhirQueryTranslatorTest")
+    }
+  }
+
 mavenPublishing {
   publishToMavenCentral()
   signAllPublications()
