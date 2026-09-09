@@ -56,6 +56,9 @@ object BenchmarkHarness {
         engine = engine,
         platformContext = platformContext,
         reopenEngine = { openEngine(platformContext, config.serverUrl) },
+        reopenEngineKeepingData = {
+          openEngine(platformContext, config.serverUrl, resetDatabase = false)
+        },
         serverUrl = config.serverUrl,
         onProgress = onProgress,
       )
@@ -93,6 +96,9 @@ object BenchmarkHarness {
         dataset = resolved,
         platformContext = platformContext,
         reopenEngine = { openEngine(platformContext, config.serverUrl) },
+        reopenEngineKeepingData = {
+          openEngine(platformContext, config.serverUrl, resetDatabase = false)
+        },
         serverUrl = config.serverUrl,
       )
     workload.prepare(env)
@@ -140,10 +146,12 @@ object BenchmarkHarness {
       NdjsonDataset.load(
         fileNames = names,
         seed = config.seed,
-        requestedPopulation = Profile.fromString(config.profile).population,
+        requestedPopulation = config.effectivePopulation,
         lines = ::dataFileLines,
         cache = ScratchFileCache,
-        cacheKey = "dataset-$corpus.json",
+        // v2: the scan now also records sample names. An older cache holds none, and a
+        // workload searching for an empty string would match nothing.
+        cacheKey = "dataset-v2-$corpus.json",
       )
     if (dataset.parseFailures.isNotEmpty()) {
       println(
@@ -197,7 +205,7 @@ object BenchmarkHarness {
 
   private fun syntheticDataset(config: BenchmarkConfig): Dataset =
     SyntheticDataset(
-      population = Profile.fromString(config.profile).population,
+      population = config.effectivePopulation,
       seed = config.seed,
     )
 

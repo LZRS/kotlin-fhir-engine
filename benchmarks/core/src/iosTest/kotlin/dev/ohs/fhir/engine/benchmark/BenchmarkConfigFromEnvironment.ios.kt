@@ -44,4 +44,5 @@ internal actual suspend fun benchmarkConfigFromEnvironment(): BenchmarkConfig =
     groups = env("BENCHMARK_GROUPS")?.split(",")?.map { it.trim() }
         ?: listOf("crud", "search", "sync"),
     serverUrl = env("BENCHMARK_SERVER"),
+    coldCache = env("BENCHMARK_COLDCACHE").toBoolean(),
   )
