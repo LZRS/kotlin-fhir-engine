@@ -10,22 +10,145 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
-  # Override the large heap configured in gradle.properties — CI runners have ~7GB total RAM.
   GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=2g -Dfile.encoding=UTF-8"
 
 jobs:
-  test:
-    name: Run Tests
-    # macos-latest so Kotlin/Native can also cross-compile the iOS targets (arm64 + simulator) —
-    # Apple targets only cross-compile on a macOS host.
+  lint-and-compile:
+    name: Lint and compile all platforms
     runs-on: macos-latest
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
         with:
-          # ratchetFrom = "origin/main" in spotless needs the full history to compute the diff.
           fetch-depth: 0
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Cache Kotlin/Native
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: ${{ runner.os }}-konan-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: ${{ runner.os }}-konan-
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Check code formatting (Spotless)
+        run: ./gradlew spotlessCheck
+
+      - name: Check all platforms compile
+        run: >
+          ./gradlew compileDebugKotlinAndroid :engine:compileAndroidMain compileKotlinDesktop
+          compileKotlinJs compileKotlinWasmJs compileKotlinIosArm64 compileKotlinIosSimulatorArm64
+
+  test:
+    name: Test ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Desktop
+            target: ":engine:desktopTest"
+            os: ubuntu-latest
+          - name: Android host
+            target: ":engine:testAndroidHostTest"
+            os: ubuntu-latest
+          - name: JS browser
+            target: ":engine:jsBrowserTest"
+            os: ubuntu-latest
+          - name: Wasm browser
+            target: ":engine:wasmJsBrowserTest"
+            os: ubuntu-latest
+          - name: iOS simulator
+            target: ":engine:iosSimulatorArm64Test"
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add swap space
+        if: runner.os == 'Linux'
+        run: |
+          sudo swapoff -a || true
+          sudo rm -f /mnt/swapfile
+          sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=8192
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        if: matrix.name == 'Android host'
+        uses: android-actions/setup-android@v3
+
+      - name: Cache Kotlin/Native
+        if: runner.os == 'macOS'
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: ${{ runner.os }}-konan-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: ${{ runner.os }}-konan-
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run tests
+        run: ./gradlew ${{ matrix.target }} "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
+
+      - name: Upload test reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports-${{ matrix.name }}
+          path: |
+            engine/build/reports/tests/
+            engine/build/test-results/
+
+  android-device-test:
+    name: Test Android device
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add swap space
+        run: |
+          sudo swapoff -a || true
+          sudo rm -f /mnt/swapfile
+          sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=8192
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -39,24 +162,19 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Check code formatting (Spotless)
-        run: ./gradlew spotlessCheck
+      - name: Run Android device tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          disable-animations: true
+          script: ./gradlew :engine:connectedAndroidDeviceTest "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
 
-      - name: Check all platforms compile
-        # Unqualified task names run in every subproject that declares them (:engine, :engine-app,
-        # and :sqlite-wasm-worker for js/wasmJs), so this covers every platform in one call.
-        run: >
-          ./gradlew compileDebugKotlinAndroid compileKotlinDesktop compileKotlinJs
-          compileKotlinWasmJs compileKotlinIosArm64 compileKotlinIosSimulatorArm64
-
-      - name: Run desktop tests
-        run: ./gradlew :engine:desktopTest
-
-      - name: Upload test reports
+      - name: Upload Android device test reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-reports
+          name: test-reports-Android device
           path: |
-            engine/build/reports/tests/
-            engine/build/test-results/
+            engine/build/reports/
+            engine/build/outputs/androidTest-results/
