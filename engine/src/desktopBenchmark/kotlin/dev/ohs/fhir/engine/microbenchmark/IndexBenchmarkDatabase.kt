@@ -108,6 +108,29 @@ internal class IndexBenchmarkDatabase(private val file: File) {
     }
   }
 
+  /**
+   * Appends [count] string index rows, reusing existing patient uuids. A write that has to maintain
+   * an index, which is what journal and synchronous settings act on.
+   */
+  fun insertIndexRows(count: Int, batch: Int) = runBlocking {
+    database.useWriterConnection { transactor ->
+      transactor.withTransaction(Transactor.SQLiteTransactionType.IMMEDIATE) {
+        usePrepared(
+          "INSERT INTO StringIndexEntity " +
+            "(resourceUuid, resourceType, index_name, index_path, index_value) " +
+            "VALUES (?, 'Patient', 'family', 'Patient.name.family', ?)",
+        ) { statement ->
+          repeat(count) { row ->
+            statement.bindText(1, uuidFor(row))
+            statement.bindText(2, "batch$batch-row$row")
+            statement.step()
+            statement.reset()
+          }
+        }
+      }
+    }
+  }
+
   /** Replaces the indices on [table] with [definitions]. Each is the body of a CREATE INDEX. */
   fun reindex(table: String, definitions: List<String>) = runBlocking {
     database.useWriterConnection { transactor ->
@@ -196,7 +219,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
       return "$first$second"
     }
 
-    private fun uuidFor(row: Int) = "00000000-0000-0000-0000-${row.toString().padStart(12, '0')}"
+    fun uuidFor(row: Int) = "00000000-0000-0000-0000-${row.toString().padStart(12, '0')}"
 
     /** A fresh database file per trial, so nothing carries over between parameter combinations. */
     fun create(label: String): IndexBenchmarkDatabase {

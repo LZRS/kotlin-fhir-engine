@@ -127,12 +127,12 @@ open class DateIndexShapeBenchmark {
 }
 
 /**
- * Does making `StringIndexEntity.index_value` NOCASE pay for itself, and at what size?
+ * Would making `StringIndexEntity.index_value` NOCASE pay for itself, and at what size?
  *
  * A prefix search compiles to `index_value LIKE ? || '%' COLLATE NOCASE`, which cannot use a BINARY
- * index. Declaring the column NOCASE *and* binding the pattern whole turns it into a range seek.
- * That combination measured as no change at 1,000 patients; [rows] asks whether size changes the
- * answer.
+ * index. Declaring the column NOCASE *and* binding the pattern whole would turn it into a range
+ * seek. That combination measured as no change at 1,000 patients; [rows] asks whether size changes
+ * the answer.
  *
  * The two arms differ in both the index collation and the SQL, because either alone leaves the
  * optimisation off — which is the trap that made the first attempt at this look like a failure.
@@ -162,10 +162,13 @@ open class StringIndexCollationBenchmark {
             "`resourceType`, `index_name`, `index_value`",
             "`resourceUuid`, `index_name`, `index_value`",
           )
+        // COLLATE NOCASE is explicit because `index_value` is declared BINARY: an index over it
+        // inherits that collation, so without this the "nocase" arm is a second BINARY arm and the
+        // comparison silently measures nothing.
         "nocase" ->
           listOf(
             "`resourceType`, `index_name`, `index_value` COLLATE NOCASE",
-            "`resourceUuid`, `index_name`, `index_value`",
+            "`resourceUuid`, `index_name`, `index_value` COLLATE NOCASE",
           )
         else -> error("Unknown collation: $collation")
       },
@@ -176,14 +179,23 @@ open class StringIndexCollationBenchmark {
       Search(ResourceType.Patient)
         .apply { filter(StringClientParam("given"), { value = prefix }) }
         .getQuery()
-    // The shipped SQL builds the pattern in SQL, which SQLite's LIKE optimisation cannot see into.
-    // The `nocase` arm binds it whole, which is the half of the fix that is not the collation.
+    // `binary` is what the engine emits today. `nocase` binds the pattern whole instead, the half
+    // of the optimisation that lives in the SQL rather than the schema.
     if (collation == "nocase") {
       query =
         SearchQuery(
           query.query.replace("index_value LIKE ? || '%' COLLATE NOCASE", "index_value LIKE ?"),
           query.args.dropLast(1) + "$prefix%",
         )
+    }
+
+    // Prove the arms actually differ before timing them. `binary` must fail to narrow on
+    // index_value and `nocase` must succeed; if both ever agree the comparison is vacuous.
+    val plan = database.planFor(query).joinToString(" | ")
+    val narrowsOnValue = "index_value>?" in plan
+    check(narrowsOnValue == (collation == "nocase")) {
+      "arm '$collation' produced the wrong plan, so the two arms are not measuring different " +
+        "things: $plan"
     }
 
     // One of 676 two-letter prefixes, so both arms must land on the same small slice.
