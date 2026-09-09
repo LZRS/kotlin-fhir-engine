@@ -6,6 +6,8 @@ plugins {
   id("com.android.kotlin.multiplatform.library")
   alias(libs.plugins.ksp)
   alias(libs.plugins.kotlin.serialization)
+  alias(libs.plugins.kotlin.allopen)
+  alias(libs.plugins.kotlinx.benchmark)
   alias(libs.plugins.maven.publish)
 }
 
@@ -30,7 +32,13 @@ kotlin {
       .configure { instrumentationRunner = "androidx.test.runner.AndroidJUnitRunner" }
   }
 
-  jvm("desktop")
+  // Micro-benchmarks live in their own compilation associated with `main`, which is what grants
+  // them access to the engine's `internal` declarations — the same mechanism test compilations
+  // use. Its default source set is `desktopBenchmark`. See docs/benchmarking.md.
+  jvm("desktop") {
+    val mainCompilation = compilations.getByName("main")
+    compilations.create("benchmark") { associateWith(mainCompilation) }
+  }
 
   // Note: iosX64 (Intel iOS simulator) is omitted because Room 3 (androidx.room3) does not publish
   // iosX64 artifacts; including it breaks dependency resolution.
@@ -122,6 +130,9 @@ kotlin {
         ),
       )
     }
+    val desktopBenchmark by getting {
+      dependencies { implementation(libs.kotlinx.benchmark.runtime) }
+    }
     val desktopTest by getting {
       // `SearchParameterRepositoryGeneratedTest` reads the same FHIR R4 search-parameters bundle
       // the codegen consumes at build time, so the test classpath needs access to it.
@@ -143,6 +154,32 @@ kotlin {
         implementation(libs.kotlin.test.junit)
         implementation(libs.kotlinx.coroutines.test)
       }
+    }
+  }
+}
+
+// JMH subclasses the @State class to generate its harness, and Kotlin classes are final by default.
+allOpen { annotation("org.openjdk.jmh.annotations.State") }
+
+benchmark {
+  targets { register("desktopBenchmark") }
+  configurations {
+    named("main") {
+      warmups = 5
+      iterations = 10
+      iterationTime = 1
+      iterationTimeUnit = "s"
+    }
+    // Just the index-shape sweeps. They carry their own @Param grid, so running them apart from
+    // the pure-CPU benchmarks keeps an A/B to about a minute instead of the full suite.
+    register("index") {
+      include(
+        "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\.(DateIndexShape|StringIndexCollation)Benchmark",
+      )
+      warmups = 3
+      iterations = 5
+      iterationTime = 500
+      iterationTimeUnit = "ms"
     }
   }
 }
