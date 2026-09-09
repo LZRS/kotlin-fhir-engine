@@ -17,6 +17,8 @@ package dev.ohs.fhir.engine.benchmark
 
 import dev.ohs.fhir.engine.FhirEngine
 import dev.ohs.fhir.engine.benchmark.data.Dataset
+import dev.ohs.fhir.engine.search.count
+import dev.ohs.fhir.model.r4.Patient
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.TimeSource
 
@@ -129,7 +131,16 @@ class BenchmarkRunner(
         newEnv()
       }
       Isolation.COLD_CACHE -> {
+        // A cold read is only meaningful over the same rows. If a reopen were ever to land on an
+        // empty database the workload would still "succeed", just against nothing, and report a
+        // search several times faster than the warm one — which is how this was caught.
+        val before = env.engine.count<Patient> {}
         engine = reopenEngineKeepingData()
+        val after = engine.count<Patient> {}
+        check(before == after) {
+          "Reopening for a cold cache changed the corpus from $before patients to $after. The " +
+            "database was not preserved, so any timing from it would measure a smaller table."
+        }
         newEnv()
       }
     }

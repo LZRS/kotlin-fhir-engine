@@ -57,7 +57,12 @@ object BenchmarkHarness {
         platformContext = platformContext,
         reopenEngine = { openEngine(platformContext, config.serverUrl) },
         reopenEngineKeepingData = {
-          openEngine(platformContext, config.serverUrl, resetDatabase = false)
+          openEngine(
+            platformContext,
+            config.serverUrl,
+            resetDatabase = false,
+            reuseStorage = true,
+          )
         },
         serverUrl = config.serverUrl,
         onProgress = onProgress,
@@ -97,7 +102,12 @@ object BenchmarkHarness {
         platformContext = platformContext,
         reopenEngine = { openEngine(platformContext, config.serverUrl) },
         reopenEngineKeepingData = {
-          openEngine(platformContext, config.serverUrl, resetDatabase = false)
+          openEngine(
+            platformContext,
+            config.serverUrl,
+            resetDatabase = false,
+            reuseStorage = true,
+          )
         },
         serverUrl = config.serverUrl,
       )
@@ -232,17 +242,36 @@ object BenchmarkHarness {
     return rest
   }
 
-  /** A fresh storage directory per call, so [Isolation.FRESH_DATABASE] gets a cold file. */
+  /** Where the engine currently open was told to keep its database. */
+  private var storageDirectory: String? = null
+
+  /**
+   * A fresh storage directory per call, so [Isolation.FRESH_DATABASE] gets a cold file — unless
+   * [reuseStorage], which reopens over the database already there.
+   *
+   * [reuseStorage] is what [Isolation.COLD_CACHE] needs, and skipping the delete is not enough on
+   * its own: [benchmarkStorageDirectory] hands out a new directory every call, so a reopen without
+   * it lands on an empty database. That reads as a very fast search rather than as a failure, which
+   * is exactly the sort of number this harness should never produce.
+   */
   private suspend fun openEngine(
     platformContext: Any,
     serverUrl: String?,
     resetDatabase: Boolean = true,
+    reuseStorage: Boolean = false,
   ): FhirEngine {
     if (FhirEngineProvider.isInitialized()) FhirEngineProvider.reset()
     if (resetDatabase) deleteBenchmarkDatabase(platformContext)
+    val directory =
+      if (reuseStorage) {
+        storageDirectory ?: benchmarkStorageDirectory()
+      } else {
+        benchmarkStorageDirectory()
+      }
+    storageDirectory = directory
     FhirEngineProvider.init(
       FhirEngineConfiguration(
-        storageDirectory = benchmarkStorageDirectory(),
+        storageDirectory = directory,
         serverConfiguration = serverUrl?.let { ServerConfiguration(baseUrl = it) },
       ),
       platformContext,
