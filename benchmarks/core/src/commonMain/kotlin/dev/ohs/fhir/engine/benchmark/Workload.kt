@@ -28,6 +28,17 @@ enum class Isolation {
 
   /** Close, delete and reopen the database. The only honest baseline for bulk writes. */
   FRESH_DATABASE,
+
+  /**
+   * Close and reopen the database *without* deleting it, so the data survives but SQLite's page
+   * cache does not. For read workloads that would otherwise measure pages another iteration already
+   * warmed.
+   *
+   * This clears SQLite's cache, not the operating system's file cache, so it is a colder read than
+   * [NONE] rather than a genuinely cold one. Never requested by a workload directly — the runner
+   * promotes [NONE] to it when a run asks for a cold cache.
+   */
+  COLD_CACHE,
 }
 
 /** Everything a workload is given to do its work. */
@@ -37,6 +48,8 @@ class BenchmarkEnv(
   val platformContext: Any,
   /** Closes the current engine and returns a new one on an empty database. */
   val reopenEngine: suspend () -> FhirEngine,
+  /** Closes the current engine and reopens it over the existing data, dropping the page cache. */
+  val reopenEngineKeepingData: suspend () -> FhirEngine = reopenEngine,
   /** Base URL of the FHIR server the engine was initialised against, or null. */
   val serverUrl: String? = null,
 )
@@ -69,3 +82,30 @@ interface Workload {
   /** Runs after every iteration. Untimed. */
   suspend fun afterEach(env: BenchmarkEnv) {}
 }
+
+/**
+ * The isolation a workload actually runs under, and a note when that is weaker than it asked for.
+ *
+ * Only [Isolation.NONE] is promoted for a cold-cache run. [Isolation.CLEAR_TABLES] keeps a warm
+ * cache deliberately and [Isolation.FRESH_DATABASE] is already colder than cold-cache, so promoting
+ * either would change what the workload measures rather than sharpen it.
+ *
+ * @param canReopen whether this platform can close and reopen the database in-process.
+ */
+internal fun effectiveIsolation(
+  requested: Isolation,
+  coldCache: Boolean,
+  canReopen: Boolean,
+): Pair<Isolation, String?> =
+  when {
+    requested == Isolation.FRESH_DATABASE && !canReopen ->
+      Isolation.CLEAR_TABLES to
+        "Requested fresh_database but this platform cannot reopen the database in-process, so the " +
+          "database was cleared instead and the page cache stayed warm. Treat as a lower bound."
+    requested != Isolation.NONE || !coldCache -> requested to null
+    canReopen -> Isolation.COLD_CACHE to null
+    else ->
+      Isolation.NONE to
+        "Requested a cold cache but this platform cannot reopen the database in-process, so the " +
+          "page cache stayed warm. This number is a warm read."
+  }

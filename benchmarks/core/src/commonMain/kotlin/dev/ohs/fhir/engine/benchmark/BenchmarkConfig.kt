@@ -53,6 +53,18 @@ data class BenchmarkConfig(
   val workloadIds: List<String> = emptyList(),
   /** Clinical resources generated per patient, `<observations>x<conditions>` or `off`. */
   val clinicalMix: String = "8x2",
+  /**
+   * Reopen the database between iterations of read-only workloads, so they measure a cold page
+   * cache. Off by default: it makes every iteration pay a reopen, and warm reads are the case an
+   * app actually hits once it has been running.
+   */
+  val coldCache: Boolean = false,
+  /**
+   * Patients to generate, overriding whatever [profile] implies. Lets a run walk a scaling curve —
+   * 1000, 10000, 50000 — without inventing a profile per point. Synthetic datasets only; a Synthea
+   * corpus is whatever was packaged.
+   */
+  val population: Int? = null,
 ) {
   companion object {
     fun of(
@@ -65,6 +77,8 @@ data class BenchmarkConfig(
       serverUrl: String? = null,
       workloadIds: List<String> = emptyList(),
       clinicalMix: String = "8x2",
+      coldCache: Boolean = false,
+      population: Int? = null,
     ) =
       BenchmarkConfig(
         profile = profile.name.lowercase(),
@@ -79,8 +93,14 @@ data class BenchmarkConfig(
         serverUrl = serverUrl?.trim()?.takeIf { it.isNotEmpty() }?.removeSuffix("/")?.plus("/"),
         workloadIds = workloadIds,
         clinicalMix = clinicalMix,
+        coldCache = coldCache,
+        population = population,
       )
 
     const val DEFAULT_SEED = 20260819
   }
+
+  /** How many patients this run actually wants: the override if given, else the profile's. */
+  val effectivePopulation: Int
+    get() = population ?: Profile.fromString(profile).population
 }

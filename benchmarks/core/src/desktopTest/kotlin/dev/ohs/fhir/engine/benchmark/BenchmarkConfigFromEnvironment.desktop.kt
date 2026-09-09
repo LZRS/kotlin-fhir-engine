@@ -30,4 +30,14 @@ internal actual suspend fun benchmarkConfigFromEnvironment(): BenchmarkConfig =
     groups = System.getProperty("benchmark.groups")?.split(",")?.map { it.trim() }
         ?: listOf("crud", "search", "sync"),
     serverUrl = System.getProperty("benchmark.server")?.takeIf { it.isNotBlank() },
+    coldCache = System.getProperty("benchmark.coldcache").toBoolean(),
+    population = System.getProperty("benchmark.population")?.toIntOrNull(),
+    // Named workloads beat groups, so a run can measure exactly the two it cares about instead of
+    // paying for a whole group. `search.patient_revinclude_observation` alone is ~13s an iteration.
+    workloadIds =
+      System.getProperty("benchmark.workloads")
+        ?.split(",")
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+        .orEmpty(),
   )

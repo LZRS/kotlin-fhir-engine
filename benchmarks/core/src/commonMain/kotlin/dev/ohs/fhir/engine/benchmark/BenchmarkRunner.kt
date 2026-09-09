@@ -30,6 +30,7 @@ class BenchmarkRunner(
   private var engine: FhirEngine,
   private val platformContext: Any,
   private val reopenEngine: suspend () -> FhirEngine,
+  private val reopenEngineKeepingData: suspend () -> FhirEngine,
   private val serverUrl: String? = null,
   /** Fires between iterations only, never inside [benchmarkSpan]. */
   private val onProgress: ProgressListener = {},
@@ -54,7 +55,8 @@ class BenchmarkRunner(
   }
 
   private suspend fun runWorkload(workload: Workload, index: Int, total: Int): WorkloadResult {
-    val (isolation, note) = resolveIsolation(workload.isolation)
+    val (isolation, note) =
+      effectiveIsolation(workload.isolation, config.coldCache, supportsFreshDatabase())
     val samples = mutableListOf<Double>()
     return try {
       onProgress(BenchmarkProgress.Preparing(workload.id, workload.group, index, total))
@@ -118,22 +120,16 @@ class BenchmarkRunner(
     }
   }
 
-  /** Degrades [requested] where the platform cannot honour it, and says so. */
-  private fun resolveIsolation(requested: Isolation): Pair<Isolation, String?> =
-    if (requested == Isolation.FRESH_DATABASE && !supportsFreshDatabase()) {
-      Isolation.CLEAR_TABLES to
-        "Requested fresh_database but this platform cannot reopen the database in-process, so the " +
-          "database was cleared instead and the page cache stayed warm. Treat as a lower bound."
-    } else {
-      requested to null
-    }
-
   private suspend fun applyIsolation(isolation: Isolation, env: BenchmarkEnv): BenchmarkEnv =
     when (isolation) {
       Isolation.NONE -> env
       Isolation.CLEAR_TABLES -> env.also { it.engine.clearDatabase() }
       Isolation.FRESH_DATABASE -> {
         engine = reopenEngine()
+        newEnv()
+      }
+      Isolation.COLD_CACHE -> {
+        engine = reopenEngineKeepingData()
         newEnv()
       }
     }
@@ -144,10 +140,11 @@ class BenchmarkRunner(
       dataset = dataset,
       platformContext = platformContext,
       reopenEngine = reopenEngine,
+      reopenEngineKeepingData = reopenEngineKeepingData,
       serverUrl = serverUrl,
     )
 
   private companion object {
-    val EMPTY_STATISTICS = Statistics(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    val EMPTY_STATISTICS = Statistics(0.0, 0.0, null, 0.0, 0.0, 0.0)
   }
 }
