@@ -82,8 +82,8 @@ class SyntheticDataset(
           name =
             listOf(
               HumanName(
-                family = FhirString(value = FAMILY_NAMES[index % FAMILY_NAMES.size]),
-                given = listOf(FhirString(value = GIVEN_NAMES[index % GIVEN_NAMES.size])),
+                family = FhirString(value = composedName(index)),
+                given = listOf(FhirString(value = composedName(index + NAME_COMBINATIONS / 2))),
               ),
             ),
         )
@@ -112,6 +112,11 @@ class SyntheticDataset(
   override val sampleObservationCode: String = OBSERVATION_CODES.first()
 
   override val sampleOrganizationId: String = organizationId(0)
+
+  // Patient 0's own names, so a search for either matches roughly population/676 patients.
+  override val sampleFamilyName: String = composedName(0)
+
+  override val sampleGivenName: String = composedName(NAME_COMBINATIONS / 2)
 
   override fun manifest() =
     DatasetManifest(
@@ -149,8 +154,10 @@ class SyntheticDataset(
       name =
         listOf(
           HumanName(
-            family = FhirString(value = FAMILY_NAMES[index % FAMILY_NAMES.size]),
-            given = listOf(FhirString(value = GIVEN_NAMES[index % GIVEN_NAMES.size])),
+            family = FhirString(value = composedName(index)),
+            // Offset so a patient's given and family names differ, and so a search for one cannot
+            // accidentally match the other.
+            given = listOf(FhirString(value = composedName(index + NAME_COMBINATIONS / 2))),
           ),
         ),
       gender =
@@ -244,10 +251,79 @@ class SyntheticDataset(
 
     val CONDITION_CODES = listOf("44054006", "195967001", "59621000", "271737000")
 
-    val GIVEN_NAMES =
-      listOf("James", "Mary", "Robert", "Patricia", "John", "Jennifer", "Michael", "Linda")
+    /**
+     * Names are composed rather than listed, because the count matters more than the realism.
+     *
+     * With a short list every prefix search matches a large share of the corpus — eight surnames
+     * meant `family = "Smith"` matched one patient in eight — and at that selectivity no index can
+     * help, so the search benchmarks could not tell a good index from a missing one. Composing two
+     * syllable tables gives 676 distinct surnames and 676 given names, so searching one whole name
+     * matches roughly one patient in 676, which is the order a real name search sees.
+     */
+    private val STEMS =
+      listOf(
+        "Ab",
+        "Bo",
+        "Ch",
+        "Da",
+        "Ek",
+        "Fa",
+        "Gu",
+        "Ha",
+        "Ib",
+        "Ji",
+        "Ka",
+        "Lo",
+        "Mu",
+        "Na",
+        "Ob",
+        "Pa",
+        "Qu",
+        "Ra",
+        "Si",
+        "Ta",
+        "Ug",
+        "Ve",
+        "Wa",
+        "Xi",
+        "Ya",
+        "Zu",
+      )
 
-    val FAMILY_NAMES =
-      listOf("Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis")
+    private val TAILS =
+      listOf(
+        "bara",
+        "chi",
+        "dele",
+        "eze",
+        "fani",
+        "gwe",
+        "hara",
+        "ije",
+        "jola",
+        "kemi",
+        "lani",
+        "mide",
+        "nka",
+        "ola",
+        "pemi",
+        "quri",
+        "rina",
+        "sola",
+        "tunde",
+        "uche",
+        "vela",
+        "wale",
+        "xola",
+        "yemi",
+        "zora",
+        "ansa",
+      )
+
+    /** 676 distinct values; index `n` is stable for a given `n`. */
+    fun composedName(index: Int): String =
+      STEMS[(index / TAILS.size) % STEMS.size] + TAILS[index % TAILS.size]
+
+    val NAME_COMBINATIONS = STEMS.size * TAILS.size
   }
 }

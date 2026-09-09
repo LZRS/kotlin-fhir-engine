@@ -49,5 +49,18 @@ interface Dataset {
   /** An organization id that a meaningful share of patients reference. */
   val sampleOrganizationId: String
 
+  /**
+   * A family name to search for, and a given name to search for.
+   *
+   * Both must be **selective** — matching a small fraction of the corpus, the way a real name
+   * search does. This is not a detail: an index can only pay for itself when the predicate rejects
+   * most rows, so a dataset whose names come from a handful of values makes every string search
+   * match a large slice and renders the search benchmarks unable to detect an index regression at
+   * all. That was true here until the synthetic dataset's eight surnames were replaced.
+   */
+  val sampleFamilyName: String
+
+  val sampleGivenName: String
+
   fun manifest(): DatasetManifest
 }

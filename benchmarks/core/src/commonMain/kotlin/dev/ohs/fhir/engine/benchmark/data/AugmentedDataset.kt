@@ -91,6 +91,11 @@ class AugmentedDataset(
    */
   override val sampleObservationCode: String = OBSERVATION_CODES.first()
 
+  /** Names come from the corpus; this wrapper adds observations and conditions, not patients. */
+  override val sampleFamilyName: String = base.sampleFamilyName
+
+  override val sampleGivenName: String = base.sampleGivenName
+
   /** Corpus first, so patients exist before anything references them. */
   override fun resources(): Flow<Resource> = flow {
     base.resources().collect { emit(it) }

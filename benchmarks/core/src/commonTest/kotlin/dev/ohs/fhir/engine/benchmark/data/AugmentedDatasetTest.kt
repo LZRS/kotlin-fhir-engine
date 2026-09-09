@@ -41,6 +41,8 @@ private class PatientsOnly(private val count: Int) : Dataset {
   override val patientIds = all.map { it.id!! }
   override val sampleObservationCode = "none"
   override val sampleOrganizationId = ""
+  override val sampleFamilyName = "Okonkwo"
+  override val sampleGivenName = "Adaeze"
 
   override fun manifest() =
     DatasetManifest(
