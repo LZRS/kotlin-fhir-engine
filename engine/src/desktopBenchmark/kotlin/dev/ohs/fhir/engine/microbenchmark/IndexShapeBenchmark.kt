@@ -157,14 +157,17 @@ open class StringIndexCollationBenchmark {
     database.reindex(
       "StringIndexEntity",
       when (collation) {
+        // COLLATE BINARY is explicit because `index_value` is declared NOCASE: an index over it
+        // inherits that collation, so without this the "binary" arm is a second NOCASE arm and the
+        // comparison silently measures nothing.
         "binary" ->
           listOf(
-            "`resourceType`, `index_name`, `index_value`",
-            "`resourceUuid`, `index_name`, `index_value`",
+            "`resourceType`, `index_name`, `index_value` COLLATE BINARY",
+            "`resourceUuid`, `index_name`, `index_value` COLLATE BINARY",
           )
         "nocase" ->
           listOf(
-            "`resourceType`, `index_name`, `index_value` COLLATE NOCASE",
+            "`resourceType`, `index_name`, `index_value`",
             "`resourceUuid`, `index_name`, `index_value`",
           )
         else -> error("Unknown collation: $collation")
@@ -176,14 +179,24 @@ open class StringIndexCollationBenchmark {
       Search(ResourceType.Patient)
         .apply { filter(StringClientParam("given"), { value = prefix }) }
         .getQuery()
-    // The shipped SQL builds the pattern in SQL, which SQLite's LIKE optimisation cannot see into.
-    // The `nocase` arm binds it whole, which is the half of the fix that is not the collation.
-    if (collation == "nocase") {
+    // The engine now binds the pattern whole, so `getQuery()` returns the optimised form. The
+    // `binary` arm reconstructs what it used to emit: a pattern concatenated in SQL, which the LIKE
+    // optimisation cannot see into, against a BINARY index it could not use anyway.
+    if (collation == "binary") {
       query =
         SearchQuery(
-          query.query.replace("index_value LIKE ? || '%' COLLATE NOCASE", "index_value LIKE ?"),
-          query.args.dropLast(1) + "$prefix%",
+          query.query.replace("index_value LIKE ?", "index_value LIKE ? || '%' COLLATE NOCASE"),
+          query.args.dropLast(1) + prefix,
         )
+    }
+
+    // Prove the arms actually differ before timing them. `binary` must fail to narrow on
+    // index_value and `nocase` must succeed; if both ever agree the comparison is vacuous.
+    val plan = database.planFor(query).joinToString(" | ")
+    val narrowsOnValue = "index_value>?" in plan
+    check(narrowsOnValue == (collation == "nocase")) {
+      "arm '$collation' produced the wrong plan, so the two arms are not measuring different " +
+        "things: $plan"
     }
 
     // One of 676 two-letter prefixes, so both arms must land on the same small slice.

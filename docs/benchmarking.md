@@ -10,6 +10,7 @@ manually; nothing here runs in CI.
 | `:benchmarks:core` | The workload catalogue and the in-process runner. Every platform runs these same workloads. |
 | `:benchmarks:app` | A driver app launched by intent, so Android can be measured as a real app. |
 | `:benchmarks:macro` | Macrobenchmark that drives the app and reads trace sections back. |
+| `:engine` (`desktopBenchmark`) | JMH micro-benchmarks of the engine's internals and of SQLite itself. See [Micro benchmarks](#micro-benchmarks). |
 
 Workloads are defined once, in `:benchmarks:core`. Neither of the other modules defines its own.
 
@@ -39,6 +40,9 @@ The report prints as a table and is written to
 | `-Pbenchmark.warmup` | `2` | Discarded iterations |
 | `-Pbenchmark.iterations` | `5` | Measured iterations |
 | `-Pbenchmark.seed` | `20260819` | Dataset seed. Changing it changes the fingerprint. |
+| `-Pbenchmark.workloads` | none | Comma-separated workload ids. Beats `groups`; the fastest way to measure one thing. |
+| `-Pbenchmark.population` | from the profile | Patient count, for walking a scaling curve without a new profile. |
+| `-Pbenchmark.coldcache` | `false` | Reopen the database between iterations of read-only workloads, so they stop measuring warm pages. |
 | `-Pbenchmark.server` | none | Base URL for the `server` group, which is skipped without it |
 | `-Pbenchmark.report.dir` | `build/reports/benchmarks` | Where the JSON lands |
 | `-Pbenchmark.data.dir` | the packaged output | Where the Synthea corpus is read from |
@@ -465,6 +469,147 @@ these say whether the engine works on the platform and roughly where the costs s
 iPhone would do. A real device needs the data bundled into the test app, which this harness does not
 do.
 
+## Micro benchmarks
+
+Everything above measures the engine end to end against a real database. Micro benchmarks measure
+what is underneath — pure-CPU functions, and SQLite itself — where the cost of an algorithm or an
+index is the whole story.
+
+```bash
+./gradlew :engine:benchmark        # everything
+./gradlew :engine:indexBenchmark   # just the index and tuning sweeps, about a minute
+```
+
+They live in `:engine` rather than under `benchmarks/`, in a `benchmark` compilation associated with
+`main`. That association is the reason for the placement: it grants access to the engine's
+`internal` declarations, the same way test compilations do. Sources are in
+`engine/src/desktopBenchmark/kotlin/`.
+
+Desktop/JVM only. kotlinx-benchmark backs the JVM target with JMH, which forks, warms and reports a
+confidence interval — these land near ±0.3% where `:benchmarks:core` manages ±4%. Its Kotlin/JS
+support targets Node while this project's web targets are browser-configured, and a native target
+would need a `macosArm64` the engine does not build.
+
+| Class | What it measures |
+|---|---|
+| `ResourceIndexerBenchmark` | `ResourceIndexer.index()` — a FHIRPath evaluation per search parameter, on every write |
+| `JsonDiffBenchmark` | `JsonDiff.diff()` — the hand-written RFC 6902 replacement for Jackson + jsonpatch |
+| `ResourceSerializerBenchmark` | The serialize/deserialize floor under every read and write |
+| `SearchQueryBenchmark` | `Search.getQuery()` — per-query cost, independent of how much is stored |
+| `MoreResourcesBenchmark` | `getResourceClass`, `updateMeta`, `withId` — per-resource helpers |
+| `PatchOrderingBenchmark` | Tarjan's over the pending-upload graph, the only cost that grows with queue length |
+| `DateIndexShapeBenchmark` | Date index column order, swept from 1,000 to 50,000 rows |
+| `StringIndexCollationBenchmark` | String index collation, swept the same way |
+| `SqliteTuningBenchmark` | `ANALYZE`, `journal_mode` and `synchronous`, which the engine never sets |
+
+The index sweeps write rows straight into the index tables rather than through `FhirEngine`, because
+the question is what an index costs, not what indexing costs. That is also what makes 50,000 rows
+affordable: the engine path spends about 200 us of FHIRPath per resource and would turn seconds of
+setup into twenty minutes of it.
+
+Every index trial asserts its query still selects the slice it was designed to — see
+[Selectivity decides everything](#selectivity-decides-everything) — and the collation sweep also
+asserts its two arms produce *different* query plans, because an index created over a NOCASE column
+is NOCASE whatever the arm intended, and two identical arms compare cheerfully to zero difference.
+
+### What the sweeps say today
+
+`StringIndexCollationBenchmark`, us/op: binary 65.7, 534.2, 3139.9 at 1k/10k/50k rows against nocase
+22.8, 31.9, 78.9 — the first scales with the table and the second barely moves, which is the whole
+difference between a scan and a seek. **39.8x at 50,000 rows.**
+
+`DateIndexShapeBenchmark`: a flat 11-13% for the reordered index at every size, against a selective
+window. Not enough to pay for the extra index and the write cost it brings; see
+[The two remaining shortfalls](#the-two-remaining-shortfalls).
+
+`SqliteTuningBenchmark`: **nothing here is worth adopting.** `ANALYZE` leaves the prefix search at
+43.3 to 45.8 us/op, i.e. no better and possibly slightly worse. `journal_mode=WAL` and
+`synchronous=NORMAL` leave an indexed write at 14.1 ms against 15.5 and 15.9 ms — no gain, and the
+WAL arm was wildly variable (+/-10.2 ms). One caveat worth keeping: this write batches 500 rows into
+a single transaction, which is where WAL has least to offer. An engine doing many small
+transactions might answer differently, and that is the version worth measuring before concluding
+the engine should never set a PRAGMA.
+
+## Index usage
+
+`SearchQueryPlanTest` (in `:engine`'s `desktopTest`) runs `EXPLAIN QUERY PLAN` over each search shape
+and asserts which SQLite index it uses.
+
+```bash
+./gradlew :engine:desktopTest --tests "*SearchQueryPlanTest*"
+```
+
+Not a benchmark, deliberately. A lost index only becomes visible in a timing run at a large corpus,
+and a warm page cache hides it even then. The plan reports it in about a second, from an empty
+database. Timing answers *how slow*; the plan answers *why*.
+
+| Search | Index columns narrowed | Covering |
+|---|---|---|
+| token | all three | yes |
+| reference, uri | all three | no |
+| number, quantity | all three, range on the value | no |
+| string prefix, contains | all three, as a range | no |
+| **string `:exact`** | **two — `index_value` unused** | no |
+| **date, dateTime** | **two — the range columns unused** | yes |
+
+Sorting is never index-backed: every sorted search builds two temporary B-trees.
+
+### The two remaining shortfalls
+
+Both are pinned as tests that name them, and both have been fixed on a branch and measured.
+
+**`:exact` string search** compares `COLLATE BINARY` against a NOCASE index, and SQLite will not use
+an index whose collation differs from the comparison's. This is the deliberate price of making the
+common prefix search fast: the two cannot both be indexed without a second, BINARY-collated column
+mirroring `index_value`, which is disk and write cost for the rarer path.
+
+**Date and dateTime** indices are `(resourceType, index_name, resourceUuid, index_from, index_to)`.
+A range predicate can only use the column immediately after the equality prefix, and `resourceUuid`
+sits in between, so neither comparator family can range. Moving it last and adding a second index
+leading with `index_to` makes both usable, and measured **worse** end to end: about 13% on
+`search.patient_birthdate_range` and 13% on `crud.delete`, interleaved, n=3. `DateIndexShapeBenchmark`
+sweeps the same change from 1,000 to 50,000 rows against a *selective* window and finds a flat ~13%
+gain instead. The two do not contradict each other — they are different selectivities. Left as it is
+until something measures a case that wants it.
+
+### Selectivity decides everything
+
+An index can only pay for itself when the predicate rejects most rows. That makes selectivity a
+property of the **dataset**, not only the query, and getting it wrong disables the whole suite
+silently.
+
+This suite was wrong for a long time. `SyntheticDataset` had eight given names and eight family
+names, so `family = "Smith"` matched one patient in eight, and `search.patient_birthdate_range` asked
+for thirty years of a seventy-year spread — over 40%. At those fractions no index can help, so the
+search workloads could not tell a working index from a missing one. A real fix for prefix search
+measured as *no change at all* against that dataset and was nearly discarded on the strength of it;
+against a corpus with 676 names the same change is 3.4x to 4.5x end to end, and 38x in isolation.
+
+Datasets now supply the values workloads search for — `sampleFamilyName`, `sampleGivenName`,
+alongside the existing `sampleObservationCode` — so a query cannot drift away from the corpus it
+runs against. If you add a search workload, check what fraction of the corpus it matches. Anything
+above a few percent is measuring row fetching, not indexing.
+
+### Reading these plans honestly
+
+A query plan tells you *why* something is slow. It does not establish that a better-looking plan is
+faster; that depends on size and selectivity, and here it twice was not.
+
+Benchmarks on a developer machine need care to mean anything. During this work several single-run
+comparisons produced double-digit "effects" that vanished under repetition — including one on a
+read-only workload that no index change could possibly touch. What worked:
+
+- **Interleave the arms.** Run A, B, A, B, not all of A then all of B; machine state drifts.
+- **At least three repetitions per arm**, and compare the spread, not just the medians. Overlapping
+  ranges are not a result.
+- **Keep a control group** — workloads the change cannot affect. Their spread is the noise floor,
+  roughly ±4% for tens-of-milliseconds workloads here.
+- Ignore relative deltas on workloads below a few milliseconds.
+- Run nothing else on the machine while a sweep is going. A Gradle build counts. So does a rebase.
+
+Where the question is about SQLite rather than about the engine, prefer the JMH benchmarks above:
+they fork, warm and report a confidence interval, and need none of this discipline.
+
 ## Sample results
 
 ##### [**_SM-X135G — Samsung Galaxy Tab A9_**](https://www.gsmarena.com/samsung_galaxy_tab_a9-12558.php)
@@ -539,7 +684,12 @@ both match.** Different platform, different seed, different population, or a dif
 all mean the numbers are measuring different things.
 
 Per workload the report carries the raw `samplesMillis` plus min/median/p90/max/mean/stdDev and
-`medianMillisPerOp`. Prefer the median; `p90` shows how noisy the run was.
+`medianMillisPerOp`. Prefer the median.
+
+`p90` is **null unless at least 10 iterations were measured**, and the default is 5. Below ten
+samples nothing falls in the top decile, so an interpolated p90 is a relabelled maximum rather than
+a tail figure. Raise `-Pbenchmark.iterations` to 10 or more when you want one. Use `stdDev` — the
+sample standard deviation, corrected for sample size — to judge how noisy a shorter run was.
 
 ### Sanity checks
 
@@ -569,3 +719,20 @@ Before trusting a run:
   `internal`, so an external caller can only report failure. The `server` group covers upload
   against a running FHIR server; there is no in-process equivalent.
 - **`js`/`wasmJs` have two pre-existing `FhirEngineImplTest` failures** unrelated to benchmarking.
+
+- **`:exact` and date searches do not use their full index.** Both narrow on `(resourceType,
+  index_name)` and examine the rest. Fixes for both were measured; see [Index usage](#index-usage).
+
+- **Sorting is never index-backed.** Every sorted search builds two temporary B-trees.
+
+- **A cold cache is only as cold as SQLite's.** `-Pbenchmark.coldcache` reopens the database, which
+  drops SQLite's page cache but not the operating system's file cache, so it is a colder read than
+  the default rather than a genuinely cold one. Web cannot reopen in-process at all and says so in
+  the report. Measured on desktop at 20,000 patients it moves search medians by under 6%, inside
+  the noise floor — the file cache stays warm and the working set is small. It is likely to matter
+  more on a device with real storage.
+
+- **A run leaves its databases behind.** `benchmarkStorageDirectory()` mints a new directory per
+  engine open and nothing removes them, so `benchmarks/core/build/benchmark-db` grows without
+  bound: a session of roughly a hundred runs left 749 directories and 6.2 GB. Delete the directory
+  between sweeps, and be aware that a full disk inflates every timing on the machine.
