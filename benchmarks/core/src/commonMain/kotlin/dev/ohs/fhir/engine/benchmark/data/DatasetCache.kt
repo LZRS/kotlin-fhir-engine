@@ -41,5 +41,7 @@ internal data class DatasetMetadata(
   val patientIds: List<String>,
   val sampleObservationCode: String,
   val sampleOrganizationId: String,
+  val sampleFamilyName: String,
+  val sampleGivenName: String,
   val fingerprint: String,
 )

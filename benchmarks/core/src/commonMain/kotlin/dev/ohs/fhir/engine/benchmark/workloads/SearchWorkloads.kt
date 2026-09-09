@@ -54,10 +54,14 @@ object SearchWorkloads {
   fun all(): List<Workload> =
     listOf(
       search("search.patient_by_given_prefix") { env ->
-        env.engine.search<Patient> { filter(StringClientParam("given"), { value = "Ja" }) }
+        env.engine.search<Patient> {
+          filter(StringClientParam("given"), { value = env.dataset.sampleGivenName })
+        }
       },
       search("search.patient_by_family") { env ->
-        env.engine.search<Patient> { filter(StringClientParam("family"), { value = "Smith" }) }
+        env.engine.search<Patient> {
+          filter(StringClientParam("family"), { value = env.dataset.sampleFamilyName })
+        }
       },
       search("search.patient_by_gender_token") { env ->
         env.engine.search<Patient> {
@@ -67,20 +71,23 @@ object SearchWorkloads {
       search("search.patient_by_active_token") { env ->
         env.engine.search<Patient> { filter(TokenClientParam("active"), { value = of(true) }) }
       },
+      // A two-year window inside the generated 1940-2010 spread. It was thirty years, which
+      // matched over 40% of patients — a share no index can narrow, so the workload could not tell
+      // a working date index from a broken one.
       search("search.patient_birthdate_range") { env ->
         env.engine.search<Patient> {
           filter(
             DateClientParam("birthdate"),
             {
               prefix = SearchComparator.Gt
-              value = of(FhirDate.fromString("1960-01-01")!!)
+              value = of(FhirDate.fromString("1974-01-01")!!)
             },
           )
           filter(
             DateClientParam("birthdate"),
             {
               prefix = SearchComparator.Lt
-              value = of(FhirDate.fromString("1990-01-01")!!)
+              value = of(FhirDate.fromString("1976-01-01")!!)
             },
           )
         }
@@ -159,7 +166,7 @@ object SearchWorkloads {
         env.engine.search<Patient> {
           // OR between two filters, as opposed to search.patient_two_filters_and.
           operation = Operation.OR
-          filter(StringClientParam("given"), { value = "Ja" })
+          filter(StringClientParam("given"), { value = env.dataset.sampleGivenName })
           filter(
             DateClientParam("birthdate"),
             {
@@ -175,7 +182,7 @@ object SearchWorkloads {
           // index table, two candidate values.
           filter(
             StringClientParam("given"),
-            { value = "Ja" },
+            { value = env.dataset.sampleGivenName },
             { value = "Jo" },
             operation = Operation.OR,
           )

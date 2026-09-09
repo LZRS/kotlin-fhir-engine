@@ -43,6 +43,8 @@ private constructor(
   override val patientIds: List<String>,
   override val sampleObservationCode: String,
   override val sampleOrganizationId: String,
+  override val sampleFamilyName: String,
+  override val sampleGivenName: String,
   val parseFailures: List<String>,
   private val seed: Int,
   private val fingerprint: String,
@@ -114,6 +116,8 @@ private constructor(
           counts = metadata.counts,
           patientIds = metadata.patientIds,
           sampleObservationCode = metadata.sampleObservationCode,
+          sampleFamilyName = metadata.sampleFamilyName,
+          sampleGivenName = metadata.sampleGivenName,
           sampleOrganizationId = metadata.sampleOrganizationId,
           // A cached scan found no failures worth replaying; the run that wrote it reported them.
           parseFailures = emptyList(),
@@ -125,6 +129,8 @@ private constructor(
       val patientIds = mutableListOf<String>()
       val observationCodes = mutableMapOf<String, Int>()
       var organizationId = ""
+      var familyName = ""
+      var givenName = ""
       val parseFailures = mutableListOf<String>()
       var hash = 17L
 
@@ -144,7 +150,17 @@ private constructor(
           hash = hash * 31 + resource.id.hashCode()
           hash = hash * 31 + resource::class.simpleName.hashCode()
           when (resource) {
-            is Patient -> resource.id?.let { patientIds += it }
+            is Patient -> {
+              resource.id?.let { patientIds += it }
+              // Synthea surnames are varied enough that one whole name is a selective search; the
+              // first patient's is as good as any, and costs nothing extra to capture here.
+              if (familyName.isEmpty()) {
+                resource.name.firstOrNull()?.let { name ->
+                  familyName = name.family?.value.orEmpty()
+                  givenName = name.given.firstOrNull()?.value.orEmpty()
+                }
+              }
+            }
             is Organization -> if (organizationId.isEmpty()) organizationId = resource.id ?: ""
             is Observation ->
               observationCode(resource)?.let {
@@ -173,6 +189,8 @@ private constructor(
               patientIds = patientIds,
               sampleObservationCode = code,
               sampleOrganizationId = organizationId,
+              sampleFamilyName = familyName,
+              sampleGivenName = givenName,
               fingerprint = fingerprint,
             ),
           ),
@@ -185,6 +203,8 @@ private constructor(
         patientIds = patientIds,
         sampleObservationCode = code,
         sampleOrganizationId = organizationId,
+        sampleFamilyName = familyName,
+        sampleGivenName = givenName,
         parseFailures = parseFailures,
         seed = seed,
         fingerprint = fingerprint,
