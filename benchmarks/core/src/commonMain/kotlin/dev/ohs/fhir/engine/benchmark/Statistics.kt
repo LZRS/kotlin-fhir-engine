@@ -23,25 +23,47 @@ import kotlinx.serialization.Serializable
 data class Statistics(
   val min: Double,
   val median: Double,
-  val p90: Double,
+  /**
+   * Null when fewer than [MIN_SAMPLES_FOR_P90] samples were measured, which includes the default
+   * run. Reported as absent rather than as a number, because the number would not mean what its
+   * name promises.
+   */
+  val p90: Double?,
   val max: Double,
   val mean: Double,
+  /** Sample standard deviation. Zero for a single sample, where spread is undefined. */
   val stdDev: Double,
 ) {
   companion object {
+    /**
+     * Below ten samples nothing falls in the top decile at all, so an interpolated 90th percentile
+     * is a relabelled maximum: at five samples it lands between the fourth and the largest however
+     * the run went. Raise `-Pbenchmark.iterations` to at least this to get a real tail figure.
+     */
+    const val MIN_SAMPLES_FOR_P90 = 10
+
     fun of(samplesMillis: List<Double>): Statistics {
       require(samplesMillis.isNotEmpty()) { "Cannot summarise an empty sample list." }
       val sorted = samplesMillis.sorted()
       val mean = sorted.sum() / sorted.size
-      val variance = sorted.sumOf { (it - mean) * (it - mean) } / sorted.size
       return Statistics(
         min = sorted.first(),
         median = sorted.percentile(0.50),
-        p90 = sorted.percentile(0.90),
+        p90 = if (sorted.size >= MIN_SAMPLES_FOR_P90) sorted.percentile(0.90) else null,
         max = sorted.last(),
         mean = mean,
-        stdDev = sqrt(variance),
+        stdDev = sorted.sampleStandardDeviation(mean),
       )
+    }
+
+    /**
+     * Bessel's correction. These samples estimate how much a workload's timing varies; they are not
+     * the entire population of its timings, so the sum of squares is divided by n-1. Dividing by n
+     * would report a run as more consistent than the evidence supports.
+     */
+    private fun List<Double>.sampleStandardDeviation(mean: Double): Double {
+      if (size < 2) return 0.0
+      return sqrt(sumOf { (it - mean) * (it - mean) } / (size - 1))
     }
 
     /** Linear interpolation between the two nearest ranks. */

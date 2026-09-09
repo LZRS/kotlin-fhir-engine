@@ -76,13 +76,16 @@ class FhirEngineBenchmarks {
       appendLine(
         "  ${result.id.padEnd(42)} " +
           "${format(result.statistics.median).padStart(11)} " +
-          "${format(result.statistics.p90).padStart(10)} " +
+          "${formatOrAbsent(result.statistics.p90).padStart(10)} " +
           "${format(result.medianMillisPerOp).padStart(10)}  ${result.opsPerIteration}" +
           (result.error?.let { "  ERROR $it" } ?: "") +
           (result.isolationNote?.let { "  (isolation degraded)" } ?: ""),
       )
     }
   }
+
+  /** Absent below `Statistics.MIN_SAMPLES_FOR_P90`, where a p90 would only relabel the maximum. */
+  private fun formatOrAbsent(value: Double?): String = value?.let(::format) ?: "-"
 
   private fun format(value: Double): String {
     val scaled = (value * 1000).toLong()
