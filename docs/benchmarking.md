@@ -42,14 +42,16 @@ The report prints as a table and is written to
 | `-Pbenchmark.seed` | `20260819` | Dataset seed. Changing it changes the fingerprint. |
 | `-Pbenchmark.workloads` | none | Comma-separated workload ids. Beats `groups`; the fastest way to measure one thing. |
 | `-Pbenchmark.population` | from the profile | Patient count, for walking a scaling curve without a new profile. |
+| `-Pbenchmark.mix` | `8x2` | Generated clinical volume per patient, `<observations>x<conditions>`, or `off`. |
 | `-Pbenchmark.coldcache` | `false` | Reopen the database between iterations of read-only workloads, so they stop measuring warm pages. |
 | `-Pbenchmark.server` | none | Base URL for the `server` group, which is skipped without it |
 | `-Pbenchmark.report.dir` | `build/reports/benchmarks` | Where the JSON lands |
 | `-Pbenchmark.data.dir` | the packaged output | Where the Synthea corpus is read from |
 | `-Pbenchmark.storage.dir` | `build/benchmark-db` | Where the engine's database file goes |
 
-The first six also work on `jsBrowserTest`, `wasmJsBrowserTest` and `iosSimulatorArm64Test`;
-`-Pbenchmark.server` works on Android and iOS but not on web. The three directory flags are desktop-only —
+The first six also work on `jsBrowserTest`, `wasmJsBrowserTest` and `iosSimulatorArm64Test`.
+`-Pbenchmark.mix` works on desktop and Android; `-Pbenchmark.server` works on Android and iOS but
+not on web. The three directory flags are desktop-only —
 [Web](#web) and [iOS](#ios) say where those paths come from instead. Browser runs also have their
 own lighter defaults.
 
@@ -90,7 +92,8 @@ benchmark tablet, most of it observations no query would otherwise need in that 
 So the corpus carries patients, encounters, organizations and practitioners; the observations and
 conditions the search workloads query are **generated in code** against its real patient ids
 (`AugmentedDataset`). That makes the per-patient clinical volume a number this repository sets
-rather than one Synthea decides — currently 8 observations and 2 conditions, in `ClinicalMix`.
+rather than one Synthea decides. It is 8 observations and 2 conditions by default, and
+`-Pbenchmark.mix` sets it: `12x3` for more, `off` to generate nothing and measure the corpus alone.
 
 | `-Pbenchmark.population` | From the corpus | Generated | Total loaded |
 |---|---|---|---|

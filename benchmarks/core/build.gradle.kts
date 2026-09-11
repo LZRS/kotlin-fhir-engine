@@ -88,6 +88,7 @@ tasks.named<Test>("desktopTest") {
       "benchmark.coldcache",
       "benchmark.workloads",
       "benchmark.population",
+      "benchmark.mix",
       "benchmark.report.dir",
       "benchmark.storage.dir",
       "benchmark.data.dir",

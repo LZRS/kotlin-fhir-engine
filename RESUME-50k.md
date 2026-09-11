@@ -50,8 +50,9 @@ patient) = ~667k rows, about 73 minutes for the one-time seed.
 - Synthea runs the pregnancy module only. The full module set gives 131 resources per
   patient — ~5.4 GB and ~13.6 hours to insert at 50k. Observations and conditions are
   generated in code instead (AugmentedDataset), which makes per-patient volume a dial.
-- The mix is 8 observations + 2 conditions, hardcoded in ClinicalMix(). No Gradle flag
-  for it yet. Both are types a workload actually queries; ballast types were left out.
+- The mix defaults to 8 observations + 2 conditions, and -Pbenchmark.mix changes it —
+  `off` generates nothing. Both are types a workload actually queries; ballast types
+  were left out.
 - A database snapshot mechanism was written and then deleted once
   -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true turned out to solve the
   same problem in one flag.
