@@ -145,3 +145,19 @@ read-only workload that no index change could possibly touch. What worked:
 
 The JMH benchmarks here need none of this discipline themselves: they fork, warm and report a
 confidence interval. The discipline is for end-to-end comparisons run by hand.
+
+## A failing benchmark does not fail the build
+
+kotlinx-benchmark 0.5.0 builds its JMH `Runner` with `shouldFailOnError` left at JMH's default of
+`false`, and exposes no setting to change it. A benchmark whose `@Setup` throws is therefore
+reported as `<failure>` in the console, **omitted entirely from the JSON report**, and the process
+still exits 0. The report has no failure or error field, so a run that lost three of twenty
+benchmarks is indistinguishable from one that was only ever configured to run seventeen.
+
+This is not hypothetical. `StringIndexCollationBenchmark` asserts that its two arms produce
+different query plans; run it against an engine without the NOCASE column and three of its six
+combinations abort in setup. Gradle reported `BUILD SUCCESSFUL`.
+
+`engine/build.gradle.kts` therefore watches the runner's own output and fails the task when a
+failure marker appears. If these benchmarks are ever added to CI, that check is what makes a broken
+benchmark visible; without it the job goes green.

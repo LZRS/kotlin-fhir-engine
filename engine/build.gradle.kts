@@ -1,4 +1,6 @@
 import dev.ohs.fhir.engine.codegen.GenerateSearchParamsTask
+import java.io.ByteArrayOutputStream
+import org.apache.tools.ant.util.TeeOutputStream
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 
 plugins {
@@ -180,6 +182,33 @@ benchmark {
       iterations = 5
       iterationTime = 500
       iterationTimeUnit = "ms"
+    }
+  }
+}
+
+// kotlinx-benchmark builds its JMH Runner with shouldFailOnError left at JMH's default of false,
+// and exposes no setting to change it. A benchmark whose @Setup throws is printed as `<failure>`,
+// dropped from the JSON report — which carries no error field at all — and the process still exits
+// 0, so a run that lost three of twenty benchmarks looks exactly like a green one. Watch the
+// runner's own output instead, and fail the task on the markers it prints. See
+// docs/benchmarking.md.
+tasks.withType<JavaExec>().configureEach {
+  // The plugin sets `group` after this action runs, so filter on the name instead.
+  if (name.endsWith("Benchmark")) {
+    val transcript = ByteArrayOutputStream()
+    standardOutput = TeeOutputStream(System.out, transcript)
+    doLast {
+      val lines = transcript.toString().lineSequence().map { it.trim() }.toList()
+      // A failed benchmark emits both markers, so the larger count is the number of benchmarks
+      // lost, not their sum. Either alone is still a failure.
+      val count =
+        maxOf(lines.count { it == "<failure>" }, lines.count { it.startsWith("EXCEPTION:") })
+      if (count > 0) {
+        throw GradleException(
+          "$count benchmark(s) failed to run. kotlinx-benchmark omits them from the report and " +
+            "exits 0, so this check is the only thing failing the build. See the output above.",
+        )
+      }
     }
   }
 }
