@@ -30,6 +30,7 @@ import kotlinx.benchmark.Scope
 import kotlinx.benchmark.Setup
 import kotlinx.benchmark.State
 import kotlinx.benchmark.TearDown
+import org.openjdk.jmh.annotations.Level
 
 /**
  * What SQLite's own settings are worth to this schema.
@@ -47,7 +48,15 @@ import kotlinx.benchmark.TearDown
 @OutputTimeUnit(BenchmarkTimeUnit.MICROSECONDS)
 open class SqliteTuningBenchmark {
 
-  /** `default` is what the engine ships today. */
+  /**
+   * `default` is what the engine ships today.
+   *
+   * `analyze` doubles as a control for the two write benchmarks. ANALYZE only feeds the query
+   * planner, so it cannot change what a write costs: any gap between it and `default` on an insert
+   * is the machine's noise floor, not an effect. If that gap is larger than the gap between
+   * `default` and the WAL arms, the run says nothing about WAL and should be repeated on an idle
+   * machine.
+   */
   @Param("default", "analyze", "wal", "walRelaxed") var tuning: String = ""
 
   private lateinit var database: IndexBenchmarkDatabase
@@ -80,20 +89,48 @@ open class SqliteTuningBenchmark {
     check(database.count(query) > 0) { "the probe prefix matches nothing at $ROWS rows" }
   }
 
+  /**
+   * The write benchmarks append without removing, so the table would grow all through a run and
+   * every later invocation would measure a larger index than the one before it. Resetting per
+   * iteration bounds that drift; it costs nothing for [prefixSearch], which deletes no rows.
+   */
+  @Setup(Level.Iteration)
+  fun resetInsertedRows() {
+    database.deleteInsertedRows()
+  }
+
   @TearDown fun tearDown() = database.close()
 
   /** Planning is where ANALYZE can help; the query is unremarkable on purpose. */
   @Benchmark fun prefixSearch(): Int = database.count(query)
 
-  /** An indexed write, which is what journal mode and synchronous act on. */
+  /**
+   * An indexed write in one transaction. Journal settings have least to offer here: whatever a
+   * commit costs is paid once and spread across every row in it.
+   */
   @Benchmark
-  fun insertIndexedRows() {
-    database.insertIndexRows(INSERT_BATCH, batch++)
+  fun insertIndexedRowsBatched() {
+    database.insertIndexRows(BATCHED_INSERTS, batch++)
+  }
+
+  /**
+   * The same write split one row per transaction, where the commit cost is paid in full each time.
+   * This is where a journal setting can actually show itself.
+   *
+   * Not comparable to [insertIndexedRowsBatched] — it writes fewer rows, deliberately, to keep the
+   * run bounded. Compare each across the tuning arms, never against the other.
+   */
+  @Benchmark
+  fun insertIndexedRowsPerTransaction() {
+    database.insertIndexRowsPerTransaction(SINGLE_INSERTS, batch++)
   }
 
   private companion object {
     const val ROWS = 20_000
-    const val INSERT_BATCH = 500
+    const val BATCHED_INSERTS = 500
+
+    /** Fewer, because each one pays a commit; enough that the per-commit cost is not noise. */
+    const val SINGLE_INSERTS = 50
     const val PROBE_ROW = 42
   }
 }

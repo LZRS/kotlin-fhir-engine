@@ -118,7 +118,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
         usePrepared(
           "INSERT INTO StringIndexEntity " +
             "(resourceUuid, resourceType, index_name, index_path, index_value) " +
-            "VALUES (?, 'Patient', 'family', 'Patient.name.family', ?)",
+            "VALUES (?, 'Patient', 'family', '$INSERTED_MARKER', ?)",
         ) { statement ->
           repeat(count) { row ->
             statement.bindText(1, uuidFor(row))
@@ -126,6 +126,53 @@ internal class IndexBenchmarkDatabase(private val file: File) {
             statement.step()
             statement.reset()
           }
+        }
+      }
+    }
+  }
+
+  /**
+   * Appends [count] string index rows, each in its own transaction.
+   *
+   * The counterpart to [insertIndexRows], and the shape that actually exercises journal mode.
+   * `journal_mode` and `synchronous` govern what a *commit* must durably record, so one transaction
+   * of five hundred rows amortises them almost to nothing while five hundred transactions of one
+   * row pays them five hundred times over. An engine saving a resource at a time is the second
+   * shape, so measuring only the first answers the easier question.
+   */
+  fun insertIndexRowsPerTransaction(count: Int, batch: Int) = runBlocking {
+    database.useWriterConnection { transactor ->
+      repeat(count) { row ->
+        transactor.withTransaction(Transactor.SQLiteTransactionType.IMMEDIATE) {
+          usePrepared(
+            "INSERT INTO StringIndexEntity " +
+              "(resourceUuid, resourceType, index_name, index_path, index_value) " +
+              "VALUES (?, 'Patient', 'family', '$INSERTED_MARKER', ?)",
+          ) { statement ->
+            statement.bindText(1, uuidFor(row))
+            statement.bindText(2, "single$batch-row$row")
+            statement.step()
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Removes everything the write benchmarks appended, returning the table to its seeded size.
+   *
+   * Without this each invocation leaves its rows behind, so the index grows all through an
+   * iteration and later invocations measure a bigger tree than earlier ones. That shows up as a
+   * drifting mean and an error bar wider than the number it qualifies.
+   */
+  fun deleteInsertedRows() = runBlocking {
+    database.useWriterConnection { transactor ->
+      transactor.withTransaction(Transactor.SQLiteTransactionType.IMMEDIATE) {
+        usePrepared(
+          "DELETE FROM StringIndexEntity WHERE index_name = 'family' AND index_path = ?",
+        ) { statement ->
+          statement.bindText(1, INSERTED_MARKER)
+          statement.step()
         }
       }
     }
@@ -208,6 +255,9 @@ internal class IndexBenchmarkDatabase(private val file: File) {
   }
 
   companion object {
+    /** Tags rows a write benchmark added, so [deleteInsertedRows] can remove exactly those. */
+    const val INSERTED_MARKER = "Benchmark.inserted"
+
     /** Roughly 55 years of birthdates, so a decade-wide range is a real slice. */
     const val DAY_SPREAD = 20_000
 
