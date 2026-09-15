@@ -41,9 +41,10 @@ import kotlinx.datetime.LocalDate
  * `DateIndexEntity`'s filtering index is `(resourceType, index_name, resourceUuid, index_from,
  * index_to)`. A range predicate can only use the column after the equality prefix, and
  * `resourceUuid` sits in between, so no date comparator can range — confirmed by
- * `SearchQueryPlanTest`. Reordering it was tried against `:benchmarks:core` at 1,000 patients and
- * measured about 13% *worse*. The open question is whether that reverses once the table is large
- * enough for a seek to beat a scan, which is what [rows] sweeps.
+ * `SearchQueryPlanTest`. Reordering it has been tried end to end, against a real engine and a
+ * 1,000-patient corpus, and measured about 13% *worse* on both a date range search and a delete.
+ * The open question is whether that reverses once the table is large enough for a seek to beat a
+ * scan, which is what [rows] sweeps.
  *
  * Indices are rebuilt with raw DDL per trial, so both shapes are measured in one JVM against one
  * schema — no source edits, no rebuilds, and no hand-rolled interleaving, because JMH already forks
@@ -217,9 +218,9 @@ open class StringIndexCollationBenchmark {
  * Fails a trial whose query does not select the slice it was designed to.
  *
  * Selectivity is the whole game for an index: a predicate matching half the table cannot be helped
- * by one, and a predicate matching nothing is not being measured at all. `:benchmarks:core` learned
- * this the hard way — its synthetic dataset has eight given names, so every prefix search there
- * matches an eighth of the corpus and no index change can ever show a benefit.
+ * by one, and a predicate matching nothing is not being measured at all. This was learned the hard
+ * way: an end-to-end suite whose generated corpus held eight given names matched an eighth of it on
+ * every prefix search, and so could never show a benefit from any index change at all.
  */
 private fun assertSelectivity(matched: Int, rows: Int, expectedFraction: Double, arm: String) {
   val expected = rows * expectedFraction

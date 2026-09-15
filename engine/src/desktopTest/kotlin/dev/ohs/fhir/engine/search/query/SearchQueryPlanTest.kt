@@ -169,10 +169,11 @@ class SearchQueryPlanTest {
    * and both narrow on `(resourceType, index_name)` alone.
    *
    * Moving `resourceUuid` to the end and adding a second index leading with `index_to` does make
-   * the ranges usable. It was tried, and measured **worse**: about 13% slower on both
-   * `search.patient_birthdate_range` and `crud.delete`. At this corpus a covering scan of the
-   * equality prefix beats a seek, and a range filter that spans two subqueries then needs two
-   * separate indices. See "Index usage" in docs/benchmarking.md.
+   * the ranges usable. It was tried, and measured **worse** end to end: about 13% slower on both a
+   * date range search and a delete, against a 1,000-patient corpus. At that size a covering scan of
+   * the equality prefix beats a seek, and a range spanning two subqueries then needs two separate
+   * index traversals instead of sharing one. `DateIndexShapeBenchmark` sweeps the same change up to
+   * 50,000 rows; see "Index usage" in docs/benchmarking.md.
    */
   @Test
   fun `date search above a bound cannot use the range columns`() = runTest {
