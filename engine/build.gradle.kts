@@ -180,7 +180,7 @@ benchmark {
     // the pure-CPU benchmarks keeps an A/B to about a minute instead of the full suite.
     register("index") {
       include(
-        "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\.(DateIndexShape|StringIndexCollation|SqliteTuning|PayloadRepresentation)Benchmark",
+        "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\.(DateIndexShape|StringIndexCollation|SqliteTuning|PayloadRepresentation|Resource(Insert|Update|Delete|Read))Benchmark",
       )
       warmups = 3
       iterations = 5
