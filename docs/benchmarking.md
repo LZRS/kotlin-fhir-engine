@@ -31,6 +31,7 @@ engine does not build.
 | `PatchOrderingBenchmark` | Tarjan's over the pending-upload graph, the only cost that grows with queue length |
 | `DateIndexShapeBenchmark` | Date index column order, swept from 1,000 to 50,000 rows |
 | `StringIndexCollationBenchmark` | String index collation, swept the same way |
+| `PayloadRepresentationBenchmark` | Storing `serializedResource` as JSON text against the same resources as a protobuf blob |
 | `SqliteTuningBenchmark` | `ANALYZE`, `journal_mode` and `synchronous`, which the engine never sets |
 
 The index sweeps write rows straight into the index tables rather than through `FhirEngine`, because
