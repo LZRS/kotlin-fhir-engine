@@ -114,13 +114,13 @@ An index can only pay for itself when the predicate rejects most rows. That make
 property of the **dataset**, not only the query, and getting it wrong disables a whole suite
 silently.
 
-This was learned the hard way. An end-to-end suite ran for a long time against a corpus with eight
-given names and eight family names, so `family = "Smith"` matched one patient in eight, and a
-birth-date range asked for thirty years of a seventy-year spread — over 40%. At those fractions no
-index can help, so the search workloads could not tell a working index from a missing one. The
-prefix-search fix above measured as *no change at all* against that dataset and was nearly discarded
-on the strength of it; against a corpus with 676 names the same change is 3.4x to 4.5x end to end,
-and 38x in isolation.
+This was learned the hard way, on the end-to-end benchmark suite that lives outside this module. It
+ran for a long time against a generated corpus of eight given names and eight family names, so
+`family = "Smith"` matched one patient in eight, and a birth-date range asked for thirty years of a
+seventy-year spread — over 40%. At those fractions no index can help, so its search workloads could
+not tell a working index from a missing one. The prefix-search fix above measured as *no change at
+all* there and was nearly discarded on the strength of it. Widening the corpus to 676 distinct names
+made the same change 3.4x to 4.5x end to end, against the 38x measured here in isolation.
 
 This is why every index benchmark here calls `assertSelectivity` in its setup: a trial whose
 predicate stops matching the slice it was designed for fails loudly instead of quietly measuring row
