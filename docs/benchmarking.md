@@ -21,18 +21,19 @@ confidence interval, so these land near ±0.3%. Its Kotlin/JS support targets No
 project's web targets are browser-configured, and a native target would need a `macosArm64` the
 engine does not build.
 
-| Class | What it measures |
-|---|---|
-| `ResourceIndexerBenchmark` | `ResourceIndexer.index()` — a FHIRPath evaluation per search parameter, on every write |
-| `JsonDiffBenchmark` | `JsonDiff.diff()` — the hand-written RFC 6902 replacement for Jackson + jsonpatch |
-| `ResourceSerializerBenchmark` | The serialize/deserialize floor under every read and write |
-| `SearchQueryBenchmark` | `Search.getQuery()` — per-query cost, independent of how much is stored |
-| `MoreResourcesBenchmark` | `getResourceClass`, `updateMeta`, `withId` — per-resource helpers |
-| `PatchOrderingBenchmark` | Tarjan's over the pending-upload graph, the only cost that grows with queue length |
-| `DateIndexShapeBenchmark` | Date index column order, swept from 1,000 to 50,000 rows |
-| `StringIndexCollationBenchmark` | String index collation, swept the same way |
+| Class                            | What it measures                                                                        |
+|----------------------------------|-----------------------------------------------------------------------------------------|
+| `ResourceIndexerBenchmark`       | `ResourceIndexer.index()` — a FHIRPath evaluation per search parameter, on every write  |
+| `JsonDiffBenchmark`              | `JsonDiff.diff()` — the hand-written RFC 6902 replacement for Jackson + jsonpatch       |
+| `ResourceSerializerBenchmark`    | The serialize/deserialize floor under every read and write                              |
+| `SearchQueryBenchmark`           | `Search.getQuery()` — per-query cost, independent of how much is stored                 |
+| `MoreResourcesBenchmark`         | `getResourceClass`, `updateMeta`, `withId` — per-resource helpers                       |
+| `PatchOrderingBenchmark`         | Tarjan's over the pending-upload graph, the only cost that grows with queue length      |
+| `DateIndexShapeBenchmark`        | Date index column order, swept from 1,000 to 50,000 rows                                |
+| `StringIndexCollationBenchmark`  | String index collation, swept the same way                                              |
+| `ResourceInsertBenchmark`, `ResourceUpdateBenchmark`, `ResourceDeleteBenchmark`, `ResourceReadBenchmark` | The CRUD paths through the real `ResourceDao` and schema |
 | `PayloadRepresentationBenchmark` | Storing `serializedResource` as JSON text against the same resources as a protobuf blob |
-| `SqliteTuningBenchmark` | `ANALYZE`, `journal_mode` and `synchronous`, which the engine never sets |
+| `SqliteTuningBenchmark`          | `ANALYZE`, `journal_mode` and `synchronous`, which the engine never sets                |
 
 The index sweeps write rows straight into the index tables rather than through `FhirEngine`, because
 the question is what an index costs, not what indexing costs. That is also what makes 50,000 rows
@@ -75,14 +76,14 @@ Not a benchmark, deliberately. A lost index only becomes visible in a timing run
 and a warm page cache hides it even then. The plan reports it in about a second, from an empty
 database. Timing answers *how slow*; the plan answers *why*.
 
-| Search | Index columns narrowed | Covering |
-|---|---|---|
-| token | all three | yes |
-| reference, uri | all three | no |
-| number, quantity | all three, range on the value | no |
-| string prefix, contains | all three, as a range | no |
-| **string `:exact`** | **two — `index_value` unused** | no |
-| **date, dateTime** | **two — the range columns unused** | yes |
+| Search                  | Index columns narrowed             | Covering |
+|-------------------------|------------------------------------|----------|
+| token                   | all three                          | yes      |
+| reference, uri          | all three                          | no       |
+| number, quantity        | all three, range on the value      | no       |
+| string prefix, contains | all three, as a range              | no       |
+| **string `:exact`**     | **two — `index_value` unused**     | no       |
+| **date, dateTime**      | **two — the range columns unused** | yes      |
 
 Sorting is never index-backed: every sorted search builds two temporary B-trees.
 
