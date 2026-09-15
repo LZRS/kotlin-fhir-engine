@@ -133,7 +133,11 @@ kotlin {
       )
     }
     val desktopBenchmark by getting {
-      dependencies { implementation(libs.kotlinx.benchmark.runtime) }
+      dependencies {
+        implementation(libs.kotlinx.benchmark.runtime)
+        // Benchmark-only: used to ask whether a binary payload is even representable here.
+        implementation(libs.kotlinx.serialization.protobuf)
+      }
     }
     val desktopTest by getting {
       // `SearchParameterRepositoryGeneratedTest` reads the same FHIR R4 search-parameters bundle
@@ -176,7 +180,7 @@ benchmark {
     // the pure-CPU benchmarks keeps an A/B to about a minute instead of the full suite.
     register("index") {
       include(
-        "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\.(DateIndexShape|StringIndexCollation|SqliteTuning)Benchmark",
+        "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\.(DateIndexShape|StringIndexCollation|SqliteTuning|PayloadRepresentation)Benchmark",
       )
       warmups = 3
       iterations = 5
