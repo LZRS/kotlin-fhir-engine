@@ -178,3 +178,42 @@ jobs:
           path: |
             engine/build/reports/
             engine/build/outputs/androidTest-results/
+
+  benchmark:
+    name: Micro benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add swap space
+        run: |
+          sudo swapoff -a || true
+          sudo rm -f /mnt/swapfile
+          sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=8192
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # kotlinx-benchmark exits 0 when a benchmark's @Setup throws, and drops it from the report.
+      # The doLast check in engine/build.gradle.kts watches the runner's output and fails the task
+      # instead, which is what keeps this job honest. See docs/benchmarking.md.
+      - name: Run micro benchmarks
+        run: ./gradlew :engine:benchmark "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
+
+      - name: Upload benchmark reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-reports
+          path: engine/build/reports/benchmarks/main/

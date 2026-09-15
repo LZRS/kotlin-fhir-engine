@@ -159,5 +159,14 @@ different query plans; run it against an engine without the NOCASE column and th
 combinations abort in setup. Gradle reported `BUILD SUCCESSFUL`.
 
 `engine/build.gradle.kts` therefore watches the runner's own output and fails the task when a
-failure marker appears. If these benchmarks are ever added to CI, that check is what makes a broken
-benchmark visible; without it the job goes green.
+failure marker appears.
+
+That check is what the CI job stands on. `.github/workflows/ci.yml` runs `:engine:benchmark` on
+every pull request and every push to `main`, and without the marker check a run that lost three of
+twenty benchmarks would report exactly the same green tick as a clean one.
+
+What the job establishes is that the benchmarks **run and their assertions hold** —
+`assertSelectivity` in every index trial, and the query-plan comparison in the collation sweep. It
+does not establish that performance held. The numbers come off a shared runner, so read the
+uploaded JSON for what ran, not as a trend; see
+[Reading these plans honestly](#reading-these-plans-honestly).
