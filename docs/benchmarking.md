@@ -199,7 +199,8 @@ out the base branch beside the head and runs the same tier against each, on the 
 minutes apart. The comment on the pull request is the *difference* between the two.
 
 The tier is split in two so that each benchmark gets the sampling it needs to show a change.
-`prBenchmark` runs everything else at ten half-second iterations, with the scaling sweeps pinned to
+`prBenchmark` runs everything else except `SqliteTuningBenchmark` — journal and fsync settings mean
+nothing on tmpfs, and its question is settled — at ten half-second iterations, with the scaling sweeps pinned to
 their smallest size (`rows=1000`, `changeCount=50`). `prNoisyBenchmark` runs the CRUD and
 `MoreResources` benchmarks at ten one-second iterations instead: an indexed update takes about
 300 ms on a runner, so a half-second iteration would hold a single disk write.
