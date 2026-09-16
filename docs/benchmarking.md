@@ -221,6 +221,10 @@ of the 54 pull-request benchmarks could not show a 5% change. Projected from tho
 iterations leaves about 13 — mostly the disk-bound CRUD and SQLite-tuning rows, which is the honest
 limit of a shared runner.
 
+On a pull request the benchmark databases live on tmpfs (`-Pbenchmark.tmpdir=/dev/shm/benchmarks`):
+the runner's disk varied up to 3x within one job, which would drown out any code change. Write
+benchmarks still run their SQL, indexing and cascades; only disk speed is removed.
+
 If the base branch predates the benchmarks, its run fails, that failure is tolerated, and the
 comment shows the head on its own with the "indicative only" caveat.
 

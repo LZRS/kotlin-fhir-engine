@@ -167,6 +167,15 @@ kotlin {
 // JMH subclasses the @State class to generate its harness, and Kotlin classes are final by default.
 allOpen { annotation("org.openjdk.jmh.annotations.State") }
 
+// -Pbenchmark.tmpdir moves benchmark databases, e.g. onto tmpfs in CI to take disk jitter out.
+// JMH forks inherit the host JVM's arguments, so setting it on the exec task reaches them.
+tasks
+  .withType<JavaExec>()
+  .matching { it.name.startsWith("desktopBenchmark") }
+  .configureEach {
+    providers.gradleProperty("benchmark.tmpdir").orNull?.let { jvmArgs("-Djava.io.tmpdir=$it") }
+  }
+
 /** Benchmarks whose error on a shared CI runner needs more samples than the rest of the tier. */
 val NOISY_ON_CI =
   "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\.(MoreResources|Resource(Insert|Update|Delete|Read))Benchmark"
@@ -189,7 +198,8 @@ benchmark {
       param("rows", 1000)
       param("changeCount", 50)
       // Five warmups: at three, CI still showed JIT drift in the first measured iterations.
-      // Ten iterations: at five, Student's t (8.47) left most intervals too wide to see a 5% change.
+      // Ten iterations: at five, Student's t (8.47) left most intervals too wide to see a 5%
+      // change.
       warmups = 5
       iterations = 10
       iterationTime = 500
@@ -234,10 +244,14 @@ tasks.withType<JavaExec>().configureEach {
     standardOutput = TeeOutputStream(System.out, transcript)
     doLast {
       val lines = transcript.toString().lineSequence().map { it.trim() }.toList()
-      // A failed benchmark emits both markers, so the larger count is the number of benchmarks
-      // lost, not their sum. Either alone is still a failure.
+      // A failed benchmark emits several markers, so the largest count is the number lost, not
+      // their sum. "Failure:" alone is the runner itself failing before any benchmark ran.
       val count =
-        maxOf(lines.count { it == "<failure>" }, lines.count { it.startsWith("EXCEPTION:") })
+        maxOf(
+          lines.count { it == "<failure>" },
+          lines.count { it.startsWith("EXCEPTION:") },
+          lines.count { it.startsWith("Failure:") },
+        )
       if (count > 0) {
         throw GradleException(
           "$count benchmark(s) failed to run. kotlinx-benchmark omits them from the report and " +
