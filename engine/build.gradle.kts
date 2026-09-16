@@ -176,6 +176,18 @@ benchmark {
       iterationTime = 1
       iterationTimeUnit = "s"
     }
+    // The per-pull-request tier. CI runs it twice in one job, against the base branch and then the
+    // head, and comments with the difference — so it has to fit in a few minutes a side. Every
+    // class runs, but the scaling sweeps are pinned to their smallest size: the shape of the curve
+    // is a question for the full tier, and a regression at 1,000 rows is a regression at 50,000.
+    register("pr") {
+      param("rows", 1000)
+      param("changeCount", 50)
+      warmups = 3
+      iterations = 5
+      iterationTime = 500
+      iterationTimeUnit = "ms"
+    }
     // Just the index-shape sweeps. They carry their own @Param grid, so running them apart from
     // the pure-CPU benchmarks keeps an A/B to about a minute instead of the full suite.
     register("index") {
