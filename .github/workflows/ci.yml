@@ -188,10 +188,8 @@ jobs:
   benchmark:
     name: Micro benchmarks
     runs-on: ubuntu-latest
-    # A pull request runs the tier twice, base then head. Locally a side takes about ten minutes, and
-    # most of the CRUD half is untimed per-invocation setup writing to disk, which is where runners
-    # are slowest; sixty minutes left too little room for both. Tune from the job's real timings.
-    timeout-minutes: 90
+    # A pull request runs the tier twice; each side takes about ten minutes on CI.
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
