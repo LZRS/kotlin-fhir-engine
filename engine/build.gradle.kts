@@ -188,12 +188,9 @@ benchmark {
       exclude(NOISY_ON_CI)
       param("rows", 1000)
       param("changeCount", 50)
-      // Ten, not five, because a regression the comment cannot see is worse than a slower job.
-      // JMH's 99.9% interval scales with Student's t over the iteration count, and five iterations
-      // leaves t at 8.47; ten brings it to 4.78, shrinking every interval to about 40% of its
-      // width.
-      // On the first CI run, five iterations left 29 of 54 benchmarks unable to show a 5% change.
-      warmups = 3
+      // Five warmups: at three, CI still showed JIT drift in the first measured iterations.
+      // Ten iterations: at five, Student's t (8.47) left most intervals too wide to see a 5% change.
+      warmups = 5
       iterations = 10
       iterationTime = 500
       iterationTimeUnit = "ms"
