@@ -211,6 +211,16 @@ jobs:
       - name: Run micro benchmarks
         run: ./gradlew :engine:benchmark "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
 
+      # The commenting workflow runs detached from this one and cannot ask which pull request it
+      # belongs to: workflow_run.pull_requests is empty for a pull request raised from a fork, which
+      # is how this repository receives them. Carrying the number in the artifact is what makes the
+      # comment reachable.
+      - name: Record the pull request number
+        if: always() && github.event_name == 'pull_request'
+        run: |
+          mkdir -p engine/build/reports/benchmarks/main
+          echo "${{ github.event.number }}" > engine/build/reports/benchmarks/main/pr-number.txt
+
       - name: Upload benchmark reports
         uses: actions/upload-artifact@v4
         if: always()
