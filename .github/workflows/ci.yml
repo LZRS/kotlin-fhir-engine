@@ -188,7 +188,10 @@ jobs:
   benchmark:
     name: Micro benchmarks
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # A pull request runs the tier twice, base then head. Locally a side takes about ten minutes, and
+    # most of the CRUD half is untimed per-invocation setup writing to disk, which is where runners
+    # are slowest; sixty minutes left too little room for both. Tune from the job's real timings.
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v4
@@ -230,11 +233,11 @@ jobs:
         if: github.event_name == 'pull_request'
         continue-on-error: true
         working-directory: base
-        run: ./gradlew :engine:prBenchmark "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
+        run: ./gradlew :engine:prBenchmark :engine:prNoisyBenchmark "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
 
       - name: Run the pull-request tier against the head
         if: github.event_name == 'pull_request'
-        run: ./gradlew :engine:prBenchmark "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
+        run: ./gradlew :engine:prBenchmark :engine:prNoisyBenchmark "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
 
       # A push to main runs the full tier, scaling sweeps included. Its artifact is the record any
       # later trend has to be built from.
@@ -242,16 +245,18 @@ jobs:
         if: github.event_name != 'pull_request'
         run: ./gradlew :engine:benchmark "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
 
-      # One layout for the commenting workflow, whichever tier ran. workflow_run.pull_requests is
-      # empty for a pull request raised from a fork, which is how this repository receives them,
-      # so the number travels inside the artifact.
+      # One layout for the commenting workflow, whichever tier ran. Each configuration keeps its
+      # own directory — the pull-request tier is split across two, and the table picks the newest
+      # run per configuration. workflow_run.pull_requests is empty for a pull request raised from a
+      # fork, which is how this repository receives them, so the number travels inside the artifact.
       - name: Collect reports
         if: always()
         run: |
           mkdir -p reports/head reports/base
-          cp -r engine/build/reports/benchmarks/pr/. reports/head/ 2>/dev/null || true
-          cp -r engine/build/reports/benchmarks/main/. reports/head/ 2>/dev/null || true
-          cp -r base/engine/build/reports/benchmarks/pr/. reports/base/ 2>/dev/null || true
+          for configuration in pr prNoisy main; do
+            cp -r "engine/build/reports/benchmarks/$configuration" reports/head/ 2>/dev/null || true
+            cp -r "base/engine/build/reports/benchmarks/$configuration" reports/base/ 2>/dev/null || true
+          done
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "${{ github.event.number }}" > reports/pr-number.txt
           fi
