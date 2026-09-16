@@ -217,6 +217,12 @@ jobs:
       # cannot be compared — shared runners differ between them — but two from the same machine
       # minutes apart can. The base may predate the benchmarks entirely, in which case its run
       # fails, that failure is tolerated, and the comment shows the head on its own.
+      # Benchmark databases on tmpfs: the runner's disk varies up to 3x within a job, which would
+      # swamp any code change. The full tier on main stays on disk.
+      - name: Create a RAM-backed temp directory
+        if: github.event_name == 'pull_request'
+        run: mkdir -p /dev/shm/benchmarks
+
       - name: Check out the base branch
         if: github.event_name == 'pull_request'
         uses: actions/checkout@v4
@@ -231,11 +237,11 @@ jobs:
         if: github.event_name == 'pull_request'
         continue-on-error: true
         working-directory: base
-        run: ./gradlew :engine:prBenchmark :engine:prNoisyBenchmark "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
+        run: ./gradlew :engine:prBenchmark :engine:prNoisyBenchmark -Pbenchmark.tmpdir=/dev/shm/benchmarks "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
 
       - name: Run the pull-request tier against the head
         if: github.event_name == 'pull_request'
-        run: ./gradlew :engine:prBenchmark :engine:prNoisyBenchmark "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
+        run: ./gradlew :engine:prBenchmark :engine:prNoisyBenchmark -Pbenchmark.tmpdir=/dev/shm/benchmarks "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
 
       # A push to main runs the full tier, scaling sweeps included. Its artifact is the record any
       # later trend has to be built from.
