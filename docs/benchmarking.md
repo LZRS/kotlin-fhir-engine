@@ -5,7 +5,7 @@ engine's public surface — pure-CPU functions, and SQLite itself — where the 
 an index is the whole story.
 
 ```bash
-./gradlew :engine:prBenchmark      # what CI runs on a pull request: everything, sweeps pinned small
+./gradlew :engine:prBenchmark :engine:prNoisyBenchmark   # what CI runs on a pull request
 ./gradlew :engine:indexBenchmark   # just the index and tuning sweeps, about a minute
 ./gradlew :engine:benchmark        # everything at full size; what CI runs on a push to main
 ```
@@ -194,17 +194,37 @@ would report exactly the same green tick as a clean one.
 
 Two tiers, chosen by what triggered the run.
 
-**On a pull request, `:engine:prBenchmark`, twice.** The job checks out the base branch beside the
-head and runs the same tier against each, on the same runner, minutes apart. Every class runs, but
-the scaling sweeps are pinned to their smallest size (`rows=1000`, `changeCount=50`) so a side
-finishes in a few minutes. The comment on the pull request is the *difference* between the two.
+**On a pull request, `:engine:prBenchmark` and `:engine:prNoisyBenchmark`, twice.** The job checks
+out the base branch beside the head and runs the same tier against each, on the same runner,
+minutes apart. The comment on the pull request is the *difference* between the two.
+
+The tier is split in two so that each benchmark gets the sampling it needs to show a change.
+`prBenchmark` runs everything else at ten half-second iterations, with the scaling sweeps pinned to
+their smallest size (`rows=1000`, `changeCount=50`). `prNoisyBenchmark` runs the CRUD and
+`MoreResources` benchmarks at ten one-second iterations instead: an indexed update takes about
+300 ms on a runner, so a half-second iteration would hold a single disk write.
 
 That pairing is the whole point. Two scores from two CI jobs cannot be compared — shared runners
 differ in machine class between jobs, and this suite has produced double-digit phantom "effects"
 from exactly that. Two scores from one machine a few minutes apart can be, and their errors say by
-how much. A row is flagged only when the two 99.9% confidence intervals do not overlap *and* the
-change is at least 5%: a tight-but-tiny shift and a large-but-noisy one are each left alone. A flag
-is a prompt to look, not a verdict — each side is still a single run.
+how much. A row is flagged only when the difference lies outside its own 99.9% confidence interval
+*and* is at least 5%: a tight-but-tiny shift and a large-but-noisy one are each left alone. The
+interval of a difference combines the two errors in quadrature; the common shortcut of requiring the
+two intervals not to overlap adds them instead, and is conservative enough that it left six more
+benchmarks unable to see a 5% change. A flag is a prompt to look, not a verdict — each side is
+still a single run.
+
+A row that is not flagged is not necessarily unchanged. When the two errors together are wider than
+5% of the score, a 5% regression could not have been told apart from noise, and the row says
+**too noisy** with the smallest change it could have caught. Read a blank as "no change of 5% or
+more", and a too-noisy row as "no information".
+
+Iteration count matters more than it looks. JMH's interval scales with Student's t, which at five
+iterations is 8.47 and at ten is 4.78, so doubling the iterations shrinks every interval to about
+40% of its width rather than by the square root alone. On the first CI run, at five iterations, 29
+of the 54 pull-request benchmarks could not show a 5% change. Projected from those same runs, ten
+iterations leaves about 13 — mostly the disk-bound CRUD and SQLite-tuning rows, which is the honest
+limit of a shared runner.
 
 If the base branch predates the benchmarks, its run fails, that failure is tolerated, and the
 comment shows the head on its own with the "indicative only" caveat.
@@ -212,8 +232,8 @@ comment shows the head on its own with the "indicative only" caveat.
 **On a push to `main`, `:engine:benchmark`, once.** The full tier, scaling sweeps included. Its
 artifact is the record a later trend would be built from; nothing consumes it yet.
 
-Locally, the same three tasks: `prBenchmark` for a quick check, `indexBenchmark` for the sweeps,
-`benchmark` for everything. Run nothing else while they run — a Gradle build in another window is
+Locally, the same tasks: `prBenchmark` and `prNoisyBenchmark` for a quick check, `indexBenchmark`
+for the sweeps, `benchmark` for everything. Run nothing else while they run — a Gradle build in another window is
 enough to widen every error bar.
 
 What CI establishes, then: that the benchmarks **run and their assertions hold**, and on a pull

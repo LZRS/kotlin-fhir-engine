@@ -167,6 +167,10 @@ kotlin {
 // JMH subclasses the @State class to generate its harness, and Kotlin classes are final by default.
 allOpen { annotation("org.openjdk.jmh.annotations.State") }
 
+/** Benchmarks whose error on a shared CI runner needs more samples than the rest of the tier. */
+val NOISY_ON_CI =
+  "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\.(MoreResources|Resource(Insert|Update|Delete|Read))Benchmark"
+
 benchmark {
   targets { register("desktopBenchmark") }
   configurations {
@@ -181,12 +185,30 @@ benchmark {
     // class runs, but the scaling sweeps are pinned to their smallest size: the shape of the curve
     // is a question for the full tier, and a regression at 1,000 rows is a regression at 50,000.
     register("pr") {
+      exclude(NOISY_ON_CI)
       param("rows", 1000)
       param("changeCount", 50)
+      // Ten, not five, because a regression the comment cannot see is worse than a slower job.
+      // JMH's 99.9% interval scales with Student's t over the iteration count, and five iterations
+      // leaves t at 8.47; ten brings it to 4.78, shrinking every interval to about 40% of its
+      // width.
+      // On the first CI run, five iterations left 29 of 54 benchmarks unable to show a 5% change.
       warmups = 3
-      iterations = 5
+      iterations = 10
       iterationTime = 500
       iterationTimeUnit = "ms"
+    }
+    // The pull-request tier's other half: benchmarks whose single invocation is so slow that a
+    // half-second iteration holds only one or two samples. An indexed update takes about 300 ms on
+    // a CI runner, so its per-iteration score is essentially one measurement of a disk write, and
+    // the CRUD and MoreResources rows came back at 30-60% error on the first run. Longer iterations
+    // average more invocations into each score, which is what narrows that spread.
+    register("prNoisy") {
+      include(NOISY_ON_CI)
+      warmups = 3
+      iterations = 10
+      iterationTime = 1
+      iterationTimeUnit = "s"
     }
     // Just the index-shape sweeps. They carry their own @Param grid, so running them apart from
     // the pure-CPU benchmarks keeps an A/B to about a minute instead of the full suite.
