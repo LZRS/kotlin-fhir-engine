@@ -212,7 +212,8 @@ benchmark {
     // average more invocations into each score, which is what narrows that spread.
     register("prNoisy") {
       include(NOISY_ON_CI)
-      warmups = 3
+      // Five warmups: at three, insertIndexed's first measured iterations were still settling.
+      warmups = 5
       iterations = 10
       iterationTime = 1
       iterationTimeUnit = "s"
