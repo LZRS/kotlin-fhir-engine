@@ -57,13 +57,31 @@ see [The two remaining shortfalls](#the-two-remaining-shortfalls).
 window. Not enough to pay for the extra index and the write cost it brings; see
 [The two remaining shortfalls](#the-two-remaining-shortfalls).
 
-`SqliteTuningBenchmark`: **nothing here is worth adopting.** `ANALYZE` leaves the prefix search at
-43.3 to 45.8 us/op, i.e. no better and possibly slightly worse. `journal_mode=WAL` and
-`synchronous=NORMAL` leave an indexed write at 14.1 ms against 15.5 and 15.9 ms — no gain, and the
-WAL arm was wildly variable (+/-10.2 ms). One caveat worth keeping: this write batches 500 rows into
-a single transaction, which is where WAL has least to offer. An engine doing many small
-transactions might answer differently, and that is the version worth measuring before concluding
-the engine should never set a PRAGMA.
+`SqliteTuningBenchmark`: **nothing here is worth adopting**, and this is now a settled answer rather
+than an absence of one. On an idle machine all four arms agree to within 1% on both write shapes —
+a batched insert is 5.61 ms against 5.67 for WAL, and one transaction per row is 2.163 ms against
+2.172 — with the `analyze` arm, which cannot affect a write at all, differing from `default` by
+0.16%. That is the noise floor, and it is far below any difference between the arms. `ANALYZE` does
+nothing for the prefix search either (45.0 against 46.3 us/op).
+
+One caveat that does not transfer: this is macOS, where SQLite's default `fsync` does not force a
+full disk barrier. Journal mode is almost entirely about what a commit must durably record, so a
+platform with stricter durability — Android on real storage — could answer differently. The
+conclusion here is "no effect on desktop", not "no effect".
+
+`PayloadRepresentationBenchmark`: a binary payload is **half the bytes and about 14% of the read**.
+Storing 20,000 mixed resources takes 7.19 MB as JSON text against 3.51 MB as a protobuf blob, and
+fetching two hundred of them is 125 us against 44 — a 65% saving on the I/O.
+
+The reason the end-to-end number is so much smaller than the size reduction is that **parsing
+dominates and does not change**: decoding those payloads costs 443 us as JSON and 435 us as
+protobuf, a difference inside the error bars. The two halves add up almost exactly — 125 + 443
+against a measured 565, and 44 + 435 against a measured 485 — which is a useful check that the
+benchmark is measuring what it claims.
+
+So the trade is roughly 14% on reads that touch many rows, 10% on a point read, 14% on a write, and
+half the disk, against a destructive schema migration and a wire format that is not self-describing.
+Worth having the number before anyone argues it either way.
 
 ## Index usage
 
