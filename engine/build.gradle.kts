@@ -195,6 +195,9 @@ benchmark {
     // is a question for the full tier, and a regression at 1,000 rows is a regression at 50,000.
     register("pr") {
       exclude(NOISY_ON_CI)
+      // Journal and fsync settings mean nothing on the tmpfs CI uses, and their question is
+      // settled.
+      exclude("dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\.SqliteTuningBenchmark")
       param("rows", 1000)
       param("changeCount", 50)
       // Five warmups: at three, CI still showed JIT drift in the first measured iterations.
