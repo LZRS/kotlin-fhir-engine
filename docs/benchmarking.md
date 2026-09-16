@@ -5,8 +5,9 @@ engine's public surface — pure-CPU functions, and SQLite itself — where the 
 an index is the whole story.
 
 ```bash
-./gradlew :engine:benchmark        # everything
+./gradlew :engine:prBenchmark      # what CI runs on a pull request: everything, sweeps pinned small
 ./gradlew :engine:indexBenchmark   # just the index and tuning sweeps, about a minute
+./gradlew :engine:benchmark        # everything at full size; what CI runs on a push to main
 ```
 
 ## Micro benchmarks
@@ -181,12 +182,37 @@ combinations abort in setup. Gradle reported `BUILD SUCCESSFUL`.
 `engine/build.gradle.kts` therefore watches the runner's own output and fails the task when a
 failure marker appears.
 
-That check is what the CI job stands on. `.github/workflows/ci.yml` runs `:engine:benchmark` on
-every pull request and every push to `main`, and without the marker check a run that lost three of
-twenty benchmarks would report exactly the same green tick as a clean one.
+That check is what the CI job stands on. Without it, a run that lost three of twenty benchmarks
+would report exactly the same green tick as a clean one.
 
-What the job establishes is that the benchmarks **run and their assertions hold** —
-`assertSelectivity` in every index trial, and the query-plan comparison in the collation sweep. It
-does not establish that performance held. The numbers come off a shared runner, so read the
-uploaded JSON for what ran, not as a trend; see
+## What CI measures, and how it compares
+
+Two tiers, chosen by what triggered the run.
+
+**On a pull request, `:engine:prBenchmark`, twice.** The job checks out the base branch beside the
+head and runs the same tier against each, on the same runner, minutes apart. Every class runs, but
+the scaling sweeps are pinned to their smallest size (`rows=1000`, `changeCount=50`) so a side
+finishes in a few minutes. The comment on the pull request is the *difference* between the two.
+
+That pairing is the whole point. Two scores from two CI jobs cannot be compared — shared runners
+differ in machine class between jobs, and this suite has produced double-digit phantom "effects"
+from exactly that. Two scores from one machine a few minutes apart can be, and their errors say by
+how much. A row is flagged only when the two 99.9% confidence intervals do not overlap *and* the
+change is at least 5%: a tight-but-tiny shift and a large-but-noisy one are each left alone. A flag
+is a prompt to look, not a verdict — each side is still a single run.
+
+If the base branch predates the benchmarks, its run fails, that failure is tolerated, and the
+comment shows the head on its own with the "indicative only" caveat.
+
+**On a push to `main`, `:engine:benchmark`, once.** The full tier, scaling sweeps included. Its
+artifact is the record a later trend would be built from; nothing consumes it yet.
+
+Locally, the same three tasks: `prBenchmark` for a quick check, `indexBenchmark` for the sweeps,
+`benchmark` for everything. Run nothing else while they run — a Gradle build in another window is
+enough to widen every error bar.
+
+What CI establishes, then: that the benchmarks **run and their assertions hold**, and on a pull
+request whether the head is measurably slower than its base *on that runner*. What it still does
+not establish is anything about a device: this is desktop JVM, a good indicator for algorithmic
+cost and a poor one for anything I/O-bound. See
 [Reading these plans honestly](#reading-these-plans-honestly).
