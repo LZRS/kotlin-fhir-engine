@@ -36,10 +36,10 @@ import kotlinx.benchmark.State
 /**
  * Ordering pending uploads runs Tarjan's algorithm over the graph of references between them. It is
  * the one place in the engine whose cost grows with the size of the offline queue rather than with
- * a single resource, so a complexity regression here would stay invisible until a device that had
- * been offline for a long time tried to sync.
+ * a single resource, so a complexity regression here would stay invisible until a long-offline
+ * device tried to sync.
  *
- * [changeCount] is swept so the shape of that growth is visible, not just a single number.
+ * [changeCount] is swept so the shape of that growth is visible.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -55,14 +55,13 @@ open class PatchOrderingBenchmark {
 
   @Setup
   fun setUp() {
-    // A chain: each patch references the one before it, so every component is a single node and
-    // the algorithm does the least work it can while still traversing everything.
+    // A chain: each patch references the one before it, so every component is a single node.
     chainedMappings = buildMappings(changeCount)
     chainedReferences = buildReferences(changeCount) { index -> listOf(index - 1) }
 
-    // Disjoint three-node cycles, which force Tarjan's to collapse components rather than emit
-    // one node each. Cycles are the case the engine has to handle correctly, so they are the case
-    // worth timing against the acyclic baseline.
+    // Disjoint three-node cycles, which force Tarjan's to collapse components rather than emit one
+    // node each. Cycles are the case the engine has to handle, so they are worth timing against the
+    // acyclic baseline.
     cyclicMappings = buildMappings(changeCount)
     cyclicReferences =
       buildReferences(changeCount) { index ->
@@ -72,8 +71,8 @@ open class PatchOrderingBenchmark {
       }
   }
 
-  // StronglyConnectedPatchMappings is internal to the engine, so a public @Benchmark method
-  // cannot return it. Blackhole consumption keeps the result from being optimised away instead.
+  // StronglyConnectedPatchMappings is internal to the engine, so a public @Benchmark method cannot
+  // return it. Blackhole consumption keeps the result from being optimised away.
   @Benchmark
   fun orderChainedReferences(blackhole: Blackhole) =
     blackhole.consume(chainedMappings.sccOrderByReferences(chainedReferences))
@@ -132,7 +131,7 @@ open class PatchOrderingBenchmark {
 
   /**
    * How `PatchOrdering` names a node: the patch's type and id joined, which is also the form a
-   * reference value takes. The two must agree or every edge is silently dropped.
+   * reference value takes. The two must agree or every edge is dropped.
    */
   private fun nodeId(index: Int) = "$RESOURCE_TYPE/${resourceId(index)}"
 

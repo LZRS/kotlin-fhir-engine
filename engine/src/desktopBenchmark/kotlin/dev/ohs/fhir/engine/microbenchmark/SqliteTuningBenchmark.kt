@@ -36,12 +36,12 @@ import org.openjdk.jmh.annotations.Level
  * What SQLite's own settings are worth to this schema.
  *
  * The engine sets no PRAGMAs and never runs ANALYZE, so it takes SQLite's defaults and its query
- * planner works from heuristics rather than statistics. Neither is obviously wrong, but neither has
- * ever been given a number, and both are cheap to change if they turn out to matter.
+ * planner works from heuristics rather than statistics. Both are cheap to change if they turn out
+ * to matter.
  *
  * Read and write are separate benchmarks because the settings pull in different directions: ANALYZE
- * only informs planning, while `journal_mode` and `synchronous` are almost entirely about what a
- * write has to durably record.
+ * only informs planning, while `journal_mode` and `synchronous` govern what a write must durably
+ * record.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -53,9 +53,8 @@ open class SqliteTuningBenchmark {
    *
    * `analyze` doubles as a control for the two write benchmarks. ANALYZE only feeds the query
    * planner, so it cannot change what a write costs: any gap between it and `default` on an insert
-   * is the machine's noise floor, not an effect. If that gap is larger than the gap between
-   * `default` and the WAL arms, the run says nothing about WAL and should be repeated on an idle
-   * machine.
+   * is the machine's noise floor. If that gap exceeds the gap between `default` and the WAL arms,
+   * the run says nothing about WAL and should be repeated on an idle machine.
    */
   @Param("default", "analyze", "wal", "walRelaxed") var tuning: String = ""
 
@@ -90,9 +89,9 @@ open class SqliteTuningBenchmark {
   }
 
   /**
-   * The write benchmarks append without removing, so the table would grow all through a run and
-   * every later invocation would measure a larger index than the one before it. Resetting per
-   * iteration bounds that drift; it costs nothing for [prefixSearch], which deletes no rows.
+   * The write benchmarks append without removing, so the table would grow through a run and every
+   * later invocation would measure a larger index than the one before it. Resetting per iteration
+   * bounds that drift, and costs nothing for [prefixSearch], which writes no rows.
    */
   @Setup(Level.Iteration)
   fun resetInsertedRows() {
@@ -101,12 +100,12 @@ open class SqliteTuningBenchmark {
 
   @TearDown fun tearDown() = database.close()
 
-  /** Planning is where ANALYZE can help; the query is unremarkable on purpose. */
+  /** Planning is where ANALYZE can help; the query itself is deliberately unremarkable. */
   @Benchmark fun prefixSearch(): Int = database.count(query)
 
   /**
-   * An indexed write in one transaction. Journal settings have least to offer here: whatever a
-   * commit costs is paid once and spread across every row in it.
+   * An indexed write in one transaction. Journal settings have least to offer here: a commit's cost
+   * is paid once and spread across every row in it.
    */
   @Benchmark
   fun insertIndexedRowsBatched() {
@@ -114,10 +113,10 @@ open class SqliteTuningBenchmark {
   }
 
   /**
-   * The same write split one row per transaction, where the commit cost is paid in full each time.
-   * This is where a journal setting can actually show itself.
+   * The same write split one row per transaction, where the commit cost is paid in full each time,
+   * and where a journal setting can show itself.
    *
-   * Not comparable to [insertIndexedRowsBatched] — it writes fewer rows, deliberately, to keep the
+   * Not comparable to [insertIndexedRowsBatched]: it writes fewer rows, deliberately, to keep the
    * run bounded. Compare each across the tuning arms, never against the other.
    */
   @Benchmark

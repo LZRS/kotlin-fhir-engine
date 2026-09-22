@@ -32,8 +32,7 @@ import kotlinx.coroutines.test.runTest
  *
  * Case sensitivity is matching semantics: prefix and contains are case-insensitive, `:exact` is
  * not. `SearchTest` only compares generated SQL, so without these tests the collation could be
- * changed in either direction and every test would still pass while search quietly returned the
- * wrong rows.
+ * changed in either direction and every test would still pass while search returned the wrong rows.
  */
 class StringSearchMatchingTest {
 

@@ -51,16 +51,15 @@ import kotlinx.datetime.LocalDate
  * Asserts which SQLite index each search shape actually uses, via `EXPLAIN QUERY PLAN`.
  *
  * These are not benchmarks. A lost index only shows up in a timing run at a large corpus, and a
- * warm page cache hides it even then; the query plan says so immediately, deterministically, and
- * against an empty database. Timing answers "how slow", this answers "why".
+ * warm page cache hides it even then; the query plan says so immediately and against an empty
+ * database. Timing answers how slow, this answers why.
  *
- * The plan text comes from SQLite, so it is checked by substring rather than equality — the wording
- * varies between versions, but the index name and the constrained columns are the part that
- * matters.
+ * The plan text comes from SQLite, so it is checked by substring rather than equality: the wording
+ * varies between versions, but the index name and the constrained columns are what matter.
  *
- * Two of these tests pin behaviour that is **suboptimal but current**, and say so in their names.
- * If a schema change fixes one, that test will fail: read the comment, confirm the plan improved,
- * and tighten the assertion.
+ * Some tests pin behaviour that is suboptimal but current, and say so in their names. If a schema
+ * change fixes one, that test will fail: read the comment, confirm the plan improved, and tighten
+ * the assertion.
  */
 class SearchQueryPlanTest {
 
@@ -138,9 +137,8 @@ class SearchQueryPlanTest {
    * A shortfall, pinned. A prefix search compiles to `index_value LIKE ? || '%' COLLATE NOCASE`.
    * SQLite applies its LIKE optimisation only to a literal or a plain parameter, and only when the
    * index collation matches the comparison's; neither holds, so the search narrows on
-   * `(resourceType, index_name)` and examines the rest.
-   *
-   * `StringIndexCollationBenchmark` sizes what that costs.
+   * `(resourceType, index_name)` and examines the rest. `StringIndexCollationBenchmark` sizes what
+   * that costs.
    */
   @Test
   fun `prefix string search cannot narrow on index_value`() = runTest {
@@ -151,7 +149,7 @@ class SearchQueryPlanTest {
     )
   }
 
-  /** `:exact` compares BINARY against a BINARY index, so it is the string search that does seek. */
+  /** `:exact` compares BINARY against a BINARY index, so it is the string search that can seek. */
   @Test
   fun `exact string search narrows on all three index columns`() = runTest {
     assertIndexUsed(
@@ -177,15 +175,15 @@ class SearchQueryPlanTest {
    * Suboptimal, pinned deliberately. `index_DateIndexEntity_resourceType_index_name_resourceUuid_
    * index_from_index_to` places `resourceUuid` between the equality columns and the range columns.
    * An index can only serve a range predicate on the column immediately after its equality prefix,
-   * so neither `index_to > ?` (`gt`, `ge`, `eb`) nor `index_from < ?` (`sa`, `lt`, `le`) is usable
+   * so neither `index_to > ?` (`gt`, `ge`, `eb`) nor `index_from < ?` (`sa`, `lt`, `le`) is usable,
    * and both narrow on `(resourceType, index_name)` alone.
    *
    * Moving `resourceUuid` to the end and adding a second index leading with `index_to` does make
-   * the ranges usable. It was tried, and measured **worse** end to end: about 13% slower on both a
-   * date range search and a delete, against a 1,000-patient corpus. At that size a covering scan of
-   * the equality prefix beats a seek, and a range spanning two subqueries then needs two separate
-   * index traversals instead of sharing one. `DateIndexShapeBenchmark` sweeps the same change up to
-   * 50,000 rows; see "Index usage" in docs/benchmarking.md.
+   * the ranges usable. It was tried, and measured worse end to end: about 13% slower on both a date
+   * range search and a delete, against a 1,000-patient corpus. At that size a covering scan of the
+   * equality prefix beats a seek, and a range spanning two subqueries then needs two index
+   * traversals instead of sharing one. `DateIndexShapeBenchmark` sweeps the same change across
+   * sizes; see "Index usage" in docs/benchmarking.md.
    */
   @Test
   fun `date search above a bound cannot use the range columns`() = runTest {
@@ -208,10 +206,7 @@ class SearchQueryPlanTest {
     )
   }
 
-  /**
-   * Sorting is not index-backed: the plan builds two temporary B-trees. Worth knowing before anyone
-   * reads a sorted-search benchmark and blames the filter.
-   */
+  /** Sorting is not index-backed: the plan builds two temporary B-trees. */
   @Test
   fun `sorted search sorts with a temporary b-tree rather than an index`() = runTest {
     val plan = planFor(sortedSearch())
@@ -344,8 +339,8 @@ class SearchQueryPlanTest {
 
   /**
    * Asserts [table] is searched through an index constrained by exactly [constraints]. The
-   * constraint list is SQLite's own rendering of which columns it could narrow on, which is the
-   * thing that decides whether the index is doing its job.
+   * constraint list is SQLite's own rendering of which columns it could narrow on, which decides
+   * whether the index is doing its job.
    */
   private fun assertIndexUsed(
     plan: List<String>,

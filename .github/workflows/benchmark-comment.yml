@@ -1,14 +1,14 @@
 # Posts the micro-benchmark table onto the pull request that produced it.
 #
-# Separate from CI on purpose. A pull request raised from a fork — which is how this repository
-# receives them — gets a read-only token, so the job that runs the benchmarks cannot comment however
+# Separate from CI deliberately. A pull request raised from a fork, which is how this repository
+# receives them, gets a read-only token, so the job that runs the benchmarks cannot comment however
 # its permissions are declared. `workflow_run` fires afterwards in the base repository's context
 # with a writable one.
 #
-# The alternative, `pull_request_target`, would give a single workflow a writable token, but it would
-# then be running the pull request's own Gradle build with that token and the repository's secrets
-# in scope. Nothing here checks out or executes pull request code: it downloads an artifact, renders
-# it with a script from the base branch, and posts the result.
+# `pull_request_target` would give a single workflow a writable token, but it would then run the
+# pull request's own Gradle build with that token and the repository's secrets in scope. Nothing
+# here checks out or executes pull request code: it downloads an artifact, renders it with a script
+# from the base branch, and posts the result.
 name: Benchmark comment
 
 on:
@@ -25,11 +25,11 @@ jobs:
   comment:
     name: Post benchmark results
     runs-on: ubuntu-latest
-    # Only for pull requests. A push to main produces the same artifact with nothing to comment on.
+    # Pull requests only. A push to main produces the same artifact with nothing to comment on.
     if: github.event.workflow_run.event == 'pull_request'
 
     steps:
-      # The base branch's copy, never the pull request's — this job holds a writable token.
+      # The base branch's copy, never the pull request's: this job holds a writable token.
       - uses: actions/checkout@v4
 
       - name: Download benchmark reports
@@ -80,13 +80,13 @@ jobs:
             const issue_number = Number('${{ steps.pr.outputs.number }}');
             const { owner, repo } = context.repo;
 
-            // Update in place rather than adding a comment per push, which on a long-running
-            // pull request buries the conversation under a wall of near-identical tables.
+            // Update in place rather than adding a comment per push, which would bury a
+            // long-running pull request under near-identical tables.
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner, repo, issue_number, per_page: 100,
             });
-            // Matched on the marker alone, so a table someone posted by hand from the artifact is
-            // updated too rather than joined by a second one.
+            // Matched on the marker alone, so a table posted by hand from the artifact is updated
+            // too rather than joined by a second one.
             const existing = comments.find((comment) => comment.body.includes(marker));
 
             if (existing) {

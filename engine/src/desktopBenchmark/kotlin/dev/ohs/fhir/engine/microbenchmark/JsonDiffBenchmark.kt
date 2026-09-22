@@ -30,12 +30,11 @@ import kotlinx.benchmark.Setup
 import kotlinx.benchmark.State
 
 /**
- * [JsonDiff] produces the RFC 6902 patch behind every local update. Its KDoc records that it is a
- * hand-written replacement for the JVM-only Jackson + jsonpatch pairing, so nothing has ever
- * compared its cost to what it replaced.
+ * [JsonDiff] produces the RFC 6902 patch behind every local update. It is a hand-written
+ * replacement for the JVM-only Jackson + jsonpatch pairing.
  *
- * Both a one-field edit and a wholesale rewrite are measured: the diff walks both trees in full
- * regardless, so the gap between them shows how much of the cost is traversal rather than patch
+ * Both a one-field edit and a wholesale rewrite are measured. The diff walks both trees in full
+ * either way, so the gap between them is the share of the cost that is traversal rather than patch
  * construction.
  */
 @State(Scope.Benchmark)
@@ -65,8 +64,8 @@ open class JsonDiffBenchmark {
             },
         ),
       )
-    // An empty patch would mean the fixtures are accidentally identical, leaving these benchmarks
-    // measuring the cost of finding no differences under names that promise otherwise.
+    // An empty patch would mean the fixtures are identical, leaving these benchmarks measuring the
+    // cost of finding no differences.
     check(JsonDiff.diff(original, oneFieldChanged) != EMPTY_PATCH) {
       "oneFieldChanged is identical to the original, so diffOneFieldChanged measures nothing."
     }

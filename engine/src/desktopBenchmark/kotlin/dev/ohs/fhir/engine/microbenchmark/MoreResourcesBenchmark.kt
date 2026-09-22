@@ -33,13 +33,12 @@ import kotlinx.benchmark.State
  * Small helpers in `MoreResources.kt` that run once per resource on the storage paths, where a
  * per-call cost that looks negligible is multiplied by the size of the corpus.
  *
- * Two things here are worth a number rather than an argument:
+ * Two of them are worth a number:
  * * [getResourceClass] compiles a `Regex` on every call to strip a namespace prefix that is absent
  *   from ordinary input.
  * * [updateMeta] and [withId] set a single field by serializing the whole resource to JSON, parsing
- *   it, mutating one key and decoding it again. Their KDoc documents this as a deliberate
- *   workaround for `Resource` being immutable with no polymorphic builder, so the question is not
- *   whether it is odd but whether it is expensive enough to push upstream.
+ *   it, mutating one key and decoding it again — a documented workaround for `Resource` being
+ *   immutable with no polymorphic builder.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -58,7 +57,7 @@ open class MoreResourcesBenchmark {
 
   /**
    * The same field change on the smallest realistic resource. The gap against the rich patient is
-   * the part of the cost that comes from re-encoding the whole resource rather than from the edit.
+   * the cost of re-encoding the whole resource rather than of the edit.
    */
   @Benchmark
   fun withIdOnMinimalPatient(): Resource = Fixtures.minimalPatient.withId("patient-renamed")

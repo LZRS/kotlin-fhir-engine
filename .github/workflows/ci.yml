@@ -212,12 +212,13 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # On a pull request the same benchmarks run twice on this one runner, against the base
-      # branch and then the head, and the comment reports the difference. Two scores from two jobs
-      # cannot be compared — shared runners differ between them — but two from the same machine
-      # minutes apart can. The base may predate the benchmarks entirely, in which case its run
-      # fails, that failure is tolerated, and the comment shows the head on its own.
-      # Benchmark databases on tmpfs: the runner's disk varies up to 3x within a job, which would
+      # On a pull request the same benchmarks run twice on this runner, against the base branch and
+      # then the head, and the comment reports the difference. Two scores from two jobs cannot be
+      # compared, since shared runners differ between them, but two from the same machine minutes
+      # apart can. If the base predates the benchmarks its run fails, that failure is tolerated, and
+      # the comment shows the head on its own.
+      #
+      # Benchmark databases go on tmpfs: the runner's disk varies up to 3x within a job, which would
       # swamp any code change. The full tier on main stays on disk.
       - name: Create a RAM-backed temp directory
         if: github.event_name == 'pull_request'
@@ -232,7 +233,7 @@ jobs:
 
       # kotlinx-benchmark exits 0 when a benchmark's @Setup throws, and drops it from the report.
       # The doLast check in engine/build.gradle.kts watches the runner's output and fails the task
-      # instead, which is what keeps this job honest. See docs/benchmarking.md.
+      # instead. See docs/benchmarking.md.
       - name: Run the pull-request tier against the base
         if: github.event_name == 'pull_request'
         continue-on-error: true
@@ -244,15 +245,15 @@ jobs:
         run: ./gradlew :engine:prBenchmark :engine:prNoisyBenchmark -Pbenchmark.tmpdir=/dev/shm/benchmarks "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
 
       # A push to main runs the full tier, scaling sweeps included. Its artifact is the record any
-      # later trend has to be built from.
+      # later trend would be built from.
       - name: Run the full tier
         if: github.event_name != 'pull_request'
         run: ./gradlew :engine:benchmark "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
 
-      # One layout for the commenting workflow, whichever tier ran. Each configuration keeps its
-      # own directory — the pull-request tier is split across two, and the table picks the newest
-      # run per configuration. workflow_run.pull_requests is empty for a pull request raised from a
-      # fork, which is how this repository receives them, so the number travels inside the artifact.
+      # One layout for the commenting workflow, whichever tier ran. Each configuration keeps its own
+      # directory: the pull-request tier is split across two, and the table picks the newest run per
+      # configuration. workflow_run.pull_requests is empty for a pull request raised from a fork,
+      # which is how this repository receives them, so the number travels inside the artifact.
       - name: Collect reports
         if: always()
         run: |

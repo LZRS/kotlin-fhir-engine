@@ -52,7 +52,7 @@ open class ResourceIndexerBenchmark {
   }
 
   // ResourceIndices is internal to the engine, so a public @Benchmark method cannot return it.
-  // Blackhole consumption is what keeps the result from being optimised away instead.
+  // Blackhole consumption keeps the result from being optimised away.
   @Benchmark
   fun indexMinimalPatient(blackhole: Blackhole) =
     blackhole.consume(indexer.index(Fixtures.minimalPatient))
@@ -67,8 +67,8 @@ open class ResourceIndexerBenchmark {
 
   /**
    * [ResourceIndexer] swallows FHIRPath expressions it cannot evaluate, so a fixture that stopped
-   * matching any search parameter would still index cleanly — just to nothing, turning this whole
-   * class into a measurement of an empty loop. Fail the run instead of reporting that number.
+   * matching any search parameter would still index cleanly, to nothing, and this class would
+   * measure an empty loop. Fail the run instead.
    */
   private fun requireIndexes(resource: Resource) {
     val indices = indexer.index(resource)
@@ -83,9 +83,9 @@ open class ResourceIndexerBenchmark {
         indices.referenceIndices.size +
         indices.positionIndices.size
     check(total > 0) {
-      "${resource::class.simpleName} '${resource.id}' produced no search indices, so this " +
-        "benchmark would measure nothing. The fixture no longer matches any R4 search parameter, " +
-        "or the FHIRPath engine stopped evaluating the expressions it used to."
+      "${resource::class.simpleName} '${resource.id}' produced no search indices. The fixture no " +
+        "longer matches any R4 search parameter, or the FHIRPath engine stopped evaluating the " +
+        "expressions it used to."
     }
   }
 }

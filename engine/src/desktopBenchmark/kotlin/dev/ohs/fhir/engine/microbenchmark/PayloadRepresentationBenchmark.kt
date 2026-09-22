@@ -48,16 +48,14 @@ import kotlinx.serialization.protobuf.ProtoBuf
  * patient, 202 to 84 for an observation carrying a `value[x]` — and round-trips exactly, including
  * through the polymorphic `Resource` serializer.
  *
- * Halving the bytes does not automatically halve anything that matters, which is the point of
- * measuring. Two effects pull against each other: fewer pages to read, and a different decoder.
- * [ResourceSerializerBenchmark] already puts JSON decode at a few microseconds per resource, so if
- * the binary form wins it should win on the read paths that touch many rows rather than on one.
+ * Halving the bytes does not halve anything that matters on its own: fewer pages to read pulls
+ * against a different decoder. [ResourceSerializerBenchmark] puts JSON decode at a few microseconds
+ * per resource, so if the binary form wins it should win on reads that touch many rows.
  *
- * Deliberately raw SQL over a table of this benchmark's own making, not the engine's DAO. Room
- * fixes a column's type at compile time, so owning the schema is the only way to hold TEXT and BLOB
- * side by side in one run. That means this measures storage and parsing, not the DAO's own overhead
- * — an insert here is one row, where `ResourceDao` also re-indexes the resource across nine index
- * tables.
+ * Raw SQL over a table of this benchmark's own making, not the engine's DAO. Room fixes a column's
+ * type at compile time, so owning the schema is the only way to hold TEXT and BLOB side by side in
+ * one run. This therefore measures storage and parsing, not the DAO's overhead: an insert here is
+ * one row, where `ResourceDao` also re-indexes the resource across nine index tables.
  */
 @OptIn(ExperimentalSerializationApi::class)
 @State(Scope.Benchmark)
@@ -78,8 +76,8 @@ open class PayloadRepresentationBenchmark {
     store.create()
     store.fill(rows, PAYLOAD_RESOURCES)
     store.prepareDecodeFixtures(PAYLOAD_RESOURCES)
-    // Halving the payload is the entire premise; if the encoding ever stopped shrinking it, every
-    // number here would still look plausible while measuring something else.
+    // Halving the payload is the premise. If the encoding stopped shrinking it, every number here
+    // would still look plausible while measuring something else.
     val bytes = store.payloadBytes()
     println("[$representation] payload table holds $bytes bytes for $rows rows")
     check(bytes > 0) { "$representation stored no payload bytes" }
@@ -88,10 +86,8 @@ open class PayloadRepresentationBenchmark {
   @TearDown fun tearDown() = store.close()
 
   /**
-   * One resource by primary key: the `get` path, where payload size matters least.
-   *
-   * By id rather than `LIMIT 1 OFFSET n`, which would make SQLite walk every skipped row and turn a
-   * point read into a scan of half the table.
+   * One resource by primary key: the `get` path, where payload size matters least. By id rather
+   * than `LIMIT 1 OFFSET n`, which would make SQLite walk every skipped row.
    */
   @Benchmark
   fun readOneById(blackhole: Blackhole) {
@@ -116,10 +112,9 @@ open class PayloadRepresentationBenchmark {
   /**
    * Decoding alone, with no database involved.
    *
-   * The end-to-end read is the sum of fetching bytes and parsing them, and the two move
-   * independently: a binary payload is unambiguously fewer bytes, but kotlinx ProtoBuf is not
-   * automatically a faster parser than kotlinx JSON. Measuring the parser on its own is the only
-   * way to say which half dominates, and subtracting one noisy benchmark from another is not.
+   * An end-to-end read is fetching bytes plus parsing them, and the two move independently: a
+   * binary payload is fewer bytes, but kotlinx ProtoBuf is not necessarily a faster parser than
+   * kotlinx JSON. Measuring the parser on its own is what says which half dominates.
    */
   @Benchmark
   fun decodeOnly(blackhole: Blackhole) {
@@ -133,7 +128,7 @@ open class PayloadRepresentationBenchmark {
   }
 
   private companion object {
-    /** A realistic mix rather than one shape, since size is the variable under test. */
+    /** A mix rather than one shape, since size is the variable under test. */
     val PAYLOAD_RESOURCES: List<Resource> =
       listOf(Fixtures.richPatient, Fixtures.observation, Fixtures.minimalPatient)
 
@@ -148,10 +143,8 @@ open class PayloadRepresentationBenchmark {
 }
 
 /**
- * Encodes, stores and reads resources in one representation, over a table it owns.
- *
- * Raw driver rather than Room: the point is to hold a TEXT column and a BLOB column side by side,
- * and Room fixes the column type at compile time.
+ * Encodes, stores and reads resources in one representation, over a table it owns. Raw driver
+ * rather than Room, which fixes a column's type at compile time.
  */
 @OptIn(ExperimentalSerializationApi::class)
 internal class PayloadStore(private val representation: String, private val file: File) {
@@ -221,7 +214,7 @@ internal class PayloadStore(private val representation: String, private val file
     }
   }
 
-  /** Bytes fetched without decoding, which separates the storage cost from the parser's. */
+  /** Bytes fetched without decoding, separating the storage cost from the parser's. */
   fun readRaw(limit: Int, offset: Int): Int =
     select(limit, offset) { statement ->
       if (isJson) statement.getText(0).length else statement.getBlob(0).size
@@ -262,9 +255,7 @@ internal class PayloadStore(private val representation: String, private val file
     return resource.id?.length ?: 0
   }
 
-  /**
-   * Total stored size, so a run can prove the representation under test is the one in the table.
-   */
+  /** Total stored size, so a run can confirm the representation under test is the one stored. */
   fun payloadBytes(): Long =
     connection.prepare("SELECT SUM(LENGTH(payload)) FROM payload").use { statement ->
       if (statement.step()) statement.getLong(0) else 0L

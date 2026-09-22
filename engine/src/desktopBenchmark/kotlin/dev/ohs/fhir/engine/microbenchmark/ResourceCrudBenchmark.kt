@@ -47,11 +47,11 @@ import org.openjdk.jmh.annotations.Level
  * The engine's CRUD paths, through the real DAO and the real schema.
  *
  * Nothing else here touches `ResourceDao`: the other benchmarks measure pure-CPU code or hand-built
- * tables, so a regression in an insert, an update or the delete cascade would not show up anywhere.
+ * tables, so a regression in an insert, an update or the delete cascade would go unseen.
  *
- * Each operation gets its own class rather than sharing one, because they need opposite fixtures. A
- * JMH per-invocation hook belongs to the whole `@State`, so an insert benchmark and a delete
- * benchmark in one class would run each other's setup and quietly measure the pair.
+ * Each operation gets its own class because they need opposite fixtures. A JMH per-invocation hook
+ * belongs to the whole `@State`, so an insert and a delete benchmark in one class would run each
+ * other's setup.
  *
  * Every invocation does a batch rather than a single operation. JMH's per-invocation hooks are
  * unreliable for work measured in microseconds, and a batch of [CrudFixture.BATCH] lifts each
@@ -86,12 +86,11 @@ internal class CrudFixture(label: String) {
   }
 
   /**
-   * The row without its indices, which is the same SQL minus the FHIRPath.
+   * The row without its indices: the same SQL minus the FHIRPath.
    *
    * `ResourceIndexerBenchmark` puts indexing at 200-360 us a resource, so an insert measured with
    * it is mostly a measurement of the path evaluator. The gap between this and [insertIndexed] is
-   * what the storage layer itself costs — measured, rather than inferred by subtracting one noisy
-   * benchmark from another.
+   * what the storage layer itself costs.
    */
   fun insertRowOnly(patients: List<Patient>) = runBlocking {
     patients.forEach { patient ->
@@ -113,7 +112,7 @@ internal class CrudFixture(label: String) {
   /**
    * An update is not a row rewrite. `ResourceDao.updateChanges` re-encodes the resource and does a
    * REPLACE insert, which cascade-deletes every index row for it across nine tables and writes them
-   * all again — so changing one field pays for full re-indexing.
+   * again, so changing one field pays for full re-indexing.
    */
   fun update(patients: List<Patient>) = runBlocking {
     patients.forEach { dao.applyLocalUpdate(it, TIMESTAMP) }
@@ -162,7 +161,7 @@ open class ResourceInsertBenchmark {
 
   /**
    * Without this the table grows for the whole run and every later invocation writes into a bigger
-   * index than the one before it, which reads as a drifting mean rather than as a mistake.
+   * index than the one before it, which reads as a drifting mean.
    */
   @TearDown(Level.Invocation)
   fun removeInserted() {
@@ -223,8 +222,8 @@ open class ResourceDeleteBenchmark {
   }
 
   /**
-   * Deleting cascades to every index row for the resource across nine tables, which is most of what
-   * this costs. The returned count is consumed so an empty delete cannot pass for a fast one.
+   * Deleting cascades to every index row for the resource across nine tables, which is most of the
+   * cost. The returned count is consumed so an empty delete cannot pass for a fast one.
    */
   @Benchmark
   fun deleteExisting(blackhole: Blackhole) {

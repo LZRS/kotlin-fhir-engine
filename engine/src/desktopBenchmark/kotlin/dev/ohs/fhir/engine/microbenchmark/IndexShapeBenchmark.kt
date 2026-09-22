@@ -36,19 +36,18 @@ import kotlinx.benchmark.TearDown
 import kotlinx.datetime.LocalDate
 
 /**
- * Does the date index's column order matter, and at what size?
+ * Whether the date index's column order matters, and at what size.
  *
  * `DateIndexEntity`'s filtering index is `(resourceType, index_name, resourceUuid, index_from,
  * index_to)`. A range predicate can only use the column after the equality prefix, and
- * `resourceUuid` sits in between, so no date comparator can range — confirmed by
- * `SearchQueryPlanTest`. Reordering it has been tried end to end, against a real engine and a
- * 1,000-patient corpus, and measured about 13% *worse* on both a date range search and a delete.
- * The open question is whether that reverses once the table is large enough for a seek to beat a
- * scan, which is what [rows] sweeps.
+ * `resourceUuid` sits in between, so no date comparator can range; `SearchQueryPlanTest` confirms
+ * it. Reordering it measured about 13% worse end to end against a 1,000-patient corpus, on both a
+ * date range search and a delete. [rows] sweeps whether that reverses once the table is large
+ * enough for a seek to beat a scan.
  *
  * Indices are rebuilt with raw DDL per trial, so both shapes are measured in one JVM against one
- * schema — no source edits, no rebuilds, and no hand-rolled interleaving, because JMH already forks
- * and warms each combination and reports an error bar.
+ * schema. JMH forks, warms and reports an error bar per combination, so no hand-rolled interleaving
+ * is needed.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -69,8 +68,7 @@ open class DateIndexShapeBenchmark {
     database.seed(rows)
     database.reindex("DateIndexEntity", indexDefinitions())
 
-    // A window inside the seeded spread, so the range selects a slice at every size rather than
-    // everything at one end of the curve and nothing at the other.
+    // A window inside the seeded spread, so the range selects a slice at every size.
     query =
       Search(ResourceType.Patient)
         .apply {
@@ -91,9 +89,8 @@ open class DateIndexShapeBenchmark {
         }
         .getQuery()
 
-    // Both arms must select the same slice, or the comparison is between two different queries
-    // rather than two index shapes. The window is 730 days of the seeded spread, so the expected
-    // count is a fixed fraction of the rows at every size.
+    // Both arms must select the same slice, or the comparison is between two queries rather than
+    // two index shapes. The window is 730 days of the seeded spread, a fixed fraction at any size.
     assertSelectivity(database.count(query), rows, WINDOW_DAYS.toDouble() / DAY_SPREAD, shape)
   }
 
@@ -128,15 +125,15 @@ open class DateIndexShapeBenchmark {
 }
 
 /**
- * Would making `StringIndexEntity.index_value` NOCASE pay for itself, and at what size?
+ * Whether making `StringIndexEntity.index_value` NOCASE pays for itself, and at what size.
  *
  * A prefix search compiles to `index_value LIKE ? || '%' COLLATE NOCASE`, which cannot use a BINARY
- * index. Declaring the column NOCASE *and* binding the pattern whole would turn it into a range
- * seek. That combination measured as no change at 1,000 patients; [rows] asks whether size changes
- * the answer.
+ * index. Declaring the column NOCASE and binding the pattern whole turns it into a range seek. That
+ * combination measured as no change at 1,000 patients; [rows] sweeps whether size changes the
+ * answer.
  *
  * The two arms differ in both the index collation and the SQL, because either alone leaves the
- * optimisation off — which is the trap that made the first attempt at this look like a failure.
+ * optimisation off.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -164,8 +161,7 @@ open class StringIndexCollationBenchmark {
             "`resourceUuid`, `index_name`, `index_value`",
           )
         // COLLATE NOCASE is explicit because `index_value` is declared BINARY: an index over it
-        // inherits that collation, so without this the "nocase" arm is a second BINARY arm and the
-        // comparison silently measures nothing.
+        // inherits that collation, so without this the "nocase" arm is a second BINARY arm.
         "nocase" ->
           listOf(
             "`resourceType`, `index_name`, `index_value` COLLATE NOCASE",
@@ -180,8 +176,8 @@ open class StringIndexCollationBenchmark {
       Search(ResourceType.Patient)
         .apply { filter(StringClientParam("given"), { value = prefix }) }
         .getQuery()
-    // `binary` is what the engine emits today. `nocase` binds the pattern whole instead, the half
-    // of the optimisation that lives in the SQL rather than the schema.
+    // `nocase` binds the pattern whole, the half of the optimisation that lives in the SQL rather
+    // than in the schema.
     if (collation == "nocase") {
       query =
         SearchQuery(
@@ -190,13 +186,12 @@ open class StringIndexCollationBenchmark {
         )
     }
 
-    // Prove the arms actually differ before timing them. `binary` must fail to narrow on
-    // index_value and `nocase` must succeed; if both ever agree the comparison is vacuous.
+    // The arms must differ before they are worth timing: `binary` must fail to narrow on
+    // index_value and `nocase` must succeed.
     val plan = database.planFor(query).joinToString(" | ")
     val narrowsOnValue = "index_value>?" in plan
     check(narrowsOnValue == (collation == "nocase")) {
-      "arm '$collation' produced the wrong plan, so the two arms are not measuring different " +
-        "things: $plan"
+      "arm '$collation' produced the wrong plan, so the arms measure the same thing: $plan"
     }
 
     // One of 676 two-letter prefixes, so both arms must land on the same small slice.
@@ -215,17 +210,15 @@ open class StringIndexCollationBenchmark {
 }
 
 /**
- * Fails a trial whose query does not select the slice it was designed to.
+ * Fails a trial whose query no longer selects the slice it was designed for.
  *
- * Selectivity is the whole game for an index: a predicate matching half the table cannot be helped
- * by one, and a predicate matching nothing is not being measured at all. This was learned the hard
- * way: an end-to-end suite whose generated corpus held eight given names matched an eighth of it on
- * every prefix search, and so could never show a benefit from any index change at all.
+ * Selectivity decides whether an index can help at all: a predicate matching half the table cannot
+ * be, and one matching nothing is not being measured. See "Selectivity" in docs/benchmarking.md.
  */
 private fun assertSelectivity(matched: Int, rows: Int, expectedFraction: Double, arm: String) {
   val expected = rows * expectedFraction
-  // A percentage band alone is too tight where the expected count is only a row or two, and whole
-  // rows cannot land on a fraction. Allow whichever is looser: a fifth, or a single row.
+  // A percentage band alone is too tight where the expected count is a row or two, so allow
+  // whichever is looser: a fifth, or a single row.
   val tolerance = maxOf(1.0, expected * 0.2)
   check(matched > 0 && matched >= expected - tolerance && matched <= expected + tolerance) {
     "arm '$arm' at $rows rows matched $matched, expected about ${expected.toInt()}. The query is " +

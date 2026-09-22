@@ -40,10 +40,9 @@ import kotlinx.datetime.LocalDate
 /**
  * Sample resources shared by every benchmark in this source set.
  *
- * Two patients on purpose. [minimalPatient] carries the fields almost every record has, and
- * [richPatient] carries the ones that make a record expensive — repeated names, identifiers,
- * telecom and addresses. Indexing and serialization both scale with that difference, so measuring
- * only one of them would hide it.
+ * [minimalPatient] carries the fields almost every record has; [richPatient] carries the ones that
+ * make a record expensive — repeated names, identifiers, telecom and addresses. Indexing and
+ * serialization both scale with that difference.
  */
 object Fixtures {
 

@@ -32,9 +32,8 @@ import kotlinx.benchmark.State
  * under all of the engine's storage paths.
  *
  * Most of what this measures belongs to `fhir-model-r4` and kotlinx.serialization rather than to
- * the engine. It is here because the floor is worth knowing regardless of who owns it, and because
- * the `explicitNulls`/`encodeDefaults` settings in `ResourceSerializer.kt` are the engine's own
- * choice — a number here is what would justify revisiting them.
+ * the engine. It is here because the floor is worth knowing either way, and because the
+ * `explicitNulls`/`encodeDefaults` settings in `ResourceSerializer.kt` are the engine's own choice.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)

@@ -41,8 +41,8 @@ import kotlinx.benchmark.State
  * pure string and list assembly, so it is the part of a search whose cost does not depend on how
  * much data is stored.
  *
- * Each benchmark rebuilds its [Search] inside the measured region on purpose: callers construct a
- * fresh one per query, and the DSL's own allocation is part of what a caller pays.
+ * Each benchmark rebuilds its [Search] inside the measured region: callers construct a fresh one
+ * per query, so the DSL's own allocation is part of what a caller pays.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
