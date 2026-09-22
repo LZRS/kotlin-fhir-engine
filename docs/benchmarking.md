@@ -29,6 +29,9 @@ browser-configured, and a native target would need a `macosArm64` the engine doe
 | `PatchOrderingBenchmark`         | Tarjan's over the pending-upload graph, the only cost that grows with queue length      |
 | `DateIndexShapeBenchmark`        | Date index column order, swept from 1,000 to 50,000 rows                                |
 | `StringIndexCollationBenchmark`  | String index collation, swept the same way                                              |
+| `QuantityIndexShapeBenchmark`    | Whether the quantity index should carry the unit before the value                       |
+| `LookupIndexCoveringBenchmark`   | Whether the reference and uri indices should carry `resourceUuid`, as the token one does |
+| `SortBenchmark`                  | What sorting costs, and whether paging escapes it                                       |
 | `ResourceInsertBenchmark`, `ResourceUpdateBenchmark`, `ResourceDeleteBenchmark`, `ResourceReadBenchmark` | The CRUD paths through the real `ResourceDao` and schema |
 | `PayloadRepresentationBenchmark` | Storing `serializedResource` as JSON text against the same resources as a protobuf blob |
 | `SqliteTuningBenchmark`          | `ANALYZE`, `journal_mode` and `synchronous`, which the engine never sets                |
@@ -53,6 +56,30 @@ between a scan and a seek, 39.8x at the largest size. The engine ships the `bina
 `DateIndexShapeBenchmark`: a flat 11-13% for the reordered index at every size, against a selective
 window. Not enough to pay for the extra index and the write cost it brings; see
 [Known shortfalls](#known-shortfalls).
+
+`QuantityIndexShapeBenchmark`, us/op at 1k/10k/50k rows. A search naming a unit: `current` 100.8,
+420.0, 1917.9 against `codeFirst` 104.1, 262.3, 1256.8 — a 34% gain at the top size. The same search
+without a unit reverses it: `current` 155.5, 1053.2, 4701.3 against `codeFirst` 340.0, 2644.2,
+12188.8, which is 2.6x worse. Keeping both indices takes the gain without the loss (91.0, 297.5,
+1244.8 with a unit; 135.3, 1097.1, 4883.4 without) at the cost of a second index on every quantity
+write, which is not measured here. See [Known shortfalls](#known-shortfalls).
+
+`LookupIndexCoveringBenchmark`: appending `resourceUuid` is worth about 25% on a reference lookup
+and 21% on a uri lookup at 50,000 rows (5320 to 3948 us/op, and 5359 to 4215). At 1,000 rows the
+arms are indistinguishable — the whole index is cached, so saving a row fetch saves nothing. The
+gap at 50,000 rows is only just outside the combined error, so treat the size rather than the
+direction as provisional.
+
+`SortBenchmark` is the largest single effect measured here, and it is about paging rather than
+about an index. An unsorted first page is flat in the size of the corpus — 87.7, 107.4, 79.3 us/op
+at 1k/10k/50k, because `LIMIT` stops as soon as it has fifty rows. A sorted first page is linear —
+1320, 10593, 48886 us/op — because nothing arrives in order, so the whole corpus is ordered before
+fifty rows come back. At 50,000 rows a sorted page costs **617x** an unsorted one, and that ratio
+grows with the table.
+
+Sorting an already-filtered slice is nearly free by comparison: 6829 against 7163 us/op at 50,000
+rows, about 5%. The cost is in ordering a corpus, not in the ordering itself. See
+[Sorting](#sorting).
 
 `SqliteTuningBenchmark`: nothing here is worth adopting. On an idle machine all four arms agree to
 within 1% on both write shapes — a batched insert is 5.61 ms against 5.67 for WAL, and one
@@ -95,10 +122,15 @@ database. Timing answers how slow; the plan answers why.
 |-------------------------|------------------------------------|----------|
 | token                   | all three                          | yes      |
 | reference, uri          | all three                          | no       |
-| number, quantity        | all three, range on the value      | no       |
+| number                  | all three, range on the value      | no       |
+| quantity, no unit       | all three, range on the value      | no       |
+| **quantity with a unit**| **two and the range — `index_code` unused** | no |
 | string `:exact`         | all three                          | no       |
 | string prefix, contains | two — `index_value` unused         | no       |
 | date, dateTime          | two — the range columns unused     | yes      |
+
+Reference and uri are the only lookups that are not covering; the token index carries
+`resourceUuid` and theirs do not.
 
 Sorting is never index-backed: every sorted search builds two temporary B-trees.
 
@@ -109,7 +141,7 @@ rows.
 
 ### Known shortfalls
 
-Both are pinned as tests that name them.
+Each is pinned as a test that names it.
 
 **Prefix string search** compiles to `index_value LIKE ? || '%' COLLATE NOCASE` and narrows on
 `(resourceType, index_name)` alone. Two things block it, and fixing either alone changes nothing:
@@ -127,6 +159,46 @@ birth-date range search and a delete, interleaved, n=3. `DateIndexShapeBenchmark
 change against a selective window and finds a flat ~13% gain instead. The two do not contradict
 each other; they are different selectivities. Left as it is until something measures a case that
 wants it.
+
+**Quantity with a unit** is the same defect with a clearer answer. The index is
+`(resourceType, index_name, index_value, index_code)`, and a search naming a unit emits
+`index_system = ? AND index_code = ? AND index_value >= ? AND index_value < ?` — two equality
+predicates and a range. The range column sits in front of `index_code`, and nothing after a range
+is reachable, so the unit is ignored and the scan spans every unit recorded for the parameter.
+Swapping the two is worth 34%, but costs 2.6x on a search that omits the unit, which then has a gap
+where the unit would be. Keeping both indices takes the gain without the loss and is the shape to
+adopt if this is picked up; what is unmeasured is the second index's cost on writes.
+
+**Reference and uri lookups are not covering.** Every filter subquery selects `resourceUuid` alone,
+so an index ending in that column answers it without touching a row. `TokenIndexEntity` is
+`(resourceType, index_name, index_value, resourceUuid)` and its plan says COVERING INDEX; the
+reference and uri indices stop at `index_value`. Appending the column is worth about 20-25% at
+50,000 rows and nothing at 1,000. It is the cheapest of the three to adopt, and reference lookups
+carry the chained, `has` and `revInclude` searches, so it applies more often than a plain reference
+filter suggests.
+
+### Sorting
+
+Not an index question, and the largest effect in the suite.
+
+`Search.sort` compiles to a LEFT JOIN onto the index table, a GROUP BY to collapse resources with
+several indexed values, and an ORDER BY. The join uses `(resourceUuid, index_name, index_value)` as
+a covering index, so the lookup is not the problem; SQLite answers the GROUP BY and the ORDER BY
+with a temporary B-tree each.
+
+The consequence is that **`count`/`from` does not bound the work on a sorted search**. A LIMIT can
+stop early only once rows arrive in order, and they do not, so a sorted first page orders the whole
+corpus before returning fifty rows — 617x an unsorted page at 50,000 rows, growing with the table.
+Paging through a sorted list pays that on every page.
+
+Filtering first largely removes it: sorting a 1/676 slice costs about 5%. So the shape to avoid is
+a sorted search with no filter, or with a weak one, which is also the shape a "browse all patients,
+alphabetically" screen produces.
+
+Nothing is proposed here yet. An index on `ResourceEntity(resourceType, resourceUuid)` might remove
+the GROUP BY B-tree, and the `HAVING MIN(...) >= <sentinel>` the sort emits is worth a second look
+before any of that — for a string sort it compares text against an integer, which SQLite always
+resolves one way.
 
 ### Selectivity
 

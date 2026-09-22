@@ -106,6 +106,96 @@ internal class IndexBenchmarkDatabase(private val file: File) {
   }
 
   /**
+   * Writes [rows] observations, each with one quantity index row.
+   *
+   * Codes cycle through [QUANTITY_UNITS] and values spread evenly across [VALUE_SPREAD], so a fixed
+   * value window combined with a fixed unit selects the same fraction of rows at every size. The
+   * two distributions have different periods, so a window of rows still holds every unit in equal
+   * measure.
+   */
+  fun seedQuantity(rows: Int) = runBlocking {
+    database.useWriterConnection { transactor ->
+      transactor.withTransaction(Transactor.SQLiteTransactionType.IMMEDIATE) {
+        usePrepared(
+          "INSERT INTO ResourceEntity (resourceUuid, resourceType, resourceId, serializedResource) " +
+            "VALUES (?, 'Observation', ?, '{}')",
+        ) { statement ->
+          repeat(rows) { row ->
+            statement.bindText(1, uuidFor(row))
+            statement.bindText(2, "observation-$row")
+            statement.step()
+            statement.reset()
+          }
+        }
+        usePrepared(
+          "INSERT INTO QuantityIndexEntity " +
+            "(resourceUuid, resourceType, index_name, index_path, index_system, index_code, " +
+            "index_value) " +
+            "VALUES (?, 'Observation', 'value-quantity', 'Observation.value.ofType(Quantity)', " +
+            "?, ?, ?)",
+        ) { statement ->
+          repeat(rows) { row ->
+            statement.bindText(1, uuidFor(row))
+            statement.bindText(2, UCUM_SYSTEM)
+            statement.bindText(3, QUANTITY_UNITS[row % QUANTITY_UNITS.size])
+            statement.bindDouble(4, row.toDouble() * VALUE_SPREAD / rows)
+            statement.step()
+            statement.reset()
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Writes [rows] observations, each with one reference index row and one uri index row.
+   *
+   * Values cycle through [LOOKUP_VALUES], so a search for one of them selects the same fraction at
+   * every size.
+   */
+  fun seedLookups(rows: Int) = runBlocking {
+    database.useWriterConnection { transactor ->
+      transactor.withTransaction(Transactor.SQLiteTransactionType.IMMEDIATE) {
+        usePrepared(
+          "INSERT INTO ResourceEntity (resourceUuid, resourceType, resourceId, serializedResource) " +
+            "VALUES (?, 'Observation', ?, '{}')",
+        ) { statement ->
+          repeat(rows) { row ->
+            statement.bindText(1, uuidFor(row))
+            statement.bindText(2, "observation-$row")
+            statement.step()
+            statement.reset()
+          }
+        }
+        usePrepared(
+          "INSERT INTO ReferenceIndexEntity " +
+            "(resourceUuid, resourceType, index_name, index_path, index_value) " +
+            "VALUES (?, 'Observation', 'subject', 'Observation.subject', ?)",
+        ) { statement ->
+          repeat(rows) { row ->
+            statement.bindText(1, uuidFor(row))
+            statement.bindText(2, "Patient/${LOOKUP_VALUES[row % LOOKUP_VALUES.size]}")
+            statement.step()
+            statement.reset()
+          }
+        }
+        usePrepared(
+          "INSERT INTO UriIndexEntity " +
+            "(resourceUuid, resourceType, index_name, index_path, index_value) " +
+            "VALUES (?, 'Observation', 'identifier', 'Observation.identifier', ?)",
+        ) { statement ->
+          repeat(rows) { row ->
+            statement.bindText(1, uuidFor(row))
+            statement.bindText(2, "urn:oid:${LOOKUP_VALUES[row % LOOKUP_VALUES.size]}")
+            statement.step()
+            statement.reset()
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * Appends [count] string index rows, reusing existing patient uuids. A write that has to maintain
    * an index, which is what journal and synchronous settings act on.
    */
@@ -254,6 +344,24 @@ internal class IndexBenchmarkDatabase(private val file: File) {
 
     /** Roughly 55 years of birthdates, so a decade-wide range is a real slice. */
     const val DAY_SPREAD = 20_000
+
+    const val UCUM_SYSTEM = "http://unitsofmeasure.org"
+
+    /**
+     * Units the engine's UCUM canonicalisation leaves alone. It rewrites the code for units it can
+     * convert — `kg` becomes `g1`, `Cel` becomes the empty string — which would make a seeded code
+     * and a queried one disagree. [QuantityIndexShapeBenchmark] asserts the pass-through holds.
+     */
+    val QUANTITY_UNITS = listOf("g/dL", "mg/dL", "/min", "mmol/L", "U/L", "ng/mL", "pg/mL", "mIU/L")
+
+    /** Quantity values spread across this range, whatever the row count. */
+    const val VALUE_SPREAD = 10.0
+
+    /**
+     * Distinct values a reference or uri index row cycles through, so a lookup for one of them is
+     * selective at any size.
+     */
+    val LOOKUP_VALUES = (0 until 64).map { "lookup-$it" }
 
     private val LETTERS = ('a'..'z').toList()
 

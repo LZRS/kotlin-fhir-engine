@@ -134,6 +134,44 @@ class SearchQueryPlanTest {
   }
 
   /**
+   * A shortfall, pinned. `index_QuantityIndexEntity_resourceType_index_name_index_value_index_code`
+   * puts the range column before `index_code`, and nothing after a range is reachable, so a search
+   * that names a unit narrows on the value alone and ranges across every unit recorded for the
+   * parameter. `index_system` is not in the index at all.
+   *
+   * `QuantityIndexShapeBenchmark` sizes both the gain from swapping the two and the cost to a
+   * search that omits the unit.
+   */
+  @Test
+  fun `quantity search with a unit cannot narrow on the unit`() = runTest {
+    val plan = planFor(quantitySearchWithUnit())
+
+    assertIndexUsed(
+      plan,
+      table = "QuantityIndexEntity",
+      constraints = "resourceType=? AND index_name=? AND index_value>? AND index_value<?",
+    )
+  }
+
+  /**
+   * A shortfall, pinned. Every filter subquery selects `resourceUuid` alone, so an index ending in
+   * it answers the subquery outright. `TokenIndexEntity` carries the column and is covering; the
+   * reference and uri indices stop at `index_value`, so each match costs a row fetch.
+   *
+   * `LookupIndexCoveringBenchmark` sizes what that is worth.
+   */
+  @Test
+  fun `reference and uri searches are not answered from a covering index`() = runTest {
+    for ((name, query) in listOf("reference" to referenceSearch(), "uri" to uriSearch())) {
+      val line = planFor(query).first { it.startsWith("SEARCH ") && "IndexEntity" in it }
+      assertTrue(
+        !line.contains("USING COVERING INDEX"),
+        "$name is now covering; drop this test and tighten the assertion above: $line",
+      )
+    }
+  }
+
+  /**
    * A shortfall, pinned. A prefix search compiles to `index_value LIKE ? || '%' COLLATE NOCASE`.
    * SQLite applies its LIKE optimisation only to a literal or a plain parameter, and only when the
    * index collation matches the comparison's; neither holds, so the search narrows on
@@ -229,6 +267,7 @@ class SearchQueryPlanTest {
       "token" to tokenSearch(),
       "reference" to referenceSearch(),
       "quantity" to quantitySearch(),
+      "quantity with unit" to quantitySearchWithUnit(),
       "date" to dateSearch(),
       "date before" to dateBeforeSearch(),
       "number" to numberSearch(),
@@ -297,6 +336,20 @@ class SearchQueryPlanTest {
     Search(ResourceType.Observation)
       .apply {
         filter(QuantityClientParam("value-quantity"), { value = BigDecimal.parseString("5.4") })
+      }
+      .getQuery()
+
+  private fun quantitySearchWithUnit() =
+    Search(ResourceType.Observation)
+      .apply {
+        filter(
+          QuantityClientParam("value-quantity"),
+          {
+            value = BigDecimal.parseString("5.4")
+            system = "http://unitsofmeasure.org"
+            unit = "g/dL"
+          },
+        )
       }
       .getQuery()
 

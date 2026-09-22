@@ -208,20 +208,3 @@ open class StringIndexCollationBenchmark {
     const val PREFIX_COMBINATIONS = 26 * 26
   }
 }
-
-/**
- * Fails a trial whose query no longer selects the slice it was designed for.
- *
- * Selectivity decides whether an index can help at all: a predicate matching half the table cannot
- * be, and one matching nothing is not being measured. See "Selectivity" in docs/benchmarking.md.
- */
-private fun assertSelectivity(matched: Int, rows: Int, expectedFraction: Double, arm: String) {
-  val expected = rows * expectedFraction
-  // A percentage band alone is too tight where the expected count is a row or two, so allow
-  // whichever is looser: a fifth, or a single row.
-  val tolerance = maxOf(1.0, expected * 0.2)
-  check(matched > 0 && matched >= expected - tolerance && matched <= expected + tolerance) {
-    "arm '$arm' at $rows rows matched $matched, expected about ${expected.toInt()}. The query is " +
-      "no longer selecting the slice this benchmark assumes, so its timings are not comparable."
-  }
-}
