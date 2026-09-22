@@ -162,6 +162,18 @@ class SearchQueryPlanTest {
   }
 
   /**
+   * A leading wildcard rules out a range seek whatever the collation, so this one cannot be fixed.
+   */
+  @Test
+  fun `contains string search cannot narrow on index_value`() = runTest {
+    assertIndexUsed(
+      planFor(containsStringSearch()),
+      table = "StringIndexEntity",
+      constraints = "resourceType=? AND index_name=?",
+    )
+  }
+
+  /**
    * Suboptimal, pinned deliberately. `index_DateIndexEntity_resourceType_index_name_resourceUuid_
    * index_from_index_to` places `resourceUuid` between the equality columns and the range columns.
    * An index can only serve a range predicate on the column immediately after its equality prefix,
@@ -218,6 +230,7 @@ class SearchQueryPlanTest {
     listOf(
       "string" to stringSearch(),
       "string exact" to exactStringSearch(),
+      "string contains" to containsStringSearch(),
       "token" to tokenSearch(),
       "reference" to referenceSearch(),
       "quantity" to quantitySearch(),
@@ -242,6 +255,19 @@ class SearchQueryPlanTest {
           {
             value = "Jane"
             modifier = StringFilterModifier.MATCHES_EXACTLY
+          },
+        )
+      }
+      .getQuery()
+
+  private fun containsStringSearch() =
+    Search(ResourceType.Patient)
+      .apply {
+        filter(
+          StringClientParam("given"),
+          {
+            value = "an"
+            modifier = StringFilterModifier.CONTAINS
           },
         )
       }
