@@ -109,19 +109,31 @@ object FhirEngineProvider {
   internal fun getSearchParamProvider(): SearchParamDefinitionsProviderImpl? = searchParamProvider
 
   /**
-   * Closes the database and returns the provider to its uninitialized state.
+   * Closes the database and the data source, and returns the provider to its uninitialized state.
    *
    * [init] must be called again before the next [getInstance], and any [FhirEngine] held from
    * before the reset must be discarded.
    *
-   * The database is closed on Android, Desktop and iOS, so a held engine fails once reset. Web
-   * keeps it open, because closing there wedges the SQLite Web Worker; see
-   * [canCloseDatabaseOnReset].
+   * Intended for tests and benchmarks, which need each run to start from a known engine. Two things
+   * outlive a reset, and a caller depending on either being cleared has to arrange it some other
+   * way:
+   * - **Web cannot be reset in one page.** Closing there wedges the SQLite Web Worker, so
+   *   [canCloseDatabaseOnReset] keeps the connection open; the first worker then holds the
+   *   exclusive OPFS sync access handle, and a later [init] plus [getInstance] against a persistent
+   *   store blocks on the reopen. Only an in-memory store (`testMode`) survives the round trip. A
+   *   browser gets a cold engine by reloading the page.
+   * - **The persisted data store is not cleared.** Every platform caches the underlying `DataStore`
+   *   in a process-level singleton, so sync watermarks written before a reset are still there after
+   *   it. A test needing them gone needs its own `storageDirectory`.
    *
-   * Intended for tests and benchmarks, which need each run to start from a known state.
+   * Everywhere but web the database is closed, so an engine held across a reset fails on its next
+   * call rather than writing to a database nothing owns.
    */
   fun reset() {
     if (canCloseDatabaseOnReset()) (fhirEngine as? FhirEngineImpl)?.closeDatabase()
+    // Holds an HttpClient with its own engine and thread pool, which nulling the field alone would
+    // leak once per init/reset cycle.
+    dataSource?.close()
     fhirEngine = null
     dataSource = null
     configuration = null

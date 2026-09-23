@@ -32,4 +32,10 @@ internal interface DataSource {
    *   the server.
    */
   suspend fun upload(request: UploadRequest): Resource
+
+  /**
+   * Releases whatever the source holds open, typically an HTTP client and its thread pool. The
+   * source is unusable afterwards. Does nothing by default, for sources holding nothing.
+   */
+  fun close() {}
 }

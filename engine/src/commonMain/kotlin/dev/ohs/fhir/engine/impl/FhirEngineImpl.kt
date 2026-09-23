@@ -46,7 +46,7 @@ internal class FhirEngineImpl(private val database: Database) : FhirEngine {
    * Closes the underlying database connection. After this, the engine is unusable and every
    * operation on it fails. Called by [dev.ohs.fhir.engine.FhirEngineProvider.reset].
    */
-  internal fun closeDatabase() {
+  fun closeDatabase() {
     database.close()
   }
 

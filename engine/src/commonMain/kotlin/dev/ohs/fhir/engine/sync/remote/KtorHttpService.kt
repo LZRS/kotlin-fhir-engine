@@ -67,6 +67,14 @@ internal class KtorHttpService(
   }
 
   /**
+   * Closes the [HttpClient] this service was built with, releasing its engine and thread pool.
+   * Every later request on it fails.
+   */
+  override fun close() {
+    client.close()
+  }
+
+  /**
    * Sanitizes JSON to work around bugs in the kotlin-fhir library (fhir-model beta):
    * 1. Truncates DateTime values in date-only fields, e.g. birthDate, deceasedDate
    *    (FhirDate.fromString() crash)
