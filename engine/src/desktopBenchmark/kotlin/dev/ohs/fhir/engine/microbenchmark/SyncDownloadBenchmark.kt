@@ -67,14 +67,12 @@ open class SyncDownloadBenchmark {
         (0 until PAGE).map { EngineBenchmarkDatabase.patient(page * PAGE + it) }
       }
 
-    if (pendingChanges > 0) {
-      // Created locally, so each one leaves a pending change behind. Observations rather than
-      // patients: `getConflictingResourceIds` matches on the resource id alone, so a shared id
-      // would register as a conflict whatever the type.
-      database.insert(
-        (0 until pendingChanges).map { EngineBenchmarkDatabase.observation(it, pendingChanges) },
-      )
-    }
+    // Every arm holds the same resources; only how many still have a pending change differs.
+    // Seeding fewer for the smaller arms would vary the corpus the download writes into as well,
+    // and the sweep could not say which of the two it measured.
+    val queued = (0 until MAX_PENDING).map { EngineBenchmarkDatabase.observation(it, MAX_PENDING) }
+    database.insert(queued)
+    database.discardChanges(queued.drop(pendingChanges))
     check(database.localChangeCount() == pendingChanges) {
       "the queue holds ${database.localChangeCount()} changes, expected $pendingChanges"
     }
@@ -105,5 +103,8 @@ open class SyncDownloadBenchmark {
 
     /** Enough pages that a per-page cost is visible against the per-resource one. */
     const val PAGES = 10
+
+    /** Seeded by every arm, so the corpus is constant and only the queue varies. */
+    const val MAX_PENDING = 1_000
   }
 }

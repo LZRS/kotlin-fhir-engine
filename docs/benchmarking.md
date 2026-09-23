@@ -145,7 +145,8 @@ with a small enough constant that at these sizes it is still dominated by its jo
 measured, because the arm is slow enough at 10,000 to be worth skipping until the join is fixed.
 
 This is the one shortfall here that needs no schema change and no trade: group the resolved
-resources once, by key, instead of once per base resource.
+resources once, by key, instead of once per base resource. Doing so takes the 10,000-row page from
+14.3 s to 87 ms, **164x**, and makes the column linear.
 
 `EngineCreateBenchmark` against `ResourceInsertBenchmark`: writing fifty patients costs 13.5 ms
 through `DatabaseImpl` and 104.1 ms through `ResourceDao` a resource at a time — 270 us against
@@ -158,16 +159,20 @@ Each seeded patient carries two references, so an update pays `LocalChangeDao` t
 those references moved `EngineUpdateBenchmark` from 14.2 ms to 15.4 ms for fifty resources, about
 8%. Re-indexing dominates either way.
 
-`SyncDownloadBenchmark`, ingesting 1,000 resources in ten pages: 842.6 ms with an empty local
-change queue, 875.0 ms with 100 queued changes, 1,024.5 ms with 1,000 — **22% slower for a queue
-the download never touches.** `syncDownload` calls `getAllLocalChanges` once per page and
-deserializes every entry, only to intersect their ids with the page's. Nothing in these runs
-conflicts, so all of that work is discarded. Reading the ids for the page, or hoisting the read out
-of the page loop, removes it; `LocalChangeReadBenchmark` prices the same call in isolation at 79 us
-per fifty changes.
+`SyncDownloadBenchmark`, ingesting 1,000 resources in ten pages over a constant corpus, varying
+only how much of it still has a pending change: 1,051 ms with none, 1,037 ms with 100, 1,137 ms
+with 1,000. The slope is the per-page ledger read — `syncDownload` calls `getAllLocalChanges` once
+per page and deserializes every entry, only to intersect their ids with the page's, and nothing in
+these runs conflicts. Asking instead which of the page is edited, with the resource type leading so
+the query uses the index over `(resourceType, resourceId)`, flattens it: 1,082, 1,056, 1,032 ms.
+About 9% at a queue of a thousand, and no longer growing with it.
 
-Worth knowing while reading that code: the intersection matches on resource id alone and ignores
-the type, so a Patient and an Observation sharing an id would register as a conflict.
+Hold the corpus constant when sweeping the queue. Seeding fewer resources for the smaller arms
+varies what the download writes into as well, and inflates the same measurement to 22%.
+
+The intersection also matches on resource id alone and ignores the type, so a downloaded Patient
+sharing an id with a pending Observation change is treated as a conflict, and resolving it throws
+`ResourceNotFoundException`.
 
 `CreateBatchSizeBenchmark`, writing 5,000 patients at different transaction boundaries: 3,827 ms
 one at a time, 2,568 ms in tens, 2,058 ms in hundreds, 1,652 ms in thousands, 1,590 ms in a single
