@@ -26,6 +26,7 @@ browser-configured, and a native target would need a `macosArm64` the engine doe
 | `ResourceSerializerBenchmark`    | The serialize/deserialize floor under every read and write                              |
 | `SearchQueryBenchmark`           | `Search.getQuery()` and `XFhirQueryTranslator` — per-query cost, independent of how much is stored |
 | `SearchExecutionBenchmark`       | A search end to end: the query, the rows, a parse per row, and `_include`/`_revinclude` |
+| `SearchResultSizeBenchmark`      | The same, swept by how many resources come back rather than by corpus size |
 | `UcumCanonicalBenchmark`         | Canonicalizing a quantity, which every indexed value and every filter pays              |
 | `MoreResourcesBenchmark`         | `getResourceClass`, `updateMeta`, `withId` — per-resource helpers                       |
 | `PatchOrderingBenchmark`         | Tarjan's over the pending-upload graph, the only cost that grows with queue length      |
@@ -118,13 +119,42 @@ tables rather than the size of the result. `_revinclude` builds the same `type/i
 and binds them, so both sides seek — which is also the shape of the fix.
 `SearchQueryPlanTest` pins both plans.
 
-`EngineCreateBenchmark` against `ResourceInsertBenchmark`: writing fifty patients costs 12.8 ms
-through `DatabaseImpl` and 104.2 ms through `ResourceDao` a resource at a time — 257 us against
-2,085 us each. Both arms are noisy, at 17% and 18% error, which is why they sit in the `prNoisy`
-tier; the gap is eight times that spread. The engine path does strictly more work per resource, the local-change ledger
+`SearchResultSizeBenchmark`, us/op over a fixed 10,000-patient corpus, varying only the page size:
+
+| page | `page` | `pageWithInclude` | `pageWithRevInclude` |
+|-----:|-------:|------------------:|---------------------:|
+| 1 | 29.8 | 67.4 | 54.7 |
+| 100 | 323.8 | 5,914.4 | 2,183.1 |
+| 1,000 | 3,018.3 | 21,490.9 | 153,720.5 |
+| 10,000 | 33,823.6 | — | 14,320,242.4 |
+
+A plain page is linear and cheap: about 3.0 us per resource returned, over a fixed 27 us of query.
+That is the whole cost of an unfiltered search, and it matches what the on-device run over 20,000
+patients implies — counting them took 2.75 ms, sorting them about 836 ms, and returning them about
+8,090 ms, or 0.40 ms each on a Tab A9.
+
+The include columns are not linear. `pageWithRevInclude` grows 70x for the first ten-fold step and
+93x for the second: a `_revinclude` over a page of ten thousand takes **14.3 seconds** where the
+page alone takes 34 ms. `Search.execute` builds its result by rescanning the whole resolved list
+once per base resource, so the work is the product of the two — and on the revInclude side the
+`type/id` key is rebuilt inside that scan, which is why it is two orders of magnitude worse than
+the include side doing the same thing with a uuid comparison. The include column is quadratic too,
+with a small enough constant that at these sizes it is still dominated by its join; `—` is not
+measured, because the arm is slow enough at 10,000 to be worth skipping until the join is fixed.
+
+This is the one shortfall here that needs no schema change and no trade: group the resolved
+resources once, by key, instead of once per base resource.
+
+`EngineCreateBenchmark` against `ResourceInsertBenchmark`: writing fifty patients costs 13.5 ms
+through `DatabaseImpl` and 104.1 ms through `ResourceDao` a resource at a time — 270 us against
+2,083 us each. Both arms are noisy, at 9% and 4% error, and the gap is far wider than that spread. The engine path does strictly more work per resource, the local-change ledger
 included, and still wins by eight times, because it commits once for the batch where the DAO path
-commits once per resource. `BulkImportBenchmark` writes 500 in one transaction at 291 us each,
+commits once per resource. `BulkImportBenchmark` writes 500 in one transaction at 305 us each,
 without a ledger, which bounds what the ledger can be costing.
+
+Each seeded patient carries two references, so an update pays `LocalChangeDao` to diff them: adding
+those references moved `EngineUpdateBenchmark` from 14.2 ms to 15.4 ms for fifty resources, about
+8%. Re-indexing dominates either way.
 
 `UploadAssemblyBenchmark` at fifty resources, each with an insert and two updates: squashing into
 one patch per resource takes 253.2 us against 2.9 us for keeping every change, because squashing

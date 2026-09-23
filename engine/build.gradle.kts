@@ -232,6 +232,9 @@ benchmark {
       exclude("dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\.SqliteTuningBenchmark")
       param("rows", 1000)
       param("changeCount", 50)
+      // A page of ten thousand takes 14 seconds to revInclude; the curve is a question for the
+      // index tier.
+      param("results", 100)
       // Five warmups: at three, CI showed JIT drift in the first measured iterations. Ten
       // iterations: at five, Student's t (8.47) left most intervals too wide to see a 5% change.
       warmups = 5
@@ -260,7 +263,8 @@ benchmark {
       include(
         "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\." +
           "(DateIndexShape|StringIndexCollation|QuantityIndexShape|LookupIndexCovering|Sort|" +
-          "SqliteTuning|PayloadRepresentation|SearchExecution|LocalChangeRead|BulkImport|" +
+          "SqliteTuning|PayloadRepresentation|SearchExecution|SearchResultSize|LocalChangeRead|" +
+          "BulkImport|" +
           "DatabaseOpen|Engine(Create|Update|Delete)|Resource(Insert|Update|Delete|Read))Benchmark",
       )
       warmups = 3

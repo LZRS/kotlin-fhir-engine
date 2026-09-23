@@ -35,6 +35,7 @@ import dev.ohs.fhir.model.r4.FhirDecimal
 import dev.ohs.fhir.model.r4.HumanName
 import dev.ohs.fhir.model.r4.Identifier
 import dev.ohs.fhir.model.r4.Observation
+import dev.ohs.fhir.model.r4.Organization
 import dev.ohs.fhir.model.r4.Patient
 import dev.ohs.fhir.model.r4.Quantity
 import dev.ohs.fhir.model.r4.Reference
@@ -93,6 +94,11 @@ internal class EngineBenchmarkDatabase(
     (0 until rows).chunked(SEED_BATCH).forEach { chunk ->
       database.insertRemote(*chunk.map { observation(it, subjects) }.toTypedArray())
     }
+  }
+
+  /** Writes the organizations every seeded patient points at, so an `_include` resolves them. */
+  fun seedOrganizations() = runBlocking {
+    database.insertRemote(*(0 until ORGANIZATIONS).map(::organization).toTypedArray())
   }
 
   /** Writes [rows] risk assessments, the only fixture carrying a number index. */
@@ -172,6 +178,14 @@ internal class EngineBenchmarkDatabase(
 
     fun patientId(row: Int) = "engine-patient-$row"
 
+    fun organizationId(row: Int) = "engine-organization-$row"
+
+    /**
+     * Distinct organizations the patients are spread over. Few enough that an `_include` resolves
+     * to a small set however large the corpus, which is the shape a real one has.
+     */
+    const val ORGANIZATIONS = 64
+
     /** The family name at [row]; its two-letter prefix selects 1/676 of the patients. */
     fun familyName(row: Int) = "${IndexBenchmarkDatabase.prefixFor(row)}family-$row"
 
@@ -198,6 +212,24 @@ internal class EngineBenchmarkDatabase(
             value = if (row % 2 == 0) AdministrativeGender.Female else AdministrativeGender.Male,
           ),
         birthDate = Date(value = FhirDate.Date(date = LocalDate(1980, 4, 17))),
+        // Two references apiece. A patient carrying none costs `LocalChangeDao` nothing to extract,
+        // and an update's reference diff — which walks both the old and the new tree — then
+        // measures an empty walk.
+        managingOrganization =
+          Reference(
+            reference = FhirString(value = "Organization/${organizationId(row % ORGANIZATIONS)}"),
+          ),
+        generalPractitioner =
+          listOf(
+            Reference(reference = FhirString(value = "Practitioner/engine-practitioner-$row")),
+          ),
+      )
+
+    fun organization(row: Int): Organization =
+      Organization(
+        id = organizationId(row),
+        active = FhirBoolean(value = true),
+        name = FhirString(value = "Organization ${IndexBenchmarkDatabase.prefixFor(row)}"),
       )
 
     fun observation(row: Int, subjects: Int): Observation =
