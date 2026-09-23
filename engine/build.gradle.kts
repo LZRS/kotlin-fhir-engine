@@ -230,6 +230,11 @@ benchmark {
       exclude(noisyOnCi)
       // Journal and fsync settings mean nothing on the tmpfs CI uses, and the question is settled.
       exclude("dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\.SqliteTuningBenchmark")
+      // A single invocation of either runs into the seconds, so a half-second iteration holds one.
+      // They answer questions rather than watch for regressions; the index tier runs them.
+      exclude(
+        "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\.(SyncDownload|CreateBatchSize)Benchmark",
+      )
       param("rows", 1000)
       param("changeCount", 50)
       // A page of ten thousand takes 14 seconds to revInclude; the curve is a question for the
@@ -265,7 +270,8 @@ benchmark {
           "(DateIndexShape|StringIndexCollation|QuantityIndexShape|LookupIndexCovering|Sort|" +
           "SqliteTuning|PayloadRepresentation|SearchExecution|SearchResultSize|LocalChangeRead|" +
           "BulkImport|" +
-          "DatabaseOpen|Engine(Create|Update|Delete)|Resource(Insert|Update|Delete|Read))Benchmark",
+          "DatabaseOpen|SyncDownload|CreateBatchSize|Engine(Create|Update|Delete)|" +
+          "Resource(Insert|Update|Delete|Read))Benchmark",
       )
       warmups = 3
       iterations = 5

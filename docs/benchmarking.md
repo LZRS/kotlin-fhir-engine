@@ -38,6 +38,8 @@ browser-configured, and a native target would need a `macosArm64` the engine doe
 | `ResourceInsertBenchmark`, `ResourceUpdateBenchmark`, `ResourceDeleteBenchmark`, `ResourceReadBenchmark` | The CRUD paths through the real `ResourceDao` and schema |
 | `EngineCreateBenchmark`, `EngineUpdateBenchmark`, `EngineDeleteBenchmark` | The same writes through `DatabaseImpl`: one transaction, and a local change per resource |
 | `BulkImportBenchmark`            | A download page written in one transaction, with no local change recorded               |
+| `SyncDownloadBenchmark`          | Ingesting a download through `syncDownload`, swept by the size of the pending queue      |
+| `CreateBatchSizeBenchmark`       | The same resources written at different transaction boundaries                          |
 | `LocalChangeReadBenchmark`       | Reading the pending queue and its references, which is where an upload starts           |
 | `UploadAssemblyBenchmark`        | Squashing pending changes into patches, and patches into upload requests                |
 | `EngineStartupBenchmark`, `DatabaseOpenBenchmark` | What a launch pays before the first read              |
@@ -155,6 +157,25 @@ without a ledger, which bounds what the ledger can be costing.
 Each seeded patient carries two references, so an update pays `LocalChangeDao` to diff them: adding
 those references moved `EngineUpdateBenchmark` from 14.2 ms to 15.4 ms for fifty resources, about
 8%. Re-indexing dominates either way.
+
+`SyncDownloadBenchmark`, ingesting 1,000 resources in ten pages: 842.6 ms with an empty local
+change queue, 875.0 ms with 100 queued changes, 1,024.5 ms with 1,000 — **22% slower for a queue
+the download never touches.** `syncDownload` calls `getAllLocalChanges` once per page and
+deserializes every entry, only to intersect their ids with the page's. Nothing in these runs
+conflicts, so all of that work is discarded. Reading the ids for the page, or hoisting the read out
+of the page loop, removes it; `LocalChangeReadBenchmark` prices the same call in isolation at 79 us
+per fifty changes.
+
+Worth knowing while reading that code: the intersection matches on resource id alone and ignores
+the type, so a Patient and an Observation sharing an id would register as a conflict.
+
+`CreateBatchSizeBenchmark`, writing 5,000 patients at different transaction boundaries: 3,827 ms
+one at a time, 2,568 ms in tens, 2,058 ms in hundreds, 1,652 ms in thousands, 1,590 ms in a single
+transaction. Monotonic — bigger batches keep winning, with the gain flattening after a thousand
+(4% from there to 5,000) and one-at-a-time costing 2.4x the best. The on-device run suggested the
+opposite at the top end, a single 20,000-resource `create(vararg)` measuring 8.14 ms a resource
+against 5.80 ms for chunked transactions; that does not reproduce here at any size up to 5,000, so
+it is more likely memory pressure on the tablet than anything in the engine.
 
 `UploadAssemblyBenchmark` at fifty resources, each with an insert and two updates: squashing into
 one patch per resource takes 253.2 us against 2.9 us for keeping every change, because squashing
