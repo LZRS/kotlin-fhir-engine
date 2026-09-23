@@ -77,25 +77,31 @@ internal suspend fun <R : Resource> Search.execute(database: Database): List<Sea
       database.searchReverseReferencedResources(getRevIncludeQuery(typeIdPairs))
     }
 
+  // Grouped once, by the key each result is looked up with. Filtering the resolved list per base
+  // resource instead costs the product of the two, which at a page of ten thousand is seconds.
+  val includedByBase =
+    includedResources?.groupBy(
+      { it.baseResourceUUID },
+      { it.searchIndex to it.resource },
+    )
+  val revIncludedByBase =
+    revIncludedResources?.groupBy(
+      { it.baseResourceTypeWithId },
+      { (ResourceType.fromCode(it.resource.resourceType) to it.searchIndex) to it.resource },
+    )
+
   return baseResources.map { (uuid, baseResource) ->
     SearchResult(
       baseResource,
       included =
-        includedResources
-          ?.asSequence()
-          ?.filter { it.baseResourceUUID == uuid }
-          ?.groupBy({ it.searchIndex }, { it.resource }),
+        includedByBase?.let { grouped ->
+          grouped[uuid].orEmpty().groupBy({ it.first }, { it.second })
+        },
       revIncluded =
-        revIncludedResources
-          ?.asSequence()
-          ?.filter {
-            it.baseResourceTypeWithId ==
-              "${(baseResource as Resource).resourceType}/${baseResource.id.orEmpty()}"
-          }
-          ?.groupBy(
-            { ResourceType.fromCode(it.resource.resourceType) to it.searchIndex },
-            { it.resource },
-          ),
+        revIncludedByBase?.let { grouped ->
+          val key = "${(baseResource as Resource).resourceType}/${baseResource.id.orEmpty()}"
+          grouped[key].orEmpty().groupBy({ it.first }, { it.second })
+        },
     )
   }
 }
