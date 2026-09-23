@@ -40,8 +40,10 @@ open class ResourceIndexerBenchmark {
   private lateinit var indexer: ResourceIndexer
 
   /**
-   * Constructing [ResourceIndexer] builds a FHIRPath engine, which costs far more than the indexing
-   * being measured, so it belongs here rather than in the timed region.
+   * Constructing [ResourceIndexer] loads the FHIRPath engine and the generated R4 parameter tables.
+   * That is a one-time cost for the process rather than a per-instance one —
+   * [EngineStartupBenchmark] measures both halves — but it is still far more than one indexing
+   * call, so it belongs here rather than in the timed region.
    */
   @Setup
   fun setUp() {
