@@ -45,20 +45,16 @@ import kotlinx.benchmark.TearDown
  *
  * The index sweeps stop at the row count: they step the result set and never read a payload, and
  * every row they seed holds `{}`. A real search selects `serializedResource` and deserializes one
- * resource per match, so its cost is the query plus a parse per row. `ResourceSerializerBenchmark`
- * puts that parse in the low microseconds, which at a page of results is the larger half. Nothing
- * else here measures the two together.
+ * resource per match, so its cost is the query plus a parse per row.
  *
  * One filter of each supported kind, so a regression in any one of them shows up against the
  * others. `near` is absent because the engine has no position filter, and date is left to
  * [DateIndexShapeBenchmark], which sweeps it properly.
  *
- * [includeSearch] and [revIncludeSearch] are the shapes no other benchmark touches at all, and they
- * are not the same cost. `_include` joins on `re.resourceType||'/'||re.resourceId =
- * rie.index_value`, and an expression on the indexed side cannot be a seek, so neither side of that
- * join uses an index and the work is the product of two tables rather than the size of the result.
- * `_revinclude` binds the same strings from Kotlin and seeks both sides. `SearchQueryPlanTest` pins
- * both plans; this is what the difference costs.
+ * [includeSearch] and [revIncludeSearch] reach the referenced resource by different routes:
+ * `_include` joins on `re.resourceType||'/'||re.resourceId = rie.index_value`, which no index can
+ * serve because the indexed columns sit inside an expression, while `_revinclude` binds the same
+ * strings from Kotlin and seeks. `SearchQueryPlanTest` pins both plans.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)

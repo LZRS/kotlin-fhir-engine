@@ -42,13 +42,10 @@ import org.openjdk.jmh.annotations.Level
  * An update pays more again — `LocalChangeDao.addUpdate` diffs the stored payload against the new
  * one and extracts the reference difference between the two versions.
  *
- * The two pull hard in opposite directions, and the transaction wins by an order of magnitude.
- * EngineCreateBenchmark.createBatch does strictly more work per resource than
- * ResourceInsertBenchmark.insertIndexed and still measures about eight times faster, because the
- * DAO path commits once per resource where this commits once per batch. That gap, not the ledger,
- * is the number worth acting on: it prices writing resources one at a time against batching them.
- * BulkImportBenchmark.importBatch is the same shape without the ledger, which is what bounds how
- * much of the remainder the ledger can account for.
+ * The two pull in opposite directions, so read these against the CRUD classes rather than alone:
+ * the transaction is a saving and the ledger is a cost. BulkImportBenchmark is the same shape as a
+ * create without the ledger, which bounds what the ledger can account for. See
+ * docs/benchmarking.md for the measurements.
  *
  * Batches rather than single resources, and for the same reason as the CRUD classes: JMH's
  * per-invocation hooks are unreliable below a millisecond.
@@ -87,16 +84,10 @@ open class EngineCreateBenchmark {
 /**
  * Updating resources that already exist, which diffs each against its stored payload.
  *
- * The two variants alternate because writing the same change twice is not a change.
- * `LocalChangeDao.addUpdate` serializes the resource, diffs it against the stored payload and
- * returns early when the two are identical, skipping the ledger row and the reference extraction
- * with it. Writing one variant every invocation would leave the first real and every scored one a
- * no-op, so the arm would report the cost of proving nothing changed.
- *
- * The difference is small in this fixture — under the error bar, because re-indexing fifty
- * resources dwarfs it and these patients carry no references for the extraction to walk. It would
- * not stay small for a resource that does, which is the point: the arm should measure the path it
- * names.
+ * The variants alternate because writing the same change twice is not a change:
+ * `LocalChangeDao.addUpdate` returns early when the new payload matches the stored one, skipping
+ * the ledger row and the reference extraction with it. One variant every invocation would leave
+ * every scored invocation measuring a diff that finds nothing.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)

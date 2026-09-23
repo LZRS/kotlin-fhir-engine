@@ -33,50 +33,39 @@ import org.openjdk.jmh.annotations.Level
 /*
  * What an application waits for the first time it touches the engine.
  *
- * Every other benchmark here builds its indexer and opens its database in `@Setup`, deliberately,
- * so neither lands in a measurement of something else. That leaves the startup cost itself
- * unrecorded, even though a user pays it on every cold launch.
+ * Only half of it is measurable here. Work paid once per process — loading the FHIRPath classes,
+ * building the generated R4 parameter tables — happens during warmup, and every scored invocation
+ * finds it already done. No repeated-invocation harness can see that, JMH's forks included, so
+ * [EngineStartupBenchmark] reports per-instance construction: the cost of a second
+ * `FhirEngineProvider.init()` rather than of a cold launch. It is still worth watching, because a
+ * constructor that began doing real work would show up in it.
  *
- * Only half of it can be recorded. A cost paid once per process — loading the FHIRPath classes,
- * building the generated R4 parameter tables — is paid during warmup, by the first invocation, and
- * every scored invocation afterwards finds the work already done. No repeated-invocation harness
- * can see it; a fresh process per measurement is the only way, and JMH's forks warm up too. So
- * what [EngineStartupBenchmark] reports is per-instance construction, which is the cost of a
- * second `FhirEngineProvider.init()` rather than of a cold start, and it is worth watching because
- * a constructor that started doing real work would show up here immediately.
- *
- * [DatabaseOpenBenchmark] has no such problem: opening a database is real work every time.
+ * [DatabaseOpenBenchmark] has no such limit: opening a database is real work every time.
  */
 
 /**
  * Building the pieces `FhirEngineProvider` assembles before the first read or write, on a process
- * that has already built them once. See the note above on what that does and does not include.
+ * that has already built them once. See the note above.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(BenchmarkTimeUnit.MICROSECONDS)
 open class EngineStartupBenchmark {
 
-  /**
-   * Wrapping the generated R4 parameter tables. Nanoseconds, because the tables themselves are
-   * built once for the process and this only takes a reference to them.
-   */
+  /** Wrapping the generated R4 parameter tables, which are built once for the process. */
   @Benchmark
   fun createSearchParamProvider(blackhole: Blackhole) =
     blackhole.consume(SearchParamDefinitionsProviderImpl())
 
-  /**
-   * Constructing the indexer, FHIRPath engine included. Also nanoseconds, for the same reason,
-   * which is the useful part: a second engine in the same process is free to build.
-   */
+  /** Constructing the indexer, FHIRPath engine included. */
   @Benchmark
   fun createResourceIndexer(blackhole: Blackhole) =
     blackhole.consume(ResourceIndexer(SearchParamDefinitionsProviderImpl()))
 
   /**
-   * Both, plus the first resource indexed through them. Runs level with
-   * [ResourceIndexerBenchmark.indexRichPatient], which is the evidence that construction adds
-   * nothing per instance and that the whole startup cost is the one-time initialization above.
+   * Both, plus the first resource indexed through them. Read against
+   * [ResourceIndexerBenchmark.indexRichPatient]: a gap would mean construction costs something per
+   * instance.
    */
   @Benchmark
   fun coldIndexFirstResource(blackhole: Blackhole) {
@@ -88,9 +77,9 @@ open class EngineStartupBenchmark {
 /**
  * Opening the database, which Room does lazily on the first query rather than at construction.
  *
- * Two arms because they are different costs: a fresh directory runs the schema creation, while an
- * existing one only opens the file and reads its header. An application pays the first once and the
- * second on every launch afterwards.
+ * Two arms because they are different costs: a fresh directory runs the schema creation, an
+ * existing one only opens the file. An application pays the first once and the second on every
+ * launch afterwards.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)

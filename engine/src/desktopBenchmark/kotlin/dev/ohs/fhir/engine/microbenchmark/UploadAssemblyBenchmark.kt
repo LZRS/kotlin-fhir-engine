@@ -43,8 +43,7 @@ import kotlinx.coroutines.runBlocking
  * [PatchOrderingBenchmark] measures Tarjan's alone. This measures what surrounds it: squashing
  * every change recorded against one resource into a single patch, which replays each RFC 6902
  * payload over the one before it, and then building the HTTP requests. Like the ordering, both grow
- * with how long a device has been offline rather than with the size of any one resource, and
- * neither is measured anywhere else.
+ * with how long a device has been offline rather than with the size of any one resource.
  *
  * Every resource carries an insert followed by [UPDATES_PER_RESOURCE] updates, because a squash
  * over a single change is not a squash. The alternative generator keeps each change as its own

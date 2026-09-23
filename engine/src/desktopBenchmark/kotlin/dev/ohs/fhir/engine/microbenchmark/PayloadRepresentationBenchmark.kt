@@ -80,8 +80,7 @@ open class PayloadRepresentationBenchmark {
     // Halving the payload is the premise. If the encoding stopped shrinking it, every number here
     // would still look plausible while measuring something else.
     val bytes = store.payloadBytes()
-    // Printed rather than only checked: the size difference is half of what this class is for, and
-    // it is not something a timing report can carry.
+    // Printed as well as checked: a timing report has nowhere to carry the size difference.
     println("[$representation] payload table holds $bytes bytes for $rows rows")
     check(bytes > 0) { "$representation stored no payload bytes" }
   }
