@@ -43,6 +43,7 @@ import dev.ohs.fhir.model.r4.RiskAssessment
 import dev.ohs.fhir.model.r4.String as FhirString
 import dev.ohs.fhir.model.r4.Uri
 import dev.ohs.fhir.model.r4.terminologies.AdministrativeGender
+import dev.ohs.fhir.model.r4.terminologies.ResourceType
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.LocalDate
@@ -115,6 +116,9 @@ internal class EngineBenchmarkDatabase(
 
   /** The `COUNT(*)` path, which returns a number rather than any resource. */
   fun count(search: Search): Long = runBlocking { search.count(database) }
+
+  /** How many resources of [type] the corpus holds, for a benchmark asserting its own fixture. */
+  fun countOf(type: ResourceType): Long = runBlocking { Search(type).count(database) }
 
   fun insert(resources: List<Resource>) = runBlocking { database.insert(*resources.toTypedArray()) }
 

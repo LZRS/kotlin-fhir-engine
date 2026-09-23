@@ -120,7 +120,8 @@ and binds them, so both sides seek — which is also the shape of the fix.
 
 `EngineCreateBenchmark` against `ResourceInsertBenchmark`: writing fifty patients costs 12.8 ms
 through `DatabaseImpl` and 104.2 ms through `ResourceDao` a resource at a time — 257 us against
-2,085 us each. The engine path does strictly more work per resource, the local-change ledger
+2,085 us each. Both arms are noisy, at 17% and 18% error, which is why they sit in the `prNoisy`
+tier; the gap is eight times that spread. The engine path does strictly more work per resource, the local-change ledger
 included, and still wins by eight times, because it commits once for the batch where the DAO path
 commits once per resource. `BulkImportBenchmark` writes 500 in one transaction at 291 us each,
 without a ledger, which bounds what the ledger can be costing.

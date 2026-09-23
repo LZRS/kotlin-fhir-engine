@@ -17,6 +17,7 @@ package dev.ohs.fhir.engine.microbenchmark
 
 import dev.ohs.fhir.model.r4.Boolean as FhirBoolean
 import dev.ohs.fhir.model.r4.Patient
+import dev.ohs.fhir.model.r4.terminologies.ResourceType
 import kotlinx.benchmark.Benchmark
 import kotlinx.benchmark.BenchmarkMode
 import kotlinx.benchmark.BenchmarkTimeUnit
@@ -83,7 +84,20 @@ open class EngineCreateBenchmark {
   @Benchmark fun createBatch(): List<String> = database.insert(batch)
 }
 
-/** Updating resources that already exist, which diffs each against its stored payload. */
+/**
+ * Updating resources that already exist, which diffs each against its stored payload.
+ *
+ * The two variants alternate because writing the same change twice is not a change.
+ * `LocalChangeDao.addUpdate` serializes the resource, diffs it against the stored payload and
+ * returns early when the two are identical, skipping the ledger row and the reference extraction
+ * with it. Writing one variant every invocation would leave the first real and every scored one a
+ * no-op, so the arm would report the cost of proving nothing changed.
+ *
+ * The difference is small in this fixture — under the error bar, because re-indexing fifty
+ * resources dwarfs it and these patients carry no references for the extraction to walk. It would
+ * not stay small for a resource that does, which is the point: the arm should measure the path it
+ * names.
+ */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(BenchmarkTimeUnit.MICROSECONDS)
@@ -91,19 +105,35 @@ open class EngineUpdateBenchmark {
 
   private lateinit var database: EngineBenchmarkDatabase
   private lateinit var batch: List<Patient>
-  private lateinit var changed: List<Patient>
+  private lateinit var variants: List<List<Patient>>
+  private var invocation = 0
 
   @Setup
   fun setUp() {
     database = EngineBenchmarkDatabase.create("update")
     batch = writeBatch()
-    changed = batch.map { it.copy(active = FhirBoolean(value = false)) }
+    variants =
+      listOf(
+        batch.map { it.copy(active = FhirBoolean(value = false)) },
+        batch.map { it.copy(active = FhirBoolean(value = true)) },
+      )
     // Seeded as remote, so the ledger starts empty and each invocation records exactly one update
     // per resource rather than merging into an insert left behind by the setup.
     database.seedGiven(batch)
     check(database.localChangeCount() == 0) {
       "seeding recorded ${database.localChangeCount()} local changes; the update arm would then " +
         "be measuring a merge into them"
+    }
+    // Both variants must differ from whatever is stored when their turn comes, or the alternation
+    // is not buying anything and the early return is back.
+    variants.forEachIndexed { index, variant ->
+      database.update(variant)
+      check(database.localChangeCount() == CrudFixture.BATCH) {
+        "variant $index recorded ${database.localChangeCount()} changes rather than " +
+          "${CrudFixture.BATCH}; an update that matches the stored payload is skipped, so this " +
+          "arm would be timing a diff that finds nothing"
+      }
+      database.discardChanges(batch)
     }
   }
 
@@ -114,7 +144,7 @@ open class EngineUpdateBenchmark {
     database.discardChanges(batch)
   }
 
-  @Benchmark fun updateBatch() = database.update(changed)
+  @Benchmark fun updateBatch() = database.update(variants[invocation++ % variants.size])
 }
 
 /** Deleting, which cascades across nine index tables and records a delete per resource. */
@@ -130,6 +160,20 @@ open class EngineDeleteBenchmark {
   fun setUp() {
     database = EngineBenchmarkDatabase.create("delete")
     batch = writeBatch()
+    // A delete that matches nothing returns without touching the ledger or the index tables, and
+    // would read as a very fast delete. Prove once that the restore-and-delete cycle the
+    // per-invocation setup relies on actually moves rows.
+    database.seedGiven(batch)
+    check(database.countOf(ResourceType.Patient) == CrudFixture.BATCH.toLong()) {
+      "seeding left ${database.countOf(ResourceType.Patient)} patients, expected " +
+        "${CrudFixture.BATCH}"
+    }
+    database.delete(batch)
+    check(database.countOf(ResourceType.Patient) == 0L) {
+      "deleting the batch left ${database.countOf(ResourceType.Patient)} patients behind, so " +
+        "deleteBatch would be timing misses"
+    }
+    database.discardChanges(batch)
   }
 
   @TearDown fun tearDown() = database.close()
@@ -206,7 +250,7 @@ open class LocalChangeReadBenchmark {
     // Created locally, and each one referencing a patient, so the ledger holds both a change and a
     // reference row per resource.
     database.insert(
-      (0 until changeCount).map { EngineBenchmarkDatabase.observation(it, changeCount) }
+      (0 until changeCount).map { EngineBenchmarkDatabase.observation(it, changeCount) },
     )
     check(database.localChangeCount() == changeCount) {
       "expected $changeCount pending changes, found ${database.localChangeCount()}"
