@@ -36,6 +36,7 @@ import kotlinx.benchmark.State
 import kotlinx.benchmark.TearDown
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.protobuf.ProtoBuf
+import org.openjdk.jmh.annotations.Level
 
 /**
  * What the engine would gain, or lose, by storing `serializedResource` as a binary blob rather than
@@ -79,8 +80,22 @@ open class PayloadRepresentationBenchmark {
     // Halving the payload is the premise. If the encoding stopped shrinking it, every number here
     // would still look plausible while measuring something else.
     val bytes = store.payloadBytes()
+    // Printed rather than only checked: the size difference is half of what this class is for, and
+    // it is not something a timing report can carry.
     println("[$representation] payload table holds $bytes bytes for $rows rows")
     check(bytes > 0) { "$representation stored no payload bytes" }
+  }
+
+  /**
+   * [encodeAndInsert] appends without removing, so the table would otherwise grow for the whole run
+   * and every later invocation would write into a deeper b-tree than the one before it, which reads
+   * as a drifting mean. Resetting per iteration bounds that drift. Per invocation would be tighter
+   * but would put a DELETE inside every invocation of the four read benchmarks, which share this
+   * state and write nothing.
+   */
+  @Setup(Level.Iteration)
+  fun resetInsertedRows() {
+    store.deleteInsertedRows()
   }
 
   @TearDown fun tearDown() = store.close()
@@ -149,18 +164,21 @@ open class PayloadRepresentationBenchmark {
 @OptIn(ExperimentalSerializationApi::class)
 internal class PayloadStore(private val representation: String, private val file: File) {
 
-  private val connection: SQLiteConnection = BundledSQLiteDriver().open(file.absolutePath)
-
-  private val isJson = representation == "json"
-
-  init {
-    require(representation == "json" || representation == "protobuf") {
-      "Unknown representation: $representation"
+  private val isJson =
+    when (representation) {
+      "json" -> true
+      "protobuf" -> false
+      else -> error("Unknown representation: $representation")
     }
-  }
+
+  /** Opened after the arm is checked, so an unknown one fails without taking a file handle. */
+  private val connection: SQLiteConnection = BundledSQLiteDriver().open(file.absolutePath)
 
   private lateinit var preEncodedText: List<String>
   private lateinit var preEncodedBytes: List<ByteArray>
+
+  /** The highest id [fill] wrote, which is what separates seeded rows from appended ones. */
+  private var seededMaxId = 0L
 
   /** Captures the encoded forms once, so [decodePreEncoded] times only the parser. */
   fun prepareDecodeFixtures(resources: List<Resource>) {
@@ -194,6 +212,7 @@ internal class PayloadStore(private val representation: String, private val file
         }
       }
     }
+    seededMaxId = maxId()
   }
 
   /** Encoding sits inside this on purpose: a write pays for the encoder as well as the insert. */
@@ -213,6 +232,22 @@ internal class PayloadStore(private val representation: String, private val file
       }
     }
   }
+
+  /**
+   * Removes the rows [insert] appended, returning the table to its seeded size. Ids keep rising
+   * across deletes because the column is AUTOINCREMENT, so the high-water mark stays valid.
+   */
+  fun deleteInsertedRows() {
+    connection.prepare("DELETE FROM payload WHERE id > ?").use { statement ->
+      statement.bindLong(1, seededMaxId)
+      statement.step()
+    }
+  }
+
+  private fun maxId(): Long =
+    connection.prepare("SELECT COALESCE(MAX(id), 0) FROM payload").use { statement ->
+      if (statement.step()) statement.getLong(0) else 0L
+    }
 
   /** Bytes fetched without decoding, separating the storage cost from the parser's. */
   fun readRaw(limit: Int, offset: Int): Int =
@@ -255,9 +290,15 @@ internal class PayloadStore(private val representation: String, private val file
     return resource.id?.length ?: 0
   }
 
-  /** Total stored size, so a run can confirm the representation under test is the one stored. */
+  /**
+   * Total stored size, so a run can confirm the representation under test is the one stored.
+   *
+   * The cast is what makes the two arms comparable: `LENGTH` counts characters over TEXT and bytes
+   * over a BLOB, so the JSON arm would under-report itself the moment a fixture carried a character
+   * outside ASCII. This number is quoted in docs/benchmarking.md.
+   */
   fun payloadBytes(): Long =
-    connection.prepare("SELECT SUM(LENGTH(payload)) FROM payload").use { statement ->
+    connection.prepare("SELECT SUM(LENGTH(CAST(payload AS BLOB))) FROM payload").use { statement ->
       if (statement.step()) statement.getLong(0) else 0L
     }
 
