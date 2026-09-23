@@ -24,6 +24,7 @@ import dev.ohs.fhir.engine.search.TokenClientParam
 import dev.ohs.fhir.engine.search.filter.TokenFilterValue
 import dev.ohs.fhir.engine.search.getQuery
 import dev.ohs.fhir.engine.search.has
+import dev.ohs.fhir.engine.search.query.XFhirQueryTranslator
 import dev.ohs.fhir.engine.search.revInclude
 import dev.ohs.fhir.model.r4.Condition
 import dev.ohs.fhir.model.r4.Observation
@@ -94,4 +95,15 @@ open class SearchQueryBenchmark {
     Search(type = ResourceType.Patient)
       .apply { filter(StringClientParam("given"), { value = "Ada" }) }
       .getQuery(isCount = true)
+
+  /**
+   * The other way into a [Search]: parsing an x-fhir-query string rather than building one.
+   *
+   * Questionnaires carry these, so a form with several answer-option queries pays this per field
+   * before any SQL is generated. It looks up a search parameter definition per term, which is the
+   * part that is not obviously cheap.
+   */
+  @Benchmark
+  fun translateXFhirQuery(): Search =
+    XFhirQueryTranslator.translate("Patient?active=true&gender=male&_sort=family&_count=11")
 }
