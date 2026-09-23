@@ -87,7 +87,12 @@ open class SortBenchmark {
     check(database.count(sortedFirstPage) == PAGE) {
       "a sorted first page returned ${database.count(sortedFirstPage)} rows, expected $PAGE"
     }
-    assertSelectivity(database.count(filteredSorted), rows, 1.0 / PREFIX_COMBINATIONS, "filtered")
+    assertSelectivity(
+      database.count(filteredSorted),
+      rows,
+      1.0 / IndexBenchmarkDatabase.PREFIX_COMBINATIONS,
+      "filtered",
+    )
   }
 
   @TearDown fun tearDown() = database.close()
@@ -130,7 +135,7 @@ open class SortBenchmark {
       }
       .getQuery()
 
-  private fun probePrefix() = IndexBenchmarkDatabase.prefixFor(PROBE_ROW)
+  private fun probePrefix() = IndexBenchmarkDatabase.prefixFor(IndexBenchmarkDatabase.PROBE_ROW)
 
   private companion object {
     /** The parameter `IndexBenchmarkDatabase.seed` writes string index rows for. */
@@ -138,8 +143,5 @@ open class SortBenchmark {
 
     /** A plausible page of search results. */
     const val PAGE = 50
-
-    const val PROBE_ROW = 42
-    const val PREFIX_COMBINATIONS = 26 * 26
   }
 }

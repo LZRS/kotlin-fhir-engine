@@ -43,20 +43,30 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.openjdk.jmh.annotations.Level
 
-/**
- * The engine's CRUD paths, through the real DAO and the real schema.
+/*
+ * The engine's CRUD paths, through the real DAO and the real schema: ResourceInsertBenchmark,
+ * ResourceUpdateBenchmark, ResourceDeleteBenchmark and ResourceReadBenchmark, over the shared
+ * CrudFixture below.
  *
  * Nothing else here touches `ResourceDao`: the other benchmarks measure pure-CPU code or hand-built
  * tables, so a regression in an insert, an update or the delete cascade would go unseen.
+ *
+ * What these do not cover is the rest of the write path. `FhirEngine` writes go through
+ * `DatabaseImpl`, which wraps the whole batch in one IMMEDIATE transaction and also records a local
+ * change per resource — a second serialization, a row of its own, its extracted references, and for
+ * an update a JsonDiff against the stored payload. None of that is measured here, so these numbers
+ * are a floor for a local write rather than its cost.
  *
  * Each operation gets its own class because they need opposite fixtures. A JMH per-invocation hook
  * belongs to the whole `@State`, so an insert and a delete benchmark in one class would run each
  * other's setup.
  *
  * Every invocation does a batch rather than a single operation. JMH's per-invocation hooks are
- * unreliable for work measured in microseconds, and a batch of [CrudFixture.BATCH] lifts each
+ * unreliable for work measured in microseconds, and a batch of CrudFixture.BATCH lifts each
  * invocation into the tens of milliseconds where they are sound.
  */
+
+/** The database, DAO and resources the four CRUD benchmarks below share. */
 internal class CrudFixture(label: String) {
 
   private val file: File = File.createTempFile("bench-crud-$label-", ".db").also { it.delete() }

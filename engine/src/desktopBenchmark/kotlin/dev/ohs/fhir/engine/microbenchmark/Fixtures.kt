@@ -43,6 +43,9 @@ import kotlinx.datetime.LocalDate
  * [minimalPatient] carries the fields almost every record has; [richPatient] carries the ones that
  * make a record expensive — repeated names, identifiers, telecom and addresses. Indexing and
  * serialization both scale with that difference.
+ *
+ * [observation] is the only non-Patient fixture, and the only one carrying a `value[x]`, so it is
+ * what the token and quantity paths are measured against.
  */
 object Fixtures {
 

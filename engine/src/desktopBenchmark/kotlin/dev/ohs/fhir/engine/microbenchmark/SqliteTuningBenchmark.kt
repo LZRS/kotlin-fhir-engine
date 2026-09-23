@@ -67,8 +67,10 @@ open class SqliteTuningBenchmark {
     database = IndexBenchmarkDatabase.create("tuning-$tuning")
     // Applied before seeding, so the write benchmark and the seed both run under the setting.
     when (tuning) {
-      "default" -> Unit
-      "analyze" -> Unit
+      // Neither sets a PRAGMA: `default` by definition, `analyze` because ANALYZE comes after the
+      // seed rather than before it.
+      "default",
+      "analyze", -> Unit
       "wal" -> database.pragma("journal_mode=WAL")
       "walRelaxed" -> {
         database.pragma("journal_mode=WAL")
@@ -80,7 +82,7 @@ open class SqliteTuningBenchmark {
     // After seeding, because statistics gathered over empty tables describe nothing.
     if (tuning == "analyze") database.analyze()
 
-    val prefix = IndexBenchmarkDatabase.prefixFor(PROBE_ROW)
+    val prefix = IndexBenchmarkDatabase.prefixFor(IndexBenchmarkDatabase.PROBE_ROW)
     query =
       Search(ResourceType.Patient)
         .apply { filter(StringClientParam("given"), { value = prefix }) }
@@ -130,6 +132,5 @@ open class SqliteTuningBenchmark {
 
     /** Fewer, because each one pays a commit; enough that the per-commit cost is not noise. */
     const val SINGLE_INSERTS = 50
-    const val PROBE_ROW = 42
   }
 }

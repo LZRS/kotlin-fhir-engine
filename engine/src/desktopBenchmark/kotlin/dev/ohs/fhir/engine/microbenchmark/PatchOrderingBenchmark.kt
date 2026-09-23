@@ -61,7 +61,9 @@ open class PatchOrderingBenchmark {
 
     // Disjoint three-node cycles, which force Tarjan's to collapse components rather than emit one
     // node each. Cycles are the case the engine has to handle, so they are worth timing against the
-    // acyclic baseline.
+    // acyclic baseline. Neither swept count divides by three, so the last component is a partial
+    // triple whose back-edge falls outside the range and is dropped; one short chain among 16 or
+    // 166 cycles does not change what is being measured.
     cyclicMappings = buildMappings(changeCount)
     cyclicReferences =
       buildReferences(changeCount) { index ->

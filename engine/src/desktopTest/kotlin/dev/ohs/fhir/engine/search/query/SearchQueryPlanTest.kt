@@ -17,11 +17,11 @@ package dev.ohs.fhir.engine.search.query
 
 import androidx.room3.Room
 import androidx.room3.useReaderConnection
-import androidx.sqlite.SQLiteStatement
 import androidx.sqlite.async.step
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.ionspin.kotlin.bignum.decimal.BigDecimal
 import dev.ohs.fhir.engine.db.impl.ResourceDatabase
+import dev.ohs.fhir.engine.db.impl.bindArgs
 import dev.ohs.fhir.engine.search.DateClientParam
 import dev.ohs.fhir.engine.search.NumberClientParam
 import dev.ohs.fhir.engine.search.Order
@@ -424,17 +424,4 @@ class SearchQueryPlanTest {
         steps
       }
     }
-
-  /** Mirrors `DatabaseImpl.bindArgs`, which is private to that class. */
-  private fun bindArgs(statement: SQLiteStatement, args: List<Any>) {
-    args.forEachIndexed { i, arg ->
-      when (arg) {
-        is String -> statement.bindText(i + 1, arg)
-        is Long -> statement.bindLong(i + 1, arg)
-        is Double -> statement.bindDouble(i + 1, arg)
-        is Int -> statement.bindLong(i + 1, arg.toLong())
-        else -> statement.bindText(i + 1, arg.toString())
-      }
-    }
-  }
 }

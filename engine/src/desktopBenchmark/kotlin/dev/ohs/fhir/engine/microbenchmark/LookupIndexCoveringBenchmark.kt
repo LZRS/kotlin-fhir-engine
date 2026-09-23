@@ -78,7 +78,8 @@ open class LookupIndexCoveringBenchmark {
       },
     )
 
-    val value = IndexBenchmarkDatabase.LOOKUP_VALUES[PROBE_ROW % LOOKUP_COUNT]
+    val value =
+      IndexBenchmarkDatabase.LOOKUP_VALUES[IndexBenchmarkDatabase.PROBE_ROW % LOOKUP_COUNT]
     query =
       Search(ResourceType.Observation)
         .apply {
@@ -106,7 +107,6 @@ open class LookupIndexCoveringBenchmark {
   @Benchmark fun lookupByValue(): Int = database.count(query)
 
   private companion object {
-    const val PROBE_ROW = 42
     val LOOKUP_COUNT = IndexBenchmarkDatabase.LOOKUP_VALUES.size
   }
 }

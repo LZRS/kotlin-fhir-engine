@@ -20,10 +20,10 @@ import androidx.room3.Room
 import androidx.room3.Transactor
 import androidx.room3.useReaderConnection
 import androidx.room3.useWriterConnection
-import androidx.sqlite.SQLiteStatement
 import androidx.sqlite.async.step
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import dev.ohs.fhir.engine.db.impl.ResourceDatabase
+import dev.ohs.fhir.engine.db.impl.bindArgs
 import dev.ohs.fhir.engine.search.SearchQuery
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -264,7 +264,12 @@ internal class IndexBenchmarkDatabase(private val file: File) {
     }
   }
 
-  /** Replaces the indices on [table] with [definitions]. Each is the body of a CREATE INDEX. */
+  /**
+   * Replaces the indices on [table] with [definitions]. Each is the body of a CREATE INDEX.
+   *
+   * The `index_%` filter is Room's own naming convention for a generated index, so this drops
+   * exactly what the schema shipped and leaves SQLite's internal indices alone.
+   */
   fun reindex(table: String, definitions: List<String>) = runBlocking {
     database.useWriterConnection { transactor ->
       transactor
@@ -326,18 +331,6 @@ internal class IndexBenchmarkDatabase(private val file: File) {
     usePrepared(sql) { it.step() }
   }
 
-  private fun bindArgs(statement: SQLiteStatement, args: List<Any>) {
-    args.forEachIndexed { i, arg ->
-      when (arg) {
-        is String -> statement.bindText(i + 1, arg)
-        is Long -> statement.bindLong(i + 1, arg)
-        is Double -> statement.bindDouble(i + 1, arg)
-        is Int -> statement.bindLong(i + 1, arg.toLong())
-        else -> statement.bindText(i + 1, arg.toString())
-      }
-    }
-  }
-
   companion object {
     /** Tags rows a write benchmark added, so [deleteInsertedRows] can remove exactly those. */
     const val INSERTED_MARKER = "Benchmark.inserted"
@@ -364,6 +357,16 @@ internal class IndexBenchmarkDatabase(private val file: File) {
     val LOOKUP_VALUES = (0 until 64).map { "lookup-$it" }
 
     private val LETTERS = ('a'..'z').toList()
+
+    /**
+     * How many distinct prefixes [prefixFor] cycles through, and so the fraction of a seeded table
+     * one of them selects. Lives here rather than in each benchmark, because it is a property of
+     * the seeding: a change to [LETTERS] has to move it.
+     */
+    val PREFIX_COMBINATIONS = LETTERS.size * LETTERS.size
+
+    /** An arbitrary row, for a benchmark needing one value out of a seeded cycle. */
+    const val PROBE_ROW = 42
 
     fun prefixFor(row: Int): String {
       val first = LETTERS[(row / LETTERS.size) % LETTERS.size]
