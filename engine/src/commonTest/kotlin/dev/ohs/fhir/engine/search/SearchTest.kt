@@ -119,14 +119,14 @@ class SearchTest {
       FROM ResourceEntity a
       WHERE a.resourceUuid IN (
       SELECT resourceUuid FROM StringIndexEntity
-      WHERE resourceType = ? AND index_name = ? AND index_value LIKE ? || '%' COLLATE NOCASE
+      WHERE resourceType = ? AND index_name = ? AND index_value LIKE ?
       )
       """
         .trimIndent(),
       query.query,
     )
     assertEquals(
-      listOf(ResourceType.Patient.name, "address", "someValue"),
+      listOf(ResourceType.Patient.name, "address", "someValue%"),
       query.args,
     )
   }
@@ -152,7 +152,7 @@ class SearchTest {
       FROM ResourceEntity a
       WHERE a.resourceUuid IN (
       SELECT resourceUuid FROM StringIndexEntity
-      WHERE resourceType = ? AND index_name = ? AND index_value = ?
+      WHERE resourceType = ? AND index_name = ? AND index_value = ? COLLATE BINARY
       )
       """
         .trimIndent(),
@@ -185,14 +185,14 @@ class SearchTest {
       FROM ResourceEntity a
       WHERE a.resourceUuid IN (
       SELECT resourceUuid FROM StringIndexEntity
-      WHERE resourceType = ? AND index_name = ? AND index_value LIKE '%' || ? || '%' COLLATE NOCASE
+      WHERE resourceType = ? AND index_name = ? AND index_value LIKE ?
       )
       """
         .trimIndent(),
       query.query,
     )
     assertEquals(
-      listOf(ResourceType.Patient.name, "address", "someValue"),
+      listOf(ResourceType.Patient.name, "address", "%someValue%"),
       query.args,
     )
   }
@@ -1544,7 +1544,7 @@ class SearchTest {
       ON a.resourceUuid = b.resourceUuid AND b.index_name = ?
       WHERE a.resourceUuid IN (
       SELECT resourceUuid FROM StringIndexEntity
-      WHERE resourceType = ? AND index_name = ? AND index_value LIKE ? || '%' COLLATE NOCASE
+      WHERE resourceType = ? AND index_name = ? AND index_value LIKE ?
       )
       GROUP BY a.resourceUuid
       HAVING MIN(IFNULL(b.index_value,0)) >= -9223372036854775808
@@ -1559,7 +1559,7 @@ class SearchTest {
         "given",
         ResourceType.Patient.name,
         "family",
-        "Jones",
+        "Jones%",
         10,
         20,
       ),
@@ -1643,7 +1643,7 @@ class SearchTest {
       FROM ResourceEntity a
       WHERE a.resourceUuid IN (
       SELECT resourceUuid FROM StringIndexEntity
-      WHERE resourceType = ? AND index_name = ? AND (index_value = ? OR index_value = ?)
+      WHERE resourceType = ? AND index_name = ? AND (index_value = ? COLLATE BINARY OR index_value = ? COLLATE BINARY)
       )
       """
         .trimIndent(),
@@ -1682,11 +1682,11 @@ class SearchTest {
       FROM ResourceEntity a
       WHERE a.resourceUuid IN (
       SELECT resourceUuid FROM StringIndexEntity
-      WHERE resourceType = ? AND index_name = ? AND index_value = ?
+      WHERE resourceType = ? AND index_name = ? AND index_value = ? COLLATE BINARY
       )
       OR a.resourceUuid IN (
       SELECT resourceUuid FROM StringIndexEntity
-      WHERE resourceType = ? AND index_name = ? AND index_value = ?
+      WHERE resourceType = ? AND index_name = ? AND index_value = ? COLLATE BINARY
       )
       """
         .trimIndent(),
@@ -1712,18 +1712,18 @@ class SearchTest {
       FROM ResourceEntity a
       WHERE a.resourceUuid IN (
       SELECT resourceUuid FROM StringIndexEntity
-      WHERE resourceType = ? AND index_name = ? AND index_value LIKE ? || '%' COLLATE NOCASE
+      WHERE resourceType = ? AND index_name = ? AND index_value LIKE ?
       )
       AND a.resourceUuid IN (
       SELECT resourceUuid FROM StringIndexEntity
-      WHERE resourceType = ? AND index_name = ? AND (index_value LIKE ? || '%' COLLATE NOCASE OR index_value LIKE ? || '%' COLLATE NOCASE)
+      WHERE resourceType = ? AND index_name = ? AND (index_value LIKE ? OR index_value LIKE ?)
       )
       """
         .trimIndent(),
       query.query,
     )
     assertEquals(
-      listOf("Patient", "given", "John", "Patient", "family", "Doe", "Roe"),
+      listOf("Patient", "given", "John%", "Patient", "family", "Doe%", "Roe%"),
       query.args,
     )
   }
@@ -1819,7 +1819,7 @@ class SearchTest {
       FROM ResourceEntity a
       WHERE a.resourceUuid IN (
       SELECT resourceUuid FROM StringIndexEntity
-      WHERE resourceType = ? AND index_name = ? AND index_value = ?
+      WHERE resourceType = ? AND index_name = ? AND index_value = ? COLLATE BINARY
       )
       AND a.resourceUuid IN (
       SELECT resourceUuid
