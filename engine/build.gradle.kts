@@ -167,17 +167,48 @@ kotlin {
 // JMH subclasses the @State class to generate its harness, and Kotlin classes are final by default.
 allOpen { annotation("org.openjdk.jmh.annotations.State") }
 
-// -Pbenchmark.tmpdir moves benchmark databases, e.g. onto tmpfs in CI to take disk jitter out.
-// JMH forks inherit the host JVM's arguments, so setting it on the exec task reaches them.
-tasks
-  .withType<JavaExec>()
-  .matching { it.name.startsWith("desktopBenchmark") }
-  .configureEach {
-    providers.gradleProperty("benchmark.tmpdir").orNull?.let { jvmArgs("-Djava.io.tmpdir=$it") }
+// kotlinx-benchmark names each runner `desktopBenchmark<Configuration>Benchmark`, while the
+// generate, compile and jar tasks around them end in something else. Matched on the name because
+// the plugin sets `group` after this action runs.
+val benchmarkRuns = tasks.withType<JavaExec>().matching { it.name.endsWith("Benchmark") }
+
+benchmarkRuns.configureEach {
+  // -Pbenchmark.tmpdir moves benchmark databases, e.g. onto tmpfs in CI to take disk jitter out.
+  // JMH forks inherit the host JVM's arguments, so setting it on the exec task reaches them.
+  providers.gradleProperty("benchmark.tmpdir").orNull?.let { jvmArgs("-Djava.io.tmpdir=$it") }
+
+  // kotlinx-benchmark builds its JMH Runner with shouldFailOnError left at JMH's default of false,
+  // and exposes no setting to change it. A benchmark whose @Setup throws is printed as `<failure>`,
+  // dropped from the JSON report, which carries no error field, and the process still exits 0.
+  // Watch the runner's own output instead and fail the task on the markers it prints. See
+  // docs/benchmarking.md.
+  val transcript = ByteArrayOutputStream()
+  // Both streams into the one transcript. The markers go to stdout today, but this check is the
+  // only thing failing the build, so a runner that ever printed one to stderr would take the
+  // guarantee with it. TeeOutputStream is Ant's, which Gradle puts on the build script classpath.
+  standardOutput = TeeOutputStream(System.out, transcript)
+  errorOutput = TeeOutputStream(System.err, transcript)
+  doLast {
+    val lines = transcript.toString().lineSequence().map { it.trim() }.toList()
+    // A failed benchmark emits several markers, so the largest count is the number lost, not
+    // their sum. "Failure:" alone is the runner failing before any benchmark ran.
+    val count =
+      maxOf(
+        lines.count { it == "<failure>" },
+        lines.count { it.startsWith("EXCEPTION:") },
+        lines.count { it.startsWith("Failure:") },
+      )
+    if (count > 0) {
+      throw GradleException(
+        "$count benchmark(s) failed to run. kotlinx-benchmark omits them from the report and " +
+          "exits 0, so this check is the only thing failing the build. See the output above.",
+      )
+    }
   }
+}
 
 /** Benchmarks whose error on a shared CI runner needs more samples than the rest of the tier. */
-val NOISY_ON_CI =
+val noisyOnCi =
   "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\.(MoreResources|Resource(Insert|Update|Delete|Read))Benchmark"
 
 benchmark {
@@ -194,7 +225,7 @@ benchmark {
     // runs, but the scaling sweeps are pinned to their smallest size: the shape of the curve is a
     // question for the full tier.
     register("pr") {
-      exclude(NOISY_ON_CI)
+      exclude(noisyOnCi)
       // Journal and fsync settings mean nothing on the tmpfs CI uses, and the question is settled.
       exclude("dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\.SqliteTuningBenchmark")
       param("rows", 1000)
@@ -211,15 +242,17 @@ benchmark {
     // the CRUD and MoreResources rows came back at 30-60% error on the first run. Longer iterations
     // average more invocations into each score, which narrows that spread.
     register("prNoisy") {
-      include(NOISY_ON_CI)
+      include(noisyOnCi)
       // Five warmups: at three, insertIndexed's first measured iterations were still settling.
       warmups = 5
       iterations = 10
       iterationTime = 1
       iterationTimeUnit = "s"
     }
-    // The index, tuning and storage sweeps. They carry their own @Param grids, so running them
-    // apart from the pure-CPU benchmarks keeps an A/B to about a minute.
+    // The sweeps: index shapes, SQLite tuning, payload representation, and the CRUD paths those
+    // are read against. Each carries its own @Param grid, so the configuration expands to about
+    // ninety forked trials and takes tens of minutes. That is why the pull-request tier excludes
+    // them, and why they are worth a tier of their own to run deliberately.
     register("index") {
       include(
         "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\.(DateIndexShape|StringIndexCollation|QuantityIndexShape|LookupIndexCovering|Sort|SqliteTuning|PayloadRepresentation|Resource(Insert|Update|Delete|Read))Benchmark",
@@ -228,36 +261,6 @@ benchmark {
       iterations = 5
       iterationTime = 500
       iterationTimeUnit = "ms"
-    }
-  }
-}
-
-// kotlinx-benchmark builds its JMH Runner with shouldFailOnError left at JMH's default of false,
-// and exposes no setting to change it. A benchmark whose @Setup throws is printed as `<failure>`,
-// dropped from the JSON report, which carries no error field, and the process still exits 0. Watch
-// the runner's own output instead and fail the task on the markers it prints. See
-// docs/benchmarking.md.
-tasks.withType<JavaExec>().configureEach {
-  // The plugin sets `group` after this action runs, so filter on the name instead.
-  if (name.endsWith("Benchmark")) {
-    val transcript = ByteArrayOutputStream()
-    standardOutput = TeeOutputStream(System.out, transcript)
-    doLast {
-      val lines = transcript.toString().lineSequence().map { it.trim() }.toList()
-      // A failed benchmark emits several markers, so the largest count is the number lost, not
-      // their sum. "Failure:" alone is the runner failing before any benchmark ran.
-      val count =
-        maxOf(
-          lines.count { it == "<failure>" },
-          lines.count { it.startsWith("EXCEPTION:") },
-          lines.count { it.startsWith("Failure:") },
-        )
-      if (count > 0) {
-        throw GradleException(
-          "$count benchmark(s) failed to run. kotlinx-benchmark omits them from the report and " +
-            "exits 0, so this check is the only thing failing the build. See the output above.",
-        )
-      }
     }
   }
 }

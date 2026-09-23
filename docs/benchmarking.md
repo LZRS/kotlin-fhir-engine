@@ -5,7 +5,7 @@ pure-CPU functions, and SQLite itself.
 
 ```bash
 ./gradlew :engine:prBenchmark :engine:prNoisyBenchmark   # what CI runs on a pull request
-./gradlew :engine:indexBenchmark   # the index and tuning sweeps, about a minute
+./gradlew :engine:indexBenchmark   # the sweeps; about ninety forked trials, tens of minutes
 ./gradlew :engine:benchmark        # everything at full size; what CI runs on a push to main
 ```
 
@@ -35,6 +35,11 @@ browser-configured, and a native target would need a `macosArm64` the engine doe
 | `ResourceInsertBenchmark`, `ResourceUpdateBenchmark`, `ResourceDeleteBenchmark`, `ResourceReadBenchmark` | The CRUD paths through the real `ResourceDao` and schema |
 | `PayloadRepresentationBenchmark` | Storing `serializedResource` as JSON text against the same resources as a protobuf blob |
 | `SqliteTuningBenchmark`          | `ANALYZE`, `journal_mode` and `synchronous`, which the engine never sets                |
+
+`indexBenchmark` covers more than its name suggests: the index shapes, `SqliteTuningBenchmark`,
+`PayloadRepresentationBenchmark`, and the four CRUD classes the sweeps are read against. They are
+grouped because each carries a `@Param` grid, which is also why the pull-request tier leaves them
+out.
 
 The index sweeps write rows straight into the index tables rather than through `FhirEngine`,
 because the question is what an index costs, not what indexing costs. It is also what keeps the
