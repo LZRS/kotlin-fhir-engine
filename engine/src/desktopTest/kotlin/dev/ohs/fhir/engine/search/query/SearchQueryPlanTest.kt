@@ -34,8 +34,14 @@ import dev.ohs.fhir.engine.search.StringFilterModifier
 import dev.ohs.fhir.engine.search.TokenClientParam
 import dev.ohs.fhir.engine.search.UriClientParam
 import dev.ohs.fhir.engine.search.filter.TokenFilterValue
+import dev.ohs.fhir.engine.search.getIncludeQuery
 import dev.ohs.fhir.engine.search.getQuery
+import dev.ohs.fhir.engine.search.getRevIncludeQuery
+import dev.ohs.fhir.engine.search.include
+import dev.ohs.fhir.engine.search.revInclude
 import dev.ohs.fhir.model.r4.FhirDate
+import dev.ohs.fhir.model.r4.Observation
+import dev.ohs.fhir.model.r4.Patient
 import dev.ohs.fhir.model.r4.SearchParameter.SearchComparator
 import dev.ohs.fhir.model.r4.terminologies.ResourceType
 import kotlin.test.AfterTest
@@ -64,6 +70,9 @@ import kotlinx.datetime.LocalDate
 class SearchQueryPlanTest {
 
   private lateinit var database: ResourceDatabase
+
+  private val UUID_A = "00000000-0000-0000-0000-000000000001"
+  private val UUID_B = "00000000-0000-0000-0000-000000000002"
 
   @BeforeTest
   fun setUp() {
@@ -255,9 +264,56 @@ class SearchQueryPlanTest {
     )
   }
 
+  /**
+   * `_include` can seek neither side of its join, which is the worst plan any search shape here
+   * produces.
+   *
+   * The join reads `re.resourceType||'/'||re.resourceId = rie.index_value`. An expression on the
+   * indexed side cannot be a seek, so `index_value` goes unused and SQLite falls back to walking
+   * every reference row of the parameter and, for each, every resource of the included type. The
+   * cost is therefore the product of the two tables rather than the size of the result, and
+   * `SearchExecutionBenchmark.includeSearch` measures it at 36x the same filter without the
+   * include.
+   *
+   * `_revinclude` does the same work correctly — see the test below — by building the `type/id`
+   * strings in Kotlin and binding them, which is also the shape of the fix.
+   */
+  @Test
+  fun `include search can seek neither side of its join`() = runTest {
+    val plan = planFor(includeQuery())
+
+    // index_value is absent: the reference rows are walked, not sought.
+    assertIndexUsed(plan, table = "rie", constraints = "resourceType=? AND index_name=?")
+    // resourceId is absent for the same reason, so every resource of the type is visited.
+    assertIndexUsed(plan, table = "re", constraints = "resourceType=?")
+  }
+
+  /** The counterpart, and the contrast: both sides seek, because neither side is an expression. */
+  @Test
+  fun `revinclude search seeks both sides of its join`() = runTest {
+    val plan = planFor(revIncludeQuery())
+
+    assertIndexUsed(
+      plan,
+      table = "rie",
+      constraints = "resourceType=? AND index_name=? AND index_value=?",
+    )
+    assertIndexUsed(plan, table = "re", constraints = "resourceUuid=?")
+  }
+
   // ---------------------------------------------------------------------------------------------
   // Search shapes
   // ---------------------------------------------------------------------------------------------
+
+  private fun includeQuery(): SearchQuery =
+    Search(ResourceType.Observation)
+      .apply { include<Patient>(ReferenceClientParam("subject")) }
+      .getIncludeQuery(listOf(UUID_A, UUID_B))
+
+  private fun revIncludeQuery(): SearchQuery =
+    Search(ResourceType.Patient)
+      .apply { revInclude<Observation>(ReferenceClientParam("subject")) }
+      .getRevIncludeQuery(listOf("Patient/a", "Patient/b"))
 
   private fun allShapes(): List<Pair<String, SearchQuery>> =
     listOf(
