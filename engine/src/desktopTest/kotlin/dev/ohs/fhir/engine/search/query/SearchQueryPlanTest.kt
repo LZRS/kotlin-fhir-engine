@@ -20,12 +20,15 @@ import androidx.room3.useReaderConnection
 import androidx.sqlite.SQLiteStatement
 import androidx.sqlite.async.step
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import com.ionspin.kotlin.bignum.decimal.BigDecimal
 import dev.ohs.fhir.engine.db.impl.ResourceDatabase
+import dev.ohs.fhir.engine.search.QuantityClientParam
 import dev.ohs.fhir.engine.search.ReferenceClientParam
 import dev.ohs.fhir.engine.search.Search
 import dev.ohs.fhir.engine.search.SearchQuery
 import dev.ohs.fhir.engine.search.StringClientParam
 import dev.ohs.fhir.engine.search.StringFilterModifier
+import dev.ohs.fhir.engine.search.UriClientParam
 import dev.ohs.fhir.engine.search.getIncludeQuery
 import dev.ohs.fhir.engine.search.getQuery
 import dev.ohs.fhir.engine.search.getRevIncludeQuery
@@ -143,6 +146,42 @@ class SearchQueryPlanTest {
     assertIndexUsed(plan, table = "re", constraints = "resourceUuid=?")
   }
 
+  /**
+   * A quantity search naming a unit compares the unit for equality before ranging on the value, so
+   * it needs the index led by `index_code`. Without it the range spans every unit recorded for the
+   * parameter.
+   */
+  @Test
+  fun `quantity search naming a unit narrows on the unit`() = runTest {
+    assertIndexUsed(
+      planFor(quantitySearchWithUnit()),
+      table = "QuantityIndexEntity",
+      constraints =
+        "resourceType=? AND index_name=? AND index_code=? AND index_value>? AND index_value<?",
+    )
+  }
+
+  /** The other order still serves a search that omits the unit, which is why both are kept. */
+  @Test
+  fun `quantity search without a unit ranges on the value`() = runTest {
+    assertIndexUsed(
+      planFor(quantitySearch()),
+      table = "QuantityIndexEntity",
+      constraints = "resourceType=? AND index_name=? AND index_value>? AND index_value<?",
+    )
+  }
+
+  /**
+   * Every filter subquery selects `resourceUuid` alone, so the index answers it without a fetch.
+   */
+  @Test
+  fun `reference and uri searches are answered from a covering index`() = runTest {
+    for ((name, query) in listOf("reference" to referenceSearch(), "uri" to uriSearch())) {
+      val line = planFor(query).first { it.startsWith("SEARCH ") && "IndexEntity" in it }
+      assertTrue(line.contains("USING COVERING INDEX"), "$name should be covering, got: $line")
+    }
+  }
+
   // ---------------------------------------------------------------------------------------------
   // Search shapes
   // ---------------------------------------------------------------------------------------------
@@ -156,6 +195,37 @@ class SearchQueryPlanTest {
     Search(ResourceType.Patient)
       .apply { revInclude<Observation>(ReferenceClientParam("subject")) }
       .getRevIncludeQuery(listOf("Patient/a", "Patient/b"))
+
+  private fun quantitySearch() =
+    Search(ResourceType.Observation)
+      .apply {
+        filter(QuantityClientParam("value-quantity"), { value = BigDecimal.parseString("5.4") })
+      }
+      .getQuery()
+
+  private fun quantitySearchWithUnit() =
+    Search(ResourceType.Observation)
+      .apply {
+        filter(
+          QuantityClientParam("value-quantity"),
+          {
+            value = BigDecimal.parseString("5.4")
+            system = "http://unitsofmeasure.org"
+            unit = "g/dL"
+          },
+        )
+      }
+      .getQuery()
+
+  private fun referenceSearch() =
+    Search(ResourceType.Observation)
+      .apply { filter(ReferenceClientParam("subject"), { value = "Patient/patient-1" }) }
+      .getQuery()
+
+  private fun uriSearch() =
+    Search(ResourceType.Patient)
+      .apply { filter(UriClientParam("identifier"), { value = "urn:oid:1.2.3" }) }
+      .getQuery()
 
   private fun stringSearch() =
     Search(ResourceType.Patient)
