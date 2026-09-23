@@ -252,16 +252,16 @@ jobs:
 
       # One layout for the commenting workflow, whichever tier ran. Each configuration keeps its own
       # directory: the pull-request tier is split across two, and the table picks the newest run per
-      # configuration. workflow_run.pull_requests is empty for a pull request raised from a fork,
-      # which is how this repository receives them, so the number travels inside the artifact.
+      # configuration. Every directory is collected rather than a named few, because the full tier
+      # on main also runs the `index` configuration and its sweeps are the record a later trend
+      # would be built from. workflow_run.pull_requests is empty for a pull request raised from a
+      # fork, which is how this repository receives them, so the number travels inside the artifact.
       - name: Collect reports
         if: always()
         run: |
           mkdir -p reports/head reports/base
-          for configuration in pr prNoisy main; do
-            cp -r "engine/build/reports/benchmarks/$configuration" reports/head/ 2>/dev/null || true
-            cp -r "base/engine/build/reports/benchmarks/$configuration" reports/base/ 2>/dev/null || true
-          done
+          cp -r engine/build/reports/benchmarks/. reports/head/ 2>/dev/null || true
+          cp -r base/engine/build/reports/benchmarks/. reports/base/ 2>/dev/null || true
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "${{ github.event.number }}" > reports/pr-number.txt
           fi
