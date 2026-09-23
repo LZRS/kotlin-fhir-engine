@@ -150,6 +150,16 @@ internal fun Search.getRevIncludeQuery(includeIds: List<String>): SearchQuery {
  * Builds the SQL [SearchQuery] loading resources referenced by the base results via `_include` (one
  * `UNION ALL` branch per forward include). [includeIds] are the base results' resource UUIDs.
  */
+/**
+ * Builds the SQL [SearchQuery] loading the resources the base results reference via `_include` (one
+ * `UNION ALL` branch per include). [includeIds] are the base results' resource uuids.
+ *
+ * The join splits `rie.index_value` rather than concatenating `re.resourceType` and `re.resourceId`
+ * into it. Both forms match the same rows — a reference joins only when it is the referenced
+ * resource's type and id separated by a slash — but SQLite cannot seek an index whose column sits
+ * inside an expression, so only this form lets `re` use
+ * `index_ResourceEntity_resourceType_resourceId`. `SearchQueryPlanTest` pins both halves.
+ */
 internal fun Search.getIncludeQuery(includeIds: List<String>): SearchQuery {
   val args = mutableListOf<Any>()
   val baseResourceType = type
@@ -165,7 +175,8 @@ internal fun Search.getIncludeQuery(includeIds: List<String>): SearchQuery {
       SELECT rie.index_name, rie.resourceUuid, re.serializedResource
       FROM ResourceEntity re
       JOIN ReferenceIndexEntity rie
-      ON re.resourceType||'/'||re.resourceId = rie.index_value
+      ON re.resourceType = substr(rie.index_value, 1, instr(rie.index_value, '/') - 1)
+      AND re.resourceId = substr(rie.index_value, instr(rie.index_value, '/') + 1)
       ${join.query}
       WHERE rie.resourceType = ?  AND rie.index_name = ?  AND rie.resourceUuid IN ($uuidsString)
       ${if (filterQuery.isNotBlank()) "AND re.resourceUuid IN ($filterQuery)" else "AND re.resourceType = ?"}

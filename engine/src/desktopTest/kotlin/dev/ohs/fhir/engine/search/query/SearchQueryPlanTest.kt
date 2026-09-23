@@ -21,11 +21,18 @@ import androidx.sqlite.SQLiteStatement
 import androidx.sqlite.async.step
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import dev.ohs.fhir.engine.db.impl.ResourceDatabase
+import dev.ohs.fhir.engine.search.ReferenceClientParam
 import dev.ohs.fhir.engine.search.Search
 import dev.ohs.fhir.engine.search.SearchQuery
 import dev.ohs.fhir.engine.search.StringClientParam
 import dev.ohs.fhir.engine.search.StringFilterModifier
+import dev.ohs.fhir.engine.search.getIncludeQuery
 import dev.ohs.fhir.engine.search.getQuery
+import dev.ohs.fhir.engine.search.getRevIncludeQuery
+import dev.ohs.fhir.engine.search.include
+import dev.ohs.fhir.engine.search.revInclude
+import dev.ohs.fhir.model.r4.Observation
+import dev.ohs.fhir.model.r4.Patient
 import dev.ohs.fhir.model.r4.terminologies.ResourceType
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -52,6 +59,9 @@ import kotlinx.coroutines.test.runTest
 class SearchQueryPlanTest {
 
   private lateinit var database: ResourceDatabase
+
+  private val BASE_UUID_A = "00000000-0000-0000-0000-000000000001"
+  private val BASE_UUID_B = "00000000-0000-0000-0000-000000000002"
 
   @BeforeTest
   fun setUp() {
@@ -104,9 +114,48 @@ class SearchQueryPlanTest {
     )
   }
 
+  /**
+   * The included resource is reached by a unique-index seek. A join comparing an expression against
+   * `rie.index_value` cannot seek, and costs the product of the two tables instead.
+   */
+  @Test
+  fun `include search seeks the resource it references`() = runTest {
+    val plan = planFor(includeQuery())
+
+    assertIndexUsed(plan, table = "re", constraints = "resourceType=? AND resourceId=?")
+    // A shortfall, pinned. `rie.resourceUuid IN (...)` could drive the lookup through
+    // index_ReferenceIndexEntity_resourceUuid, but SQLite prefers the wider index and walks the
+    // parameter's reference rows. Forcing the other index costs more whenever a search includes
+    // many base resources.
+    assertIndexUsed(plan, table = "rie", constraints = "resourceType=? AND index_name=?")
+  }
+
+  /** The counterpart: it binds the `type/id` strings from Kotlin, so both sides seek. */
+  @Test
+  fun `revinclude search seeks both sides of its join`() = runTest {
+    val plan = planFor(revIncludeQuery())
+
+    assertIndexUsed(
+      plan,
+      table = "rie",
+      constraints = "resourceType=? AND index_name=? AND index_value=?",
+    )
+    assertIndexUsed(plan, table = "re", constraints = "resourceUuid=?")
+  }
+
   // ---------------------------------------------------------------------------------------------
   // Search shapes
   // ---------------------------------------------------------------------------------------------
+
+  private fun includeQuery(): SearchQuery =
+    Search(ResourceType.Observation)
+      .apply { include<Patient>(ReferenceClientParam("subject")) }
+      .getIncludeQuery(listOf(BASE_UUID_A, BASE_UUID_B))
+
+  private fun revIncludeQuery(): SearchQuery =
+    Search(ResourceType.Patient)
+      .apply { revInclude<Observation>(ReferenceClientParam("subject")) }
+      .getRevIncludeQuery(listOf("Patient/a", "Patient/b"))
 
   private fun stringSearch() =
     Search(ResourceType.Patient)

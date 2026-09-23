@@ -2195,7 +2195,8 @@ class SearchTest {
       SELECT rie.index_name, rie.resourceUuid, re.serializedResource
       FROM ResourceEntity re
       JOIN ReferenceIndexEntity rie
-      ON re.resourceType||'/'||re.resourceId = rie.index_value
+      ON re.resourceType = substr(rie.index_value, 1, instr(rie.index_value, '/') - 1)
+      AND re.resourceId = substr(rie.index_value, instr(rie.index_value, '/') + 1)
       WHERE rie.resourceType = ?  AND rie.index_name = ?  AND rie.resourceUuid IN (?, ?)
       AND re.resourceType = ?
       )
@@ -2235,7 +2236,8 @@ class SearchTest {
       SELECT rie.index_name, rie.resourceUuid, re.serializedResource
       FROM ResourceEntity re
       JOIN ReferenceIndexEntity rie
-      ON re.resourceType||'/'||re.resourceId = rie.index_value
+      ON re.resourceType = substr(rie.index_value, 1, instr(rie.index_value, '/') - 1)
+      AND re.resourceId = substr(rie.index_value, instr(rie.index_value, '/') + 1)
       WHERE rie.resourceType = ?  AND rie.index_name = ?  AND rie.resourceUuid IN (?, ?)
       AND re.resourceUuid IN (
       SELECT resourceUuid FROM TokenIndexEntity
@@ -2281,7 +2283,8 @@ class SearchTest {
       SELECT rie.index_name, rie.resourceUuid, re.serializedResource
       FROM ResourceEntity re
       JOIN ReferenceIndexEntity rie
-      ON re.resourceType||'/'||re.resourceId = rie.index_value
+      ON re.resourceType = substr(rie.index_value, 1, instr(rie.index_value, '/') - 1)
+      AND re.resourceId = substr(rie.index_value, instr(rie.index_value, '/') + 1)
       LEFT JOIN StringIndexEntity b
       ON re.resourceUuid = b.resourceUuid AND b.index_name = ?
       WHERE rie.resourceType = ?  AND rie.index_name = ?  AND rie.resourceUuid IN (?, ?)
@@ -2341,7 +2344,8 @@ class SearchTest {
       SELECT rie.index_name, rie.resourceUuid, re.serializedResource
       FROM ResourceEntity re
       JOIN ReferenceIndexEntity rie
-      ON re.resourceType||'/'||re.resourceId = rie.index_value
+      ON re.resourceType = substr(rie.index_value, 1, instr(rie.index_value, '/') - 1)
+      AND re.resourceId = substr(rie.index_value, instr(rie.index_value, '/') + 1)
       LEFT JOIN StringIndexEntity b
       ON re.resourceUuid = b.resourceUuid AND b.index_name = ?
       WHERE rie.resourceType = ?  AND rie.index_name = ?  AND rie.resourceUuid IN (?, ?)
@@ -2358,7 +2362,8 @@ class SearchTest {
       SELECT rie.index_name, rie.resourceUuid, re.serializedResource
       FROM ResourceEntity re
       JOIN ReferenceIndexEntity rie
-      ON re.resourceType||'/'||re.resourceId = rie.index_value
+      ON re.resourceType = substr(rie.index_value, 1, instr(rie.index_value, '/') - 1)
+      AND re.resourceId = substr(rie.index_value, instr(rie.index_value, '/') + 1)
       LEFT JOIN StringIndexEntity b
       ON re.resourceUuid = b.resourceUuid AND b.index_name = ?
       WHERE rie.resourceType = ?  AND rie.index_name = ?  AND rie.resourceUuid IN (?, ?)
