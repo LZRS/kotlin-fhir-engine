@@ -24,7 +24,9 @@ browser-configured, and a native target would need a `macosArm64` the engine doe
 | `ResourceIndexerBenchmark`       | `ResourceIndexer.index()` — a FHIRPath evaluation per search parameter, on every write  |
 | `JsonDiffBenchmark`              | `JsonDiff.diff()`, the hand-written RFC 6902 replacement for Jackson + jsonpatch        |
 | `ResourceSerializerBenchmark`    | The serialize/deserialize floor under every read and write                              |
-| `SearchQueryBenchmark`           | `Search.getQuery()` — per-query cost, independent of how much is stored                 |
+| `SearchQueryBenchmark`           | `Search.getQuery()` and `XFhirQueryTranslator` — per-query cost, independent of how much is stored |
+| `SearchExecutionBenchmark`       | A search end to end: the query, the rows, a parse per row, and `_include`/`_revinclude` |
+| `UcumCanonicalBenchmark`         | Canonicalizing a quantity, which every indexed value and every filter pays              |
 | `MoreResourcesBenchmark`         | `getResourceClass`, `updateMeta`, `withId` — per-resource helpers                       |
 | `PatchOrderingBenchmark`         | Tarjan's over the pending-upload graph, the only cost that grows with queue length      |
 | `DateIndexShapeBenchmark`        | Date index column order, swept from 1,000 to 50,000 rows                                |
@@ -33,6 +35,11 @@ browser-configured, and a native target would need a `macosArm64` the engine doe
 | `LookupIndexCoveringBenchmark`   | Whether the reference and uri indices should carry `resourceUuid`, as the token one does |
 | `SortBenchmark`                  | What sorting costs, and whether paging escapes it                                       |
 | `ResourceInsertBenchmark`, `ResourceUpdateBenchmark`, `ResourceDeleteBenchmark`, `ResourceReadBenchmark` | The CRUD paths through the real `ResourceDao` and schema |
+| `EngineCreateBenchmark`, `EngineUpdateBenchmark`, `EngineDeleteBenchmark` | The same writes through `DatabaseImpl`: one transaction, and a local change per resource |
+| `BulkImportBenchmark`            | A download page written in one transaction, with no local change recorded               |
+| `LocalChangeReadBenchmark`       | Reading the pending queue and its references, which is where an upload starts           |
+| `UploadAssemblyBenchmark`        | Squashing pending changes into patches, and patches into upload requests                |
+| `EngineStartupBenchmark`, `DatabaseOpenBenchmark` | What a launch pays before the first read              |
 | `PayloadRepresentationBenchmark` | Storing `serializedResource` as JSON text against the same resources as a protobuf blob |
 | `SqliteTuningBenchmark`          | `ANALYZE`, `journal_mode` and `synchronous`, which the engine never sets                |
 
@@ -97,6 +104,38 @@ disk barrier. Journal mode is largely about what a commit must durably record, s
 stricter durability — Android on real storage — could answer differently. The conclusion is "no
 effect on desktop", not "no effect".
 
+`SearchExecutionBenchmark`, us/op over 1,000 patients and 1,000 observations: a string `:exact`
+27.1, a reference lookup 36.5, a token filter 62.6, a number range 64.7, a count 73.4, a string
+prefix 81.6, `:contains` 87.7, an unfiltered first page of fifty 148.0, `_revinclude` 122.5 — and
+`_include` 2229.1.
+
+That last one is the outlier worth chasing. `_include` costs 36x the same filter without it, while
+`_revinclude` over the same corpus costs 1.5x, and the query plan says why. The `_include` join
+reads `re.resourceType||'/'||re.resourceId = rie.index_value`, and an expression on the indexed side
+cannot be a seek, so neither side of the join uses its index: SQLite walks every reference row of
+the parameter and, for each, every resource of the included type. The cost is the product of the two
+tables rather than the size of the result. `_revinclude` builds the same `type/id` strings in Kotlin
+and binds them, so both sides seek — which is also the shape of the fix.
+`SearchQueryPlanTest` pins both plans.
+
+`EngineCreateBenchmark` against `ResourceInsertBenchmark`: writing fifty patients costs 12.8 ms
+through `DatabaseImpl` and 104.2 ms through `ResourceDao` a resource at a time — 257 us against
+2,085 us each. The engine path does strictly more work per resource, the local-change ledger
+included, and still wins by eight times, because it commits once for the batch where the DAO path
+commits once per resource. `BulkImportBenchmark` writes 500 in one transaction at 291 us each,
+without a ledger, which bounds what the ledger can be costing.
+
+`UploadAssemblyBenchmark` at fifty resources, each with an insert and two updates: squashing into
+one patch per resource takes 253.2 us against 2.9 us for keeping every change, because squashing
+replays each RFC 6902 payload over the one before it. Turning the result into requests costs 73.4 us
+as bundles and 71.9 us as individual URLs.
+
+`DatabaseOpenBenchmark`: 1.79 ms to create a schema on a fresh directory, 0.49 ms to reopen one that
+already holds 500 patients. `EngineStartupBenchmark` reports nanoseconds for constructing the
+provider and the indexer, which is the useful answer — the FHIRPath engine and the R4 parameter
+tables are built once for the process, so the cost lands in warmup and no repeated-invocation
+harness can see it. `coldIndexFirstResource` runs level with `indexRichPatient` for the same reason.
+
 `PayloadRepresentationBenchmark`: a binary payload is half the bytes and about 14% of the read.
 Storing 20,000 mixed resources takes 7.19 MB as JSON text against 3.51 MB as a protobuf blob, and
 fetching two hundred of them is 125 us against 44 — a 65% saving on the I/O.
@@ -133,9 +172,15 @@ database. Timing answers how slow; the plan answers why.
 | string `:exact`         | all three                          | no       |
 | string prefix, contains | two — `index_value` unused         | no       |
 | date, dateTime          | two — the range columns unused     | yes      |
+| `_revinclude`           | all three, then the resource by uuid | no     |
+| **`_include`**          | **two — the join compares a concatenation, so neither side seeks** | no |
 
 Reference and uri are the only lookups that are not covering; the token index carries
 `resourceUuid` and theirs do not.
+
+`_include` is the worst plan of the set, and the only one whose cost grows with the product of two
+tables. `_revinclude` runs the same work as two seeks, so the shapes of both the problem and the fix
+are already in the codebase.
 
 Sorting is never index-backed: every sorted search builds two temporary B-trees.
 
@@ -173,6 +218,16 @@ is reachable, so the unit is ignored and the scan spans every unit recorded for 
 Swapping the two is worth 34%, but costs 2.6x on a search that omits the unit, which then has a gap
 where the unit would be. Keeping both indices takes the gain without the loss and is the shape to
 adopt if this is picked up; what is unmeasured is the second index's cost on writes.
+
+**`_include` cannot use an index at all**, and it is the largest of these by a wide margin. Its
+join reads `re.resourceType||'/'||re.resourceId = rie.index_value`: a concatenation on the indexed
+side, which SQLite cannot seek. Neither half of the join narrows — the reference rows are walked at
+`(resourceType, index_name)` and the resources at `resourceType` alone — so the work is the product
+of the two tables rather than the size of the result. `SearchExecutionBenchmark` measures a token
+filter with an `_include` at 2,229 us against 62.6 us without it, at only 1,000 patients and 1,000
+observations, and the gap widens with the corpus. `_revinclude` already does the same work as two
+seeks by building the `type/id` strings in Kotlin and binding them, so the fix is to do that on the
+include side too. This is the one shortfall here that needs no schema change and no trade.
 
 **Reference and uri lookups are not covering.** Every filter subquery selects `resourceUuid` alone,
 so an index ending in that column answers it without touching a row. `TokenIndexEntity` is

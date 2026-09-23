@@ -209,7 +209,9 @@ benchmarkRuns.configureEach {
 
 /** Benchmarks whose error on a shared CI runner needs more samples than the rest of the tier. */
 val noisyOnCi =
-  "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\.(MoreResources|Resource(Insert|Update|Delete|Read))Benchmark"
+  "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\." +
+    "(MoreResources|BulkImport|DatabaseOpen|Engine(Create|Update|Delete)|" +
+    "Resource(Insert|Update|Delete|Read))Benchmark"
 
 benchmark {
   targets { register("desktopBenchmark") }
@@ -249,13 +251,17 @@ benchmark {
       iterationTime = 1
       iterationTimeUnit = "s"
     }
-    // The sweeps: index shapes, SQLite tuning, payload representation, and the CRUD paths those
-    // are read against. Each carries its own @Param grid, so the configuration expands to about
-    // ninety forked trials and takes tens of minutes. That is why the pull-request tier excludes
-    // them, and why they are worth a tier of their own to run deliberately.
+    // The sweeps: index shapes, SQLite tuning, payload representation, search execution, and the
+    // write paths those are read against. Each carries its own @Param grid or a seeded corpus, so
+    // the configuration expands past a hundred forked trials and takes tens of minutes. That is
+    // why the pull-request tier pins their parameters, and why they are worth a tier of their own
+    // to run deliberately.
     register("index") {
       include(
-        "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\.(DateIndexShape|StringIndexCollation|QuantityIndexShape|LookupIndexCovering|Sort|SqliteTuning|PayloadRepresentation|Resource(Insert|Update|Delete|Read))Benchmark",
+        "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\." +
+          "(DateIndexShape|StringIndexCollation|QuantityIndexShape|LookupIndexCovering|Sort|" +
+          "SqliteTuning|PayloadRepresentation|SearchExecution|LocalChangeRead|BulkImport|" +
+          "DatabaseOpen|Engine(Create|Update|Delete)|Resource(Insert|Update|Delete|Read))Benchmark",
       )
       warmups = 3
       iterations = 5

@@ -188,7 +188,7 @@ jobs:
   benchmark:
     name: Micro benchmarks
     runs-on: ubuntu-latest
-    # A pull request runs the tier twice; each side takes about ten minutes on CI.
+    # A pull request runs the tier twice; each side takes about a quarter of an hour on CI.
     timeout-minutes: 45
 
     steps:
