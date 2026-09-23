@@ -51,7 +51,9 @@ import dev.ohs.fhir.engine.db.impl.entities.UriIndexEntity
       LocalChangeEntity::class,
       LocalChangeResourceReferenceEntity::class,
     ],
-  version = 2,
+  // 3: `StringIndexEntity.index_value` is NOCASE. A collation change needs a version bump, and
+  // [DatabaseImpl] opens with fallbackToDestructiveMigration, so clients rebuild and re-sync.
+  version = 3,
   exportSchema = true,
 )
 @ColumnTypeConverters(DbTypeConverters::class)
