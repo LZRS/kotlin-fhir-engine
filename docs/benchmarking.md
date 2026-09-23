@@ -273,8 +273,9 @@ wants it.
 predicates and a range. The range column sits in front of `index_code`, and nothing after a range
 is reachable, so the unit is ignored and the scan spans every unit recorded for the parameter.
 Swapping the two is worth 34%, but costs 2.6x on a search that omits the unit, which then has a gap
-where the unit would be. Keeping both indices takes the gain without the loss and is the shape to
-adopt if this is picked up; what is unmeasured is the second index's cost on writes.
+where the unit would be. Keeping both indices takes the gain without the loss, and the second index
+costs nothing measurable to maintain: importing 500 observations, each carrying a quantity, measured
+208.1 ms without it and 203.8 ms with, inside the error either way.
 
 **`_include` cannot use an index at all**, and it is the largest of these by a wide margin. Its
 join reads `re.resourceType||'/'||re.resourceId = rie.index_value`: a concatenation on the indexed
@@ -292,7 +293,8 @@ so an index ending in that column answers it without touching a row. `TokenIndex
 reference and uri indices stop at `index_value`. Appending the column is worth about 20-25% at
 50,000 rows and nothing at 1,000. It is the cheapest of the three to adopt, and reference lookups
 carry the chained, `has` and `revInclude` searches, so it applies more often than a plain reference
-filter suggests.
+filter suggests. Widening the index costs nothing measurable on writes: 500 patients carrying two
+references apiece imported in 153.6 ms before and 154.1 ms after.
 
 ### Sorting
 
