@@ -9,6 +9,11 @@
 # pull request's own Gradle build with that token and the repository's secrets in scope. Nothing
 # here checks out or executes pull request code: it downloads an artifact, renders it with a script
 # from the base branch, and posts the result.
+#
+# The artifact itself is still written by the pull request's run, so everything read out of it is
+# untrusted input to a job holding a writable token. The pull request number is validated before it
+# reaches a shell or a script, and the table body travels through the environment rather than
+# through `${{ }}` interpolation.
 name: Benchmark comment
 
 on:
@@ -45,10 +50,16 @@ jobs:
       - name: Resolve the pull request
         id: pr
         run: |
-          if [ -f reports/pr-number.txt ]; then
-            echo "number=$(cat reports/pr-number.txt)" >> "$GITHUB_OUTPUT"
+          # The artifact came out of the pull request's own workflow run, so its contents are
+          # written by the pull request's author while this job holds a writable token. Accept a
+          # bare decimal and nothing else: a value carrying a newline would add step outputs of
+          # its own here, and a value carrying a quote would close the string it is interpolated
+          # into below.
+          number="$(head -n 1 reports/pr-number.txt 2>/dev/null | tr -d '[:space:]')" || true
+          if printf '%s' "$number" | grep -Eq '^[0-9]+$'; then
+            echo "number=$number" >> "$GITHUB_OUTPUT"
           else
-            echo "No pr-number.txt in the artifact; nothing to comment on."
+            echo "No usable pr-number.txt in the artifact; nothing to comment on."
             echo "number=" >> "$GITHUB_OUTPUT"
           fi
 
@@ -77,8 +88,22 @@ jobs:
           script: |
             const marker = '<!-- micro-benchmarks -->';
             const body = process.env.BODY;
-            const issue_number = Number('${{ steps.pr.outputs.number }}');
+            const issue_number = Number(process.env.ISSUE_NUMBER);
             const { owner, repo } = context.repo;
+
+            // The number named a pull request from inside the artifact, so it names whichever one
+            // its author chose rather than necessarily their own. Comment only where the head
+            // commit is the one that was benchmarked.
+            const { data: pull } = await github.rest.pulls.get({
+              owner, repo, pull_number: issue_number,
+            });
+            if (pull.head.sha !== process.env.HEAD_SHA) {
+              core.setFailed(
+                `Pull request #${issue_number} is at ${pull.head.sha}, not the benchmarked ` +
+                  `${process.env.HEAD_SHA}. Refusing to comment.`,
+              );
+              return;
+            }
 
             // Update in place rather than adding a comment per push, which would bury a
             // long-running pull request under near-identical tables.
@@ -98,3 +123,5 @@ jobs:
             }
         env:
           BODY: ${{ steps.table.outputs.body }}
+          ISSUE_NUMBER: ${{ steps.pr.outputs.number }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
