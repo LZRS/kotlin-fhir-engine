@@ -17,6 +17,7 @@ package dev.ohs.fhir.engine.db.impl
 
 import androidx.room3.useReaderConnection
 import androidx.sqlite.async.step
+import dev.ohs.fhir.engine.testPlatformContext
 import dev.ohs.fhir.engine.testStorageDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -47,7 +48,7 @@ class JournalModeTest {
   fun `a file-backed database opens in WAL`() = runTest {
     val opened =
       getDatabaseBuilder(
-          platformContext = Unit,
+          platformContext = testPlatformContext(),
           storageDirectory = testStorageDirectory(),
           inMemory = false,
         )
