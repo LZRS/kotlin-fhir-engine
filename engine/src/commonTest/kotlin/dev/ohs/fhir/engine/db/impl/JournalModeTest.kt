@@ -44,8 +44,11 @@ class JournalModeTest {
     database?.close()
   }
 
+  // Underscores rather than a backticked name, as elsewhere in commonTest: D8 refuses to dex a
+  // synthetic class whose name carries spaces from the method enclosing it, and the body has
+  // lambdas.
   @Test
-  fun `a file-backed database opens in WAL`() = runTest {
+  fun file_backed_database_opens_in_wal() = runTest {
     val opened =
       getDatabaseBuilder(
           platformContext = testPlatformContext(),
