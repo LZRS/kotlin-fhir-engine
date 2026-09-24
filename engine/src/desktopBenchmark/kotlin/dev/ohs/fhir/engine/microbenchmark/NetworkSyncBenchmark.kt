@@ -48,9 +48,7 @@ import kotlinx.coroutines.runBlocking
  *
  * The server is a [MockEngine] answering from a pre-encoded body, so no socket is opened and no
  * latency is included. What is left is the engine's own share of a page: building the request,
- * running it through Ktor's pipeline, and parsing the response into resources. On an on-device run
- * a page of 100 took about 1.6 s end to end, nearly all of it waiting; this is the part that
- * remains when the waiting is removed, and the only part the engine can improve.
+ * running it through Ktor's pipeline, and parsing the response into resources.
  *
  * [pageSize] is the server's `_count`. Both arms scale with it, so read them per resource.
  */

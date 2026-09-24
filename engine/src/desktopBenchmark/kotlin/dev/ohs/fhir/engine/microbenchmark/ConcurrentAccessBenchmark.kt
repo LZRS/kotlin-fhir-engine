@@ -37,13 +37,12 @@ import org.openjdk.jmh.annotations.Level
  * What a read costs while something else is writing.
  *
  * Every other benchmark here runs alone, so SQLite never has to arbitrate. An application does: a
- * sync writes while the screen in front of the user reads. Under the rollback journal the engine
- * ships, a writer holds an exclusive lock for the length of its transaction and readers wait for
- * it; under WAL they do not.
+ * sync writes while the screen in front of the user reads. Under a rollback journal a writer holds
+ * an exclusive lock for the length of its transaction and readers wait for it; under WAL they do
+ * not. Room opens in WAL, so `delete` is the arm that has to be asked for.
  *
- * That is the question [SqliteTuningBenchmark] could not answer. It measured WAL against a single
- * thread, found nothing, and concluded nothing was there — but a journal mode's whole purpose is
- * what happens when two connections want the database at once.
+ * A journal mode acts on readers competing with a writer, which is the comparison
+ * [SqliteTuningBenchmark] cannot make from one thread.
  *
  * [writers] is the load: zero is the uncontended floor, one is a thread committing small
  * transactions as fast as it can, which is the worst case for lock hand-off. Read each [journal]
