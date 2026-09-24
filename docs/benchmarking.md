@@ -39,6 +39,8 @@ browser-configured, and a native target would need a `macosArm64` the engine doe
 | `EngineCreateBenchmark`, `EngineUpdateBenchmark`, `EngineDeleteBenchmark` | The same writes through `DatabaseImpl`: one transaction, and a local change per resource |
 | `BulkImportBenchmark`            | A download page written in one transaction, with no local change recorded               |
 | `SyncDownloadBenchmark`          | Ingesting a download through `syncDownload`, swept by the size of the pending queue      |
+| `NetworkSyncBenchmark`           | A sync page with the network taken out: request, pipeline, and parsing                  |
+| `ConcurrentAccessBenchmark`      | A read competing with a writer, under each journal mode                                 |
 | `CreateBatchSizeBenchmark`       | The same resources written at different transaction boundaries                          |
 | `LocalChangeReadBenchmark`       | Reading the pending queue and its references, which is where an upload starts           |
 | `UploadAssemblyBenchmark`        | Squashing pending changes into patches, and patches into upload requests                |
@@ -96,11 +98,16 @@ Sorting an already-filtered slice is nearly free by comparison: 6829 against 716
 rows, about 5%. The cost is in ordering a corpus, not in the ordering itself. See
 [Sorting](#sorting).
 
-`SqliteTuningBenchmark`: nothing here is worth adopting. On an idle machine all four arms agree to
-within 1% on both write shapes — a batched insert is 5.61 ms against 5.67 for WAL, and one
-transaction per row 2.163 ms against 2.172 — with the `analyze` arm, which cannot affect a write at
-all, differing from `default` by 0.16%. That is the noise floor, well below any difference between
-the arms. `ANALYZE` does nothing for the prefix search either (45.0 against 46.3 us/op).
+`SqliteTuningBenchmark`: nothing here is worth adopting, but read the `wal` arm carefully. Room
+already opens in WAL, so that arm asks for a mode in force and cannot change anything; the class now
+asserts as much rather than letting the result read as "WAL made no difference". Its effect is on
+readers competing with a writer, which `ConcurrentAccessBenchmark` measures instead.
+
+What the arms do say: all four agree to within 1% on both write shapes — a batched insert is 5.61 ms
+against 5.67, and one transaction per row 2.163 ms against 2.172 — with the `analyze` arm, which
+cannot affect a write at all, differing from `default` by 0.16%. That is the noise floor. `ANALYZE`
+does nothing for the prefix search either (45.0 against 46.3 us/op), and `walRelaxed`, the one arm
+that does change something by loosening `synchronous`, sits inside it.
 
 One caveat does not transfer: this is macOS, where SQLite's default `fsync` does not force a full
 disk barrier. Journal mode is largely about what a commit must durably record, so a platform with
@@ -173,6 +180,33 @@ varies what the download writes into as well, and inflates the same measurement 
 The intersection also matches on resource id alone and ignores the type, so a downloaded Patient
 sharing an id with a pending Observation change is treated as a conflict, and resolving it throws
 `ResourceNotFoundException`.
+
+`ConcurrentAccessBenchmark`, a prefix search over 20,000 patients with and without a thread
+committing small transactions alongside it:
+
+| journal | alone | with a writer |
+|---------|------:|--------------:|
+| `wal` | 1,070 us | 1,538 us |
+| `delete` | 1,104 us | 23,637 us |
+
+Under the rollback journal a writer holds an exclusive lock for its whole transaction and readers
+wait, so a read that costs a millisecond alone costs tens of milliseconds while a sync runs — the
+`delete` figure is an order of magnitude and wildly variable (±59,893), because lock waits arrive in
+bursts. Under WAL the same read pays about 44%.
+
+Room already opens in WAL, so this is not a change to make; it is the reason not to move off it.
+That also corrects what `SqliteTuningBenchmark` appeared to say. Its `wal` arm asks for a mode
+already in force, so of course it measured nothing — a journal mode's effect is on readers competing
+with a writer, which a single-threaded benchmark cannot see. Both classes now assert the mode they
+are running under rather than assuming it.
+
+`NetworkSyncBenchmark`, with the server mocked so no socket is opened: a page of 100 resources costs
+874.5 us to request and parse, a page of 500 costs 4,144.6 — about 8.2 us a resource. Uploading a
+transaction bundle of the same sizes costs 130.4 us and 467.9, about 0.84 us a resource, because
+encoding FHIR is far cheaper than parsing it.
+
+Set against the on-device run, where a page of 100 took about 1.6 s, the client's own share is under
+a millisecond of it. The time is in the network and the ingest, not in the HTTP path.
 
 `CreateBatchSizeBenchmark`, writing 5,000 patients at different transaction boundaries: 3,827 ms
 one at a time, 2,568 ms in tens, 2,058 ms in hundreds, 1,652 ms in thousands, 1,590 ms in a single

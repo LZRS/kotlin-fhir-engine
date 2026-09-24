@@ -49,12 +49,14 @@ import org.openjdk.jmh.annotations.Level
 open class SqliteTuningBenchmark {
 
   /**
-   * `default` is what the engine ships today.
+   * `default` is what the engine ships today, which is already WAL — Room opens that way — so the
+   * `wal` arm asks for what is already in force and only `walRelaxed` changes anything, by
+   * loosening `synchronous`. [ConcurrentAccessBenchmark] is where the journal mode is actually
+   * compared, because its effect is on readers competing with a writer rather than on a lone one.
    *
    * `analyze` doubles as a control for the two write benchmarks. ANALYZE only feeds the query
    * planner, so it cannot change what a write costs: any gap between it and `default` on an insert
-   * is the machine's noise floor. If that gap exceeds the gap between `default` and the WAL arms,
-   * the run says nothing about WAL and should be repeated on an idle machine.
+   * is the machine's noise floor.
    */
   @Param("default", "analyze", "wal", "walRelaxed") var tuning: String = ""
 
@@ -78,6 +80,14 @@ open class SqliteTuningBenchmark {
       }
       else -> error("Unknown tuning: $tuning")
     }
+    // Room opens in WAL already, so the `wal` arm asks for what it has. Asserted rather than
+    // assumed: an arm that changes nothing must say so, not read as "WAL made no difference".
+    val mode = database.pragmaValue("journal_mode").lowercase()
+    check(mode == "wal") {
+      "expected Room to open in WAL, found '$mode'; the journal arms here no longer mean what " +
+        "their names say"
+    }
+
     database.seed(ROWS)
     // After seeding, because statistics gathered over empty tables describe nothing.
     if (tuning == "analyze") database.analyze()

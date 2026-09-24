@@ -137,6 +137,8 @@ kotlin {
         implementation(libs.kotlinx.benchmark.runtime)
         // Benchmark-only: the binary payload arm of PayloadRepresentationBenchmark.
         implementation(libs.kotlinx.serialization.protobuf)
+        // Benchmark-only: NetworkSyncBenchmark answers from a mock rather than a socket.
+        implementation(libs.ktor.client.mock.engine)
       }
     }
     val desktopTest by getting {
@@ -233,8 +235,10 @@ benchmark {
       // A single invocation of either runs into the seconds, so a half-second iteration holds one.
       // They answer questions rather than watch for regressions; the index tier runs them.
       exclude(
-        "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\.(SyncDownload|CreateBatchSize)Benchmark",
+        "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\." +
+          "(SyncDownload|CreateBatchSize|ConcurrentAccess)Benchmark",
       )
+      param("pageSize", 100)
       param("rows", 1000)
       param("changeCount", 50)
       // A page of ten thousand takes 14 seconds to revInclude; the curve is a question for the
@@ -270,7 +274,8 @@ benchmark {
           "(DateIndexShape|StringIndexCollation|QuantityIndexShape|LookupIndexCovering|Sort|" +
           "SqliteTuning|PayloadRepresentation|SearchExecution|SearchResultSize|LocalChangeRead|" +
           "BulkImport|" +
-          "DatabaseOpen|SyncDownload|CreateBatchSize|Engine(Create|Update|Delete)|" +
+          "DatabaseOpen|SyncDownload|CreateBatchSize|ConcurrentAccess|NetworkSync|" +
+          "Engine(Create|Update|Delete)|" +
           "Resource(Insert|Update|Delete|Read))Benchmark",
       )
       warmups = 3

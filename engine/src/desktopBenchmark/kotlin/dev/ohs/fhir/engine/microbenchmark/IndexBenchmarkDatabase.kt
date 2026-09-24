@@ -295,6 +295,15 @@ internal class IndexBenchmarkDatabase(private val file: File) {
     database.useWriterConnection { it.exec("PRAGMA $statement") }
   }
 
+  /** Reads a PRAGMA back, so an arm can prove the setting it names is the one in force. */
+  fun pragmaValue(name: String): String = runBlocking {
+    database.useReaderConnection { transactor ->
+      transactor.usePrepared("PRAGMA $name") { statement ->
+        if (statement.step()) statement.getText(0) else ""
+      }
+    }
+  }
+
   /** Runs [query] and returns the row count, so the result cannot be optimised away. */
   fun count(query: SearchQuery): Int = runBlocking {
     database.useReaderConnection { transactor ->
