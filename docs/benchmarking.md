@@ -306,8 +306,8 @@ wants it.
 `index_system = ? AND index_code = ? AND index_value >= ? AND index_value < ?` — two equality
 predicates and a range. The range column sits in front of `index_code`, and nothing after a range
 is reachable, so the unit is ignored and the scan spans every unit recorded for the parameter.
-Swapping the two is worth 34%, but costs 2.6x on a search that omits the unit, which then has a gap
-where the unit would be. Keeping both indices takes the gain without the loss, and the second index
+Swapping the two is worth 34% at 50,000 rows and nothing at 1,000, but costs 2.6x on a search that
+omits the unit, which then has a gap where the unit would be. Keeping both indices takes the gain without the loss, and the second index
 costs nothing measurable to maintain: importing 500 observations, each carrying a quantity, measured
 208.1 ms without it and 203.8 ms with, inside the error either way.
 
