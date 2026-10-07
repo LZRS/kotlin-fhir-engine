@@ -147,9 +147,6 @@ class SearchQueryPlanTest {
    * puts the range column before `index_code`, and nothing after a range is reachable, so a search
    * that names a unit narrows on the value alone and ranges across every unit recorded for the
    * parameter. `index_system` is not in the index at all.
-   *
-   * `QuantityIndexShapeBenchmark` sizes both the gain from swapping the two and the cost to a
-   * search that omits the unit.
    */
   @Test
   fun `quantity search with a unit cannot narrow on the unit`() = runTest {
@@ -166,8 +163,6 @@ class SearchQueryPlanTest {
    * A shortfall, pinned. Every filter subquery selects `resourceUuid` alone, so an index ending in
    * it answers the subquery outright. `TokenIndexEntity` carries the column and is covering; the
    * reference and uri indices stop at `index_value`, so each match costs a row fetch.
-   *
-   * `LookupIndexCoveringBenchmark` sizes what that is worth.
    */
   @Test
   fun `reference and uri searches are not answered from a covering index`() = runTest {
@@ -184,8 +179,7 @@ class SearchQueryPlanTest {
    * A shortfall, pinned. A prefix search compiles to `index_value LIKE ? || '%' COLLATE NOCASE`.
    * SQLite applies its LIKE optimisation only to a literal or a plain parameter, and only when the
    * index collation matches the comparison's; neither holds, so the search narrows on
-   * `(resourceType, index_name)` and examines the rest. `StringIndexCollationBenchmark` sizes what
-   * that costs.
+   * `(resourceType, index_name)` and examines the rest.
    */
   @Test
   fun `prefix string search cannot narrow on index_value`() = runTest {
@@ -223,14 +217,8 @@ class SearchQueryPlanTest {
    * index_from_index_to` places `resourceUuid` between the equality columns and the range columns.
    * An index can only serve a range predicate on the column immediately after its equality prefix,
    * so neither `index_to > ?` (`gt`, `ge`, `eb`) nor `index_from < ?` (`sa`, `lt`, `le`) is usable,
-   * and both narrow on `(resourceType, index_name)` alone.
-   *
-   * Moving `resourceUuid` to the end and adding a second index leading with `index_to` does make
-   * the ranges usable. It was tried, and measured worse end to end: about 13% slower on both a date
-   * range search and a delete, against a 1,000-patient corpus. At that size a covering scan of the
-   * equality prefix beats a seek, and a range spanning two subqueries then needs two index
-   * traversals instead of sharing one. `DateIndexShapeBenchmark` sweeps the same change across
-   * sizes; see "Index usage" in docs/benchmarking.md.
+   * and both narrow on `(resourceType, index_name)` alone. See "Known shortfalls" in
+   * docs/benchmarking.md.
    */
   @Test
   fun `date search above a bound cannot use the range columns`() = runTest {

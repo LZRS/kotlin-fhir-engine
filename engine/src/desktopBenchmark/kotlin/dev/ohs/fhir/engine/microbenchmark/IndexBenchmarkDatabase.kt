@@ -30,16 +30,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 
 /**
- * A real [ResourceDatabase] populated straight through its index tables, for measuring what SQLite
- * does with a given index at a given size.
- *
- * Rows are inserted as raw SQL rather than through `FhirEngine`, because the question is what an
- * index costs, not what indexing costs. It is also what keeps the larger sweeps affordable: the
- * engine path spends a FHIRPath evaluation per resource, about 200 us each as measured by
- * [ResourceIndexerBenchmark].
- *
- * File-backed deliberately. An in-memory database ignores `journal_mode`, so a PRAGMA comparison
- * run against one would report no difference for the wrong reason.
+ * A real [ResourceDatabase] seeded with raw SQL straight into its index tables, without
+ * `FhirEngine`'s FHIRPath indexing. File-backed, because an in-memory database ignores
+ * `journal_mode`.
  */
 internal class IndexBenchmarkDatabase(private val file: File) {
 
@@ -76,9 +69,6 @@ internal class IndexBenchmarkDatabase(private val file: File) {
             "VALUES (?, 'Patient', 'birthdate', 'Patient.birthDate', ?, ?)",
         ) { statement ->
           repeat(rows) { row ->
-            // Spread across the full range whatever the row count, so a fixed date window selects
-            // the same fraction at every scale. Tying it to `row` alone would vary selectivity
-            // with size, and the curve would measure that rather than size.
             val day = row.toLong() * DAY_SPREAD / rows
             statement.bindText(1, uuidFor(row))
             statement.bindLong(2, day)
@@ -94,8 +84,6 @@ internal class IndexBenchmarkDatabase(private val file: File) {
         ) { statement ->
           repeat(rows) { row ->
             statement.bindText(1, uuidFor(row))
-            // A two-letter prefix selects roughly 1/676 of the rows, selective enough for an
-            // index to have something to win.
             statement.bindText(2, "${prefixFor(row)}name-$row")
             statement.step()
             statement.reset()
@@ -195,10 +183,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
     }
   }
 
-  /**
-   * Appends [count] string index rows, reusing existing patient uuids. A write that has to maintain
-   * an index, which is what journal and synchronous settings act on.
-   */
+  /** Appends [count] string index rows in one transaction, reusing existing patient uuids. */
   fun insertIndexRows(count: Int, batch: Int) = runBlocking {
     database.useWriterConnection { transactor ->
       transactor.withTransaction(Transactor.SQLiteTransactionType.IMMEDIATE) {
@@ -218,14 +203,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
     }
   }
 
-  /**
-   * Appends [count] string index rows, each in its own transaction.
-   *
-   * The counterpart to [insertIndexRows], and the shape that exercises journal mode. `journal_mode`
-   * and `synchronous` govern what a commit must durably record, so one transaction of five hundred
-   * rows amortises them almost to nothing while five hundred single-row transactions pay them in
-   * full. An engine saving a resource at a time is the second shape.
-   */
+  /** Appends [count] string index rows, each in its own transaction. */
   fun insertIndexRowsPerTransaction(count: Int, batch: Int) = runBlocking {
     database.useWriterConnection { transactor ->
       repeat(count) { row ->
@@ -244,13 +222,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
     }
   }
 
-  /**
-   * Removes everything the write benchmarks appended, returning the table to its seeded size.
-   *
-   * Without this each invocation leaves its rows behind, so the index grows through an iteration
-   * and later invocations measure a bigger tree than earlier ones, which shows up as a drifting
-   * mean and a wide error bar.
-   */
+  /** Removes everything the write benchmarks appended, returning the table to its seeded size. */
   fun deleteInsertedRows() = runBlocking {
     database.useWriterConnection { transactor ->
       transactor.withTransaction(Transactor.SQLiteTransactionType.IMMEDIATE) {
@@ -265,10 +237,8 @@ internal class IndexBenchmarkDatabase(private val file: File) {
   }
 
   /**
-   * Replaces the indices on [table] with [definitions]. Each is the body of a CREATE INDEX.
-   *
-   * The `index_%` filter is Room's own naming convention for a generated index, so this drops
-   * exactly what the schema shipped and leaves SQLite's internal indices alone.
+   * Replaces Room's generated indices (`index_%`) on [table] with [definitions], each the body of a
+   * CREATE INDEX.
    */
   fun reindex(table: String, definitions: List<String>) = runBlocking {
     database.useWriterConnection { transactor ->
@@ -287,9 +257,6 @@ internal class IndexBenchmarkDatabase(private val file: File) {
       }
     }
   }
-
-  /** Populates `sqlite_stat1`, which is empty until something asks for it. */
-  fun analyze() = runBlocking { database.useWriterConnection { it.exec("ANALYZE") } }
 
   fun pragma(statement: String) = runBlocking {
     database.useWriterConnection { it.exec("PRAGMA $statement") }
@@ -367,11 +334,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
 
     private val LETTERS = ('a'..'z').toList()
 
-    /**
-     * How many distinct prefixes [prefixFor] cycles through, and so the fraction of a seeded table
-     * one of them selects. Lives here rather than in each benchmark, because it is a property of
-     * the seeding: a change to [LETTERS] has to move it.
-     */
+    /** How many distinct prefixes [prefixFor] cycles through. */
     val PREFIX_COMBINATIONS = LETTERS.size * LETTERS.size
 
     /** An arbitrary row, for a benchmark needing one value out of a seeded cycle. */

@@ -16,42 +16,35 @@ declarations. They run on the desktop JVM only, under JMH.
 | Class                            | What it measures                                                                        |
 |----------------------------------|-----------------------------------------------------------------------------------------|
 | `ResourceIndexerBenchmark`       | `ResourceIndexer.index()` — a FHIRPath evaluation per search parameter, on every write  |
-| `JsonDiffBenchmark`              | `JsonDiff.diff()`, the hand-written RFC 6902 replacement for Jackson + jsonpatch        |
 | `ResourceSerializerBenchmark`    | The serialize/deserialize floor under every read and write                              |
+| `JsonDiffBenchmark`              | `JsonDiff.diff()`, run on every update                                                  |
+| `UcumCanonicalBenchmark`         | Canonicalizing a quantity, which every indexed value and every filter pays              |
 | `SearchQueryBenchmark`           | `Search.getQuery()` and `XFhirQueryTranslator` — per-query cost, independent of how much is stored |
 | `SearchExecutionBenchmark`       | A search end to end: the query, the rows, a parse per row, and `_include`/`_revinclude` |
-| `SearchResultSizeBenchmark`      | The same, swept by how many resources come back rather than by corpus size |
-| `UcumCanonicalBenchmark`         | Canonicalizing a quantity, which every indexed value and every filter pays              |
-| `MoreResourcesBenchmark`         | `getResourceClass`, `updateMeta`, `withId` — per-resource helpers                       |
-| `PatchOrderingBenchmark`         | Tarjan's over the pending-upload graph, the only cost that grows with queue length      |
-| `DateIndexShapeBenchmark`        | Date index column order, swept from 1,000 to 50,000 rows                                |
-| `StringIndexCollationBenchmark`  | String index collation, swept the same way                                              |
-| `QuantityIndexShapeBenchmark`    | Whether the quantity index should carry the unit before the value                       |
-| `LookupIndexCoveringBenchmark`   | Whether the reference and uri indices should carry `resourceUuid`, as the token one does |
+| `SearchResultSizeBenchmark`      | The same, swept by how many resources come back                                         |
 | `SortBenchmark`                  | What sorting costs, and whether paging escapes it                                       |
-| `ResourceInsertBenchmark`, `ResourceUpdateBenchmark`, `ResourceDeleteBenchmark`, `ResourceReadBenchmark` | The CRUD paths through the real `ResourceDao` and schema |
-| `EngineCreateBenchmark`, `EngineUpdateBenchmark`, `EngineDeleteBenchmark` | The same writes through `DatabaseImpl`: one transaction, and a local change per resource |
+| `DateIndexShapeBenchmark`        | Date range search under each date index column order, from 1,000 to 50,000 rows         |
+| `StringIndexCollationBenchmark`  | Prefix search under each string index collation, from 1,000 to 50,000 rows              |
+| `QuantityIndexShapeBenchmark`    | Quantity search, with and without a unit, under each quantity index column order        |
+| `LookupIndexCoveringBenchmark`   | Reference and uri lookups with and without `resourceUuid` in the index                  |
+| `ConcurrentAccessBenchmark`      | A read competing with a writer, as during a long sync, under each journal mode          |
+| `EngineCreateBenchmark`, `EngineUpdateBenchmark`, `EngineDeleteBenchmark` | Writes through `DatabaseImpl`: one transaction, and a local change per resource |
 | `BulkImportBenchmark`            | A download page written in one transaction, with no local change recorded               |
+| `ResourceReadBenchmark`          | Reading by id through `ResourceDao`                                                     |
 | `SyncDownloadBenchmark`          | Ingesting a download through `syncDownload`, swept by the size of the pending queue      |
-| `NetworkSyncBenchmark`           | A sync page with the network taken out: request, pipeline, and parsing                  |
-| `ConcurrentAccessBenchmark`      | A read competing with a writer, under each journal mode                                 |
-| `CreateBatchSizeBenchmark`       | The same resources written at different transaction boundaries                          |
 | `LocalChangeReadBenchmark`       | Reading the pending queue and its references, which is where an upload starts           |
 | `UploadAssemblyBenchmark`        | Squashing pending changes into patches, and patches into upload requests                |
-| `EngineStartupBenchmark`, `DatabaseOpenBenchmark` | What a launch pays before the first read              |
-| `PayloadRepresentationBenchmark` | Storing `serializedResource` as JSON text against the same resources as a protobuf blob |
-| `SqliteTuningBenchmark`          | `ANALYZE`, `journal_mode` and `synchronous`, which the engine never sets                |
+| `PatchOrderingBenchmark`         | Tarjan's over the pending-upload graph, the only cost that grows with queue length      |
+| `DatabaseOpenBenchmark`          | Opening the database, fresh and seeded                                                  |
 
 `indexBenchmark` runs the classes that carry a `@Param` grid or a seeded corpus, at full size. The
 pull-request tier runs most of them at their smallest size.
 
-The index sweeps write rows straight into the index tables, not through `FhirEngine`. They measure
-what an index costs, not what indexing costs, and the engine path would add about 200 us of FHIRPath
-per resource to setup.
-
-Every index trial asserts that its query selects the slice it was designed for (see
-[Selectivity](#selectivity)). The collation sweep also asserts that its two arms produce different
-query plans, because an index inherits its column's collation.
+The index-shape, sort, search and concurrency classes seed rows straight into the index tables, not
+through `FhirEngine`, which would add about 200 us of FHIRPath per resource to setup. Each asserts
+that its query selects the slice it was designed for (see [Selectivity](#selectivity)). The
+collation sweep also asserts that its two arms produce different query plans, because an index
+inherits its column's collation.
 
 ### Current results
 
@@ -79,12 +72,6 @@ error, so its size is provisional.
 us/op), because the whole corpus is ordered first. At 50,000 rows a sorted page costs **617x** an
 unsorted one. Sorting an already-filtered slice costs about 5% (6829 against 7163 us/op at 50,000
 rows). See [Sorting](#sorting).
-
-`SqliteTuningBenchmark`: no arm is worth adopting. All four agree within 1% on both write shapes: a
-batched insert 5.61 against 5.67 ms, one transaction per row 2.163 against 2.172 ms. `ANALYZE` does
-nothing for the prefix search (45.0 against 46.3 us/op). The `wal` arm cannot change anything,
-because the engine already opens in WAL, and the class asserts this. These results are from macOS,
-where the default `fsync` is not a full disk barrier, so Android on real storage could differ.
 
 `SearchExecutionBenchmark`, us/op over 1,000 patients and 1,000 observations: string `:exact` 27.1,
 reference 36.5, token 62.6, number range 64.7, count 73.4, string prefix 81.6, `:contains` 87.7,
@@ -114,11 +101,8 @@ quadratic too, but its join still dominates at these sizes; `—` is not measure
 resolved resources once, by key, takes the 10,000-row page from 14.3 s to 87 ms (**164x**) and needs
 no schema change.
 
-`EngineCreateBenchmark` against `ResourceInsertBenchmark`: fifty patients cost 13.5 ms through
-`DatabaseImpl` and 104.1 ms through `ResourceDao` (270 against 2,083 us each, at 9% and 4% error).
-The engine path does more work per resource, the local-change ledger included, but commits once per
-batch instead of once per resource. `BulkImportBenchmark` writes 500 in one transaction at 305 us
-each, without a ledger.
+`EngineCreateBenchmark`: fifty patients cost 13.5 ms, 270 us each. `BulkImportBenchmark` writes 500
+in one transaction at 305 us each, without a local-change ledger.
 
 Each seeded patient carries two references, so an update diffs them in `LocalChangeDao`. This adds
 about 8% to `EngineUpdateBenchmark` (14.2 to 15.4 ms for fifty). Re-indexing dominates.
@@ -146,32 +130,26 @@ Under the rollback journal a writer holds an exclusive lock for its transaction 
 The `delete` figure varies widely (±59,893) because lock waits arrive in bursts. Under WAL the read
 pays about 44%. The engine already opens in WAL; this is the reason to stay on it.
 
-`NetworkSyncBenchmark`, with a mocked server: requesting and parsing a page of 100 resources costs
-874.5 us, a page of 500 costs 4,144.6, about 8.2 us a resource. Uploading a bundle of the same sizes
-costs 130.4 and 467.9 us, about 0.84 us a resource. On the device a page of 100 took about 1.6 s,
-so the client's share is under a millisecond.
-
-`CreateBatchSizeBenchmark`, 5,000 patients: 3,827 ms one at a time, 2,568 ms in tens, 2,058 ms in
-hundreds, 1,652 ms in thousands, 1,590 ms in one transaction. Bigger batches always win, and the
-gain flattens after a thousand. On the device a single 20,000-resource `create(vararg)` was slower
-than chunked transactions (8.14 against 5.80 ms a resource). That does not reproduce here up to
-5,000, so it is more likely memory pressure on the tablet.
-
 `UploadAssemblyBenchmark`, fifty resources each with an insert and two updates: squashing into one
 patch per resource takes 253.2 us against 2.9 us for keeping every change, because it replays each
 RFC 6902 payload over the one before. Building requests costs 73.4 us as bundles and 71.9 us as
 individual URLs.
 
 `DatabaseOpenBenchmark`: 1.79 ms to create a schema, 0.49 ms to reopen one holding 500 patients.
-`EngineStartupBenchmark` reports nanoseconds, because the FHIRPath engine and the R4 parameter
-tables are built once per process and that cost falls in warmup. `coldIndexFirstResource` matches
-`indexRichPatient` for the same reason.
 
-`PayloadRepresentationBenchmark`: 20,000 mixed resources take 7.19 MB as JSON and 3.51 MB as
-protobuf. Fetching two hundred costs 125 against 44 us; decoding them costs 443 against 435 us,
-inside the error. The parts add up: 125 + 443 against a measured 565, and 44 + 435 against 485.
-Overall protobuf saves about 14% on multi-row reads, 10% on a point read, 14% on a write, and half
-the disk. It costs a destructive schema migration and a wire format that is not self-describing.
+### Settled questions
+
+Measured by benchmarks that have since been removed; the code is in git history.
+
+- **SQLite tuning.** `ANALYZE` and `synchronous` changed nothing outside the noise, on macOS.
+- **Batch size.** 5,000 patients took 3,827 ms one at a time and 1,590 ms in one transaction; the
+  gain flattens after a thousand. Through `DatabaseImpl`, fifty patients cost 13.5 ms; through
+  `ResourceDao` a resource at a time, 104.1 ms.
+- **Protobuf payloads.** Half the disk and about 14% faster reads, against a destructive schema
+  migration and a wire format that is not self-describing. Not adopted.
+- **Network path.** With a mocked server, a page of 100 resources costs under a millisecond to
+  request and parse. A page on the device took about 1.6 s, so the time is in the network and the
+  ingest.
 
 ## Index usage
 
@@ -213,15 +191,15 @@ Each is pinned by a test that names it.
 **Prefix string search** compiles to `index_value LIKE ? || '%' COLLATE NOCASE` and narrows on
 `(resourceType, index_name)` only. Two conditions block the index, and both must be fixed: SQLite
 applies its LIKE optimisation only to a literal or plain parameter pattern, and uses an index only
-when its collation matches the comparison's. Fixing both is worth 39.8x on the largest sweep. It
+when its collation matches the comparison's. Fixing both is worth 39.8x at 50,000 rows. It
 costs `:exact` its index unless a second column mirrors `index_value`, and the collation change
 needs a schema version bump.
 
 **Date and dateTime** indices are `(resourceType, index_name, resourceUuid, index_from, index_to)`.
 `resourceUuid` sits between the equality prefix and the range columns, so no range can use the
 index. Moving it last and adding a second index that leads with `index_to` measured about 13% worse
-end to end (a birth-date range search and a delete, interleaved, n=3), and about 13% better in
-`DateIndexShapeBenchmark` against a selective window. Unchanged until a workload needs it.
+end to end (a birth-date range search and a delete, interleaved, n=3), and 11-13% better in a
+sweep from 1,000 to 50,000 rows against a selective window. Unchanged until a workload needs it.
 
 **Quantity with a unit**: the index is `(resourceType, index_name, index_value, index_code)`, and a
 search with a unit emits `index_system = ? AND index_code = ? AND index_value >= ? AND index_value
@@ -291,12 +269,11 @@ failure marker appears.
 the base branch and then the head, on the same runner, and comments with the difference. Scores
 from two different jobs are not comparable, because shared runners differ in machine class.
 
-- `prBenchmark` runs everything except `SqliteTuningBenchmark`, `SyncDownloadBenchmark`,
-  `CreateBatchSizeBenchmark`, `ConcurrentAccessBenchmark` and the `prNoisyBenchmark` classes. It
-  uses ten half-second iterations, with the sweeps at their smallest size (`rows=1000`,
-  `changeCount=50`, `pageSize=100`, `results=100`).
-- `prNoisyBenchmark` runs the CRUD, engine write, `BulkImport`, `DatabaseOpen` and `MoreResources`
-  classes at ten one-second iterations, because one invocation can take about 300 ms.
+- `prBenchmark` runs everything except `SyncDownloadBenchmark` and the `prNoisyBenchmark` classes,
+  at ten half-second iterations, with the sweeps at their smallest size (`rows=1000`,
+  `changeCount=50`, `results=100`).
+- `prNoisyBenchmark` runs the engine write, `BulkImport`, `ResourceRead` and `DatabaseOpen` classes
+  at ten one-second iterations, because one invocation can take about 300 ms.
 
 A row is flagged when the difference is outside its 99.9% confidence interval and is at least 5%.
 The interval of a difference combines the two errors in quadrature. A row whose combined error is

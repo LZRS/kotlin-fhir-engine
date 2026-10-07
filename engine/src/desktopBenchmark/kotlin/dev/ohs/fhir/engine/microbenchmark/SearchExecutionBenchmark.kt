@@ -41,20 +41,12 @@ import kotlinx.benchmark.State
 import kotlinx.benchmark.TearDown
 
 /**
- * What a search costs through the engine rather than through SQLite alone.
+ * A search through the engine: the query, the rows, and a parse per matched resource. One filter of
+ * each supported kind except `near`, which the engine lacks, and date.
  *
- * The index sweeps stop at the row count: they step the result set and never read a payload, and
- * every row they seed holds `{}`. A real search selects `serializedResource` and deserializes one
- * resource per match, so its cost is the query plus a parse per row.
- *
- * One filter of each supported kind, so a regression in any one of them shows up against the
- * others. `near` is absent because the engine has no position filter, and date is left to
- * [DateIndexShapeBenchmark], which sweeps it properly.
- *
- * [includeSearch] and [revIncludeSearch] reach the referenced resource by different routes:
  * `_include` joins on `re.resourceType||'/'||re.resourceId = rie.index_value`, which no index can
- * serve because the indexed columns sit inside an expression, while `_revinclude` binds the same
- * strings from Kotlin and seeks. `SearchQueryPlanTest` pins both plans.
+ * serve; `_revinclude` binds the same strings from Kotlin and seeks. `SearchQueryPlanTest` pins
+ * both plans.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)

@@ -15,8 +15,6 @@
  */
 package dev.ohs.fhir.engine.microbenchmark
 
-import dev.ohs.fhir.engine.index.ResourceIndexer
-import dev.ohs.fhir.engine.index.SearchParamDefinitionsProviderImpl
 import java.io.File
 import kotlinx.benchmark.Benchmark
 import kotlinx.benchmark.BenchmarkMode
@@ -30,57 +28,7 @@ import kotlinx.benchmark.State
 import kotlinx.benchmark.TearDown
 import org.openjdk.jmh.annotations.Level
 
-/*
- * What an application waits for the first time it touches the engine.
- *
- * Only half of it is measurable here. Work paid once per process — loading the FHIRPath classes,
- * building the generated R4 parameter tables — happens during warmup, and every scored invocation
- * finds it already done. No repeated-invocation harness can see that, JMH's forks included, so
- * [EngineStartupBenchmark] reports per-instance construction: the cost of a second
- * `FhirEngineProvider.init()` rather than of a cold launch. It is still worth watching, because a
- * constructor that began doing real work would show up in it.
- *
- * [DatabaseOpenBenchmark] has no such limit: opening a database is real work every time.
- */
-
-/**
- * Building the pieces `FhirEngineProvider` assembles before the first read or write, on a process
- * that has already built them once. See the note above.
- */
-@State(Scope.Benchmark)
-@BenchmarkMode(Mode.AverageTime)
-@OutputTimeUnit(BenchmarkTimeUnit.MICROSECONDS)
-open class EngineStartupBenchmark {
-
-  /** Wrapping the generated R4 parameter tables, which are built once for the process. */
-  @Benchmark
-  fun createSearchParamProvider(blackhole: Blackhole) =
-    blackhole.consume(SearchParamDefinitionsProviderImpl())
-
-  /** Constructing the indexer, FHIRPath engine included. */
-  @Benchmark
-  fun createResourceIndexer(blackhole: Blackhole) =
-    blackhole.consume(ResourceIndexer(SearchParamDefinitionsProviderImpl()))
-
-  /**
-   * Both, plus the first resource indexed through them. Read against
-   * [ResourceIndexerBenchmark.indexRichPatient]: a gap would mean construction costs something per
-   * instance.
-   */
-  @Benchmark
-  fun coldIndexFirstResource(blackhole: Blackhole) {
-    val indexer = ResourceIndexer(SearchParamDefinitionsProviderImpl())
-    blackhole.consume(indexer.index(Fixtures.richPatient))
-  }
-}
-
-/**
- * Opening the database, which Room does lazily on the first query rather than at construction.
- *
- * Two arms because they are different costs: a fresh directory runs the schema creation, an
- * existing one only opens the file. An application pays the first once and the second on every
- * launch afterwards.
- */
+/** Opening the database, which Room does lazily on the first query. */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(BenchmarkTimeUnit.MILLISECONDS)
@@ -95,7 +43,6 @@ open class DatabaseOpenBenchmark {
     val seeded = EngineBenchmarkDatabase.create("startup-seeded")
     seeded.seedPatients(SEEDED_ROWS)
     seededDirectory = seeded.directory
-    // Closed rather than kept: the benchmark opens it again, which is the measurement.
     seeded.database.close()
     check(seededDirectory.listFiles().orEmpty().isNotEmpty()) {
       "the seeded directory holds no database file, so openSeeded would create one instead"

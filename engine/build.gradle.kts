@@ -133,13 +133,7 @@ kotlin {
       )
     }
     val desktopBenchmark by getting {
-      dependencies {
-        implementation(libs.kotlinx.benchmark.runtime)
-        // Benchmark-only: the binary payload arm of PayloadRepresentationBenchmark.
-        implementation(libs.kotlinx.serialization.protobuf)
-        // Benchmark-only: NetworkSyncBenchmark answers from a mock rather than a socket.
-        implementation(libs.ktor.client.mock.engine)
-      }
+      dependencies { implementation(libs.kotlinx.benchmark.runtime) }
     }
     val desktopTest by getting {
       // `SearchParameterRepositoryGeneratedTest` reads the same FHIR R4 search-parameters bundle
@@ -209,11 +203,10 @@ benchmarkRuns.configureEach {
   }
 }
 
-/** Benchmarks whose error on a shared CI runner needs more samples than the rest of the tier. */
+/** Benchmarks whose single invocation is slow enough to need longer iterations. */
 val noisyOnCi =
   "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\." +
-    "(MoreResources|BulkImport|DatabaseOpen|Engine(Create|Update|Delete)|" +
-    "Resource(Insert|Update|Delete|Read))Benchmark"
+    "(BulkImport|DatabaseOpen|Engine(Create|Update|Delete)|ResourceRead)Benchmark"
 
 benchmark {
   targets { register("desktopBenchmark") }
@@ -224,59 +217,37 @@ benchmark {
       iterationTime = 1
       iterationTimeUnit = "s"
     }
-    // The per-pull-request tier. CI runs it twice in one job, against the base branch and then the
-    // head, and comments with the difference, so it has to fit in a few minutes a side. Every class
-    // runs, but the scaling sweeps are pinned to their smallest size: the shape of the curve is a
-    // question for the full tier.
+    // The pull-request tier, with each sweep at its smallest size.
     register("pr") {
       exclude(noisyOnCi)
-      // Journal and fsync settings mean nothing on the tmpfs CI uses, and the question is settled.
-      exclude("dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\.SqliteTuningBenchmark")
-      // A single invocation of either runs into the seconds, so a half-second iteration holds one.
-      // They answer questions rather than watch for regressions; the index tier runs them.
+      // One invocation takes a second or more.
       exclude(
-        "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\." +
-          "(SyncDownload|CreateBatchSize|ConcurrentAccess)Benchmark",
+        "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\.(SyncDownload|ConcurrentAccess)Benchmark",
       )
-      param("pageSize", 100)
       param("rows", 1000)
       param("changeCount", 50)
-      // A page of ten thousand takes 14 seconds to revInclude; the curve is a question for the
-      // index tier.
       param("results", 100)
-      // Five warmups: at three, CI showed JIT drift in the first measured iterations. Ten
-      // iterations: at five, Student's t (8.47) left most intervals too wide to see a 5% change.
       warmups = 5
       iterations = 10
       iterationTime = 500
       iterationTimeUnit = "ms"
     }
-    // The tier's other half: benchmarks whose single invocation is slow enough that a half-second
-    // iteration holds one or two samples. An indexed update takes about 300 ms on a CI runner, and
-    // the CRUD and MoreResources rows came back at 30-60% error on the first run. Longer iterations
-    // average more invocations into each score, which narrows that spread.
+    // The pull-request tier's slow benchmarks.
     register("prNoisy") {
       include(noisyOnCi)
-      // Five warmups: at three, insertIndexed's first measured iterations were still settling.
       warmups = 5
       iterations = 10
       iterationTime = 1
       iterationTimeUnit = "s"
     }
-    // The sweeps: index shapes, SQLite tuning, payload representation, search execution, and the
-    // write paths those are read against. Each carries its own @Param grid or a seeded corpus, so
-    // the configuration expands past a hundred forked trials and takes tens of minutes. That is
-    // why the pull-request tier pins their parameters, and why they are worth a tier of their own
-    // to run deliberately.
+    // The benchmarks with a @Param grid or a seeded corpus, at full size.
     register("index") {
       include(
         "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\." +
-          "(DateIndexShape|StringIndexCollation|QuantityIndexShape|LookupIndexCovering|Sort|" +
-          "SqliteTuning|PayloadRepresentation|SearchExecution|SearchResultSize|LocalChangeRead|" +
-          "BulkImport|" +
-          "DatabaseOpen|SyncDownload|CreateBatchSize|ConcurrentAccess|NetworkSync|" +
-          "Engine(Create|Update|Delete)|" +
-          "Resource(Insert|Update|Delete|Read))Benchmark",
+          "(DateIndexShape|StringIndexCollation|QuantityIndexShape|LookupIndexCovering|" +
+          "ConcurrentAccess|Sort|" +
+          "SearchExecution|SearchResultSize|LocalChangeRead|BulkImport|DatabaseOpen|SyncDownload|" +
+          "Engine(Create|Update|Delete)|ResourceRead)Benchmark",
       )
       warmups = 3
       iterations = 5

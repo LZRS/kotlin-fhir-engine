@@ -29,14 +29,7 @@ import kotlinx.benchmark.Scope
 import kotlinx.benchmark.Setup
 import kotlinx.benchmark.State
 
-/**
- * Rewriting a quantity into its canonical unit, which both sides of a quantity search pay.
- *
- * Every indexed quantity is canonicalized on the way in and every quantity filter on the way out,
- * so a unit the conversion touches costs this twice per search and once per indexed value.
- * [QuantityIndexShapeBenchmark] works around the rewrite by choosing a unit it leaves alone;
- * nothing measured what the rewrite costs when it does fire.
- */
+/** Rewriting a quantity into its canonical unit, paid by every indexed quantity and filter. */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(BenchmarkTimeUnit.MICROSECONDS)

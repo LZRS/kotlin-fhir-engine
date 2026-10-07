@@ -25,15 +25,9 @@ import kotlin.test.assertEquals
 import kotlinx.coroutines.test.runTest
 
 /**
- * The journal mode a file-backed database opens in.
- *
- * The engine never sets one, so this is Room's default for the driver in use. It matters more than
- * a default usually does: under a rollback journal a writer locks the database for the length of
- * its transaction, and a search running while a sync writes waits for it.
- * `ConcurrentAccessBenchmark` measures that at roughly 20x on a 20,000-patient corpus.
- *
- * Pinned here so an upgrade that changes the default fails a test rather than showing up as a
- * report of stalled reads.
+ * The journal mode a file-backed database opens in. The engine never sets one, so this is Room's
+ * default. Under a rollback journal a search waits for a concurrent sync's transaction, roughly 20x
+ * slower on a 20,000-patient corpus.
  */
 class JournalModeTest {
 
