@@ -137,7 +137,7 @@ class SearchQueryPlanTest {
 
   /**
    * Known shortfall: the index puts `index_value` before `index_code`, so the unit is not used. See
-   * "Known shortfalls" in docs/benchmarking.md.
+   * "Known shortfalls" in docs/benchmark-results.md.
    */
   @Test
   fun `quantity search with a unit cannot narrow on the unit`() = runTest {
@@ -166,7 +166,7 @@ class SearchQueryPlanTest {
 
   /**
    * Known shortfall: `LIKE ? || '%' COLLATE NOCASE` cannot use the index on `index_value`. See
-   * "Known shortfalls" in docs/benchmarking.md.
+   * "Known shortfalls" in docs/benchmark-results.md.
    */
   @Test
   fun `prefix string search cannot narrow on index_value`() = runTest {
@@ -199,7 +199,7 @@ class SearchQueryPlanTest {
 
   /**
    * Known shortfall: the index puts `resourceUuid` before the range columns, so no date range can
-   * use them. See "Known shortfalls" in docs/benchmarking.md.
+   * use them. See "Known shortfalls" in docs/benchmark-results.md.
    */
   @Test
   fun `date search above a bound cannot use the range columns`() = runTest {
@@ -233,7 +233,7 @@ class SearchQueryPlanTest {
 
   /**
    * Known shortfall: the join compares `re.resourceType||'/'||re.resourceId`, an expression, so
-   * neither side can seek. See "Known shortfalls" in docs/benchmarking.md.
+   * neither side can seek. See "Known shortfalls" in docs/benchmark-results.md.
    */
   @Test
   fun `include search can seek neither side of its join`() = runTest {
