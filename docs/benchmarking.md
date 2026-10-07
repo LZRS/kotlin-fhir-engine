@@ -3,9 +3,9 @@
 The micro benchmarks in `:engine` measure pure-CPU functions and SQLite.
 
 ```bash
-./gradlew :engine:prBenchmark :engine:prNoisyBenchmark   # what CI runs on a pull request
-./gradlew :engine:indexBenchmark   # the sweeps; tens of minutes
-./gradlew :engine:benchmark        # everything at full size; what CI runs on a push to main
+./gradlew :engine:prBenchmark :engine:prNoisyBenchmark   # what CI runs on a pull request; smallest sizes
+./gradlew :engine:indexBenchmark   # the sweeps at full size
+./gradlew :engine:benchmark        # everything at full size; CI on main or a `benchmark:full` PR
 ```
 
 ## Micro benchmarks
