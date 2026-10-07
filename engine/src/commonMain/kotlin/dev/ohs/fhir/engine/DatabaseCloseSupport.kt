@@ -16,11 +16,7 @@
 package dev.ohs.fhir.engine
 
 /**
- * Whether [FhirEngineProvider.reset] may close the database on this platform.
- *
- * True everywhere except web, where closing terminates the SQLite Web Worker and leaves OPFS in a
- * state the next open does not recover from: every subsequent database call hangs instead of
- * failing, taking the browser test session with it. Web therefore keeps the connection open across
- * a reset. Browser benchmarks get a cold engine by reloading the page.
+ * Whether [FhirEngineProvider.reset] may close the database on this platform. False on web, where
+ * closing breaks the SQLite Web Worker and every later database call hangs.
  */
 internal expect fun canCloseDatabaseOnReset(): Boolean

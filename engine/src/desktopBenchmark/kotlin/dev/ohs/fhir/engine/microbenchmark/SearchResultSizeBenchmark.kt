@@ -35,19 +35,8 @@ import kotlinx.benchmark.State
 import kotlinx.benchmark.TearDown
 
 /**
- * How a search scales with the number of resources it returns, rather than with the corpus it
- * searches.
- *
- * Every other search benchmark here fixes a filter and lets the corpus decide how many rows come
- * back, which keeps the result sets small. [page] varies the returned count directly: the filter is
- * absent and [results] is the page size, so the query is a constant and the only variable is how
- * many resources are read and parsed.
- *
- * [pageWithInclude] and [pageWithRevInclude] add the second query on the same page. Read each
- * against [page] at the same size: the difference is what resolving references costs, and it is
- * quadratic in the page rather than linear. `Search.execute` groups the resolved resources by
- * rescanning the whole list once per base result, and on the revInclude side it rebuilds the
- * `type/id` key inside that scan. See docs/benchmarking.md.
+ * Measures how a search scales with the number of resources it returns. [results] is the page size;
+ * compare the include arms with [page] at the same size.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -66,8 +55,7 @@ open class SearchResultSizeBenchmark {
     database = EngineBenchmarkDatabase.create("resultsize-$results")
     database.seedOrganizations()
     database.seedPatients(CORPUS)
-    // Observations over every patient the largest page can reach, so a revInclude has something to
-    // find whatever the page size.
+    // Every patient has observations, so a revInclude finds some at any page size.
     database.seedObservations(CORPUS, subjects = CORPUS)
 
     page = pagedSearch()
@@ -77,8 +65,6 @@ open class SearchResultSizeBenchmark {
     check(database.search<Patient>(page).size == results) {
       "the page returned ${database.search<Patient>(page).size} patients, expected $results"
     }
-    // An include or revInclude that resolves nothing costs only its query, so the arms would
-    // measure the page and a wasted round trip rather than the work of resolving references.
     check(database.search<Patient>(withInclude).any { !it.included.isNullOrEmpty() }) {
       "no result carried an included organization"
     }
@@ -89,7 +75,7 @@ open class SearchResultSizeBenchmark {
 
   @TearDown fun tearDown() = database.close()
 
-  /** [results] resources read and parsed, with no filter and no ordering to pay for. */
+  /** [results] resources read and parsed, with no filter or sort. */
   @Benchmark fun page(): Int = database.search<Patient>(page).size
 
   /** The same page, plus the organizations it references. */
@@ -101,7 +87,7 @@ open class SearchResultSizeBenchmark {
   private fun pagedSearch() = Search(type = ResourceType.Patient, count = results, from = 0)
 
   private companion object {
-    /** Large enough for the biggest page, and the same for every arm so only the page varies. */
+    /** The same for every arm, so only the page size varies. */
     const val CORPUS = 10_000
 
     const val ORGANIZATION = "organization"

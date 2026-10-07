@@ -213,14 +213,8 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # On a pull request the same benchmarks run twice on this runner, against the base branch and
-      # then the head, and the comment reports the difference. Two scores from two jobs cannot be
-      # compared, since shared runners differ between them, but two from the same machine minutes
-      # apart can. If the base predates the benchmarks its run fails, that failure is tolerated, and
-      # the comment shows the head on its own.
-      #
-      # Benchmark databases go on tmpfs: the runner's disk varies up to 3x within a job, which would
-      # swamp any code change. The full tier on main stays on disk.
+      # On a pull request, base and head run in this one job, because scores from different
+      # runners are not comparable. Databases go on tmpfs because runner disk speed is unstable.
       - name: Create a RAM-backed temp directory
         if: github.event_name == 'pull_request'
         run: mkdir -p /dev/shm/benchmarks
@@ -232,7 +226,7 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           path: base
 
-      # Read from the API, not the event payload, so a re-run picks up a label added since.
+      # Read from the API so a re-run sees labels added after the event.
       - name: Choose the tier
         id: tier
         if: github.event_name == 'pull_request'
@@ -247,9 +241,7 @@ jobs:
             echo "tasks=:engine:prBenchmark :engine:prNoisyBenchmark" >> "$GITHUB_OUTPUT"
           fi
 
-      # kotlinx-benchmark exits 0 when a benchmark's @Setup throws, and drops it from the report.
-      # The doLast check in engine/build.gradle.kts watches the runner's output and fails the task
-      # instead. See docs/benchmarking.md.
+      # The base may predate the benchmarks; the comment then shows the head alone.
       - name: Run the benchmarks against the base
         if: github.event_name == 'pull_request'
         continue-on-error: true

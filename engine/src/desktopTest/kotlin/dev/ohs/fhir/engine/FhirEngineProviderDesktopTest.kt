@@ -24,13 +24,8 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
 /**
- * Desktop-only [FhirEngineProvider] tests.
- *
- * Both assertions are about a reset that closes and reopens the database, which only holds where a
- * real file-backed connection does. Web can do neither half in one page: closing terminates the
- * SQLite Web Worker so every later call hangs instead of failing, and skipping the close leaves the
- * first worker holding the exclusive OPFS sync access handle so the reopen blocks. Browser
- * benchmarks must reload the page to get a cold engine.
+ * Desktop-only [FhirEngineProvider] tests. On web, a closed database hangs instead of failing, and
+ * the same page cannot reopen it.
  */
 class FhirEngineProviderDesktopTest {
 
@@ -65,8 +60,6 @@ class FhirEngineProviderDesktopTest {
 
     FhirEngineProvider.reset()
 
-    // Closing the database in reset() is only useful if the next init() can reopen it. Benchmarks
-    // do this between iterations.
     FhirEngineProvider.init(
       FhirEngineConfiguration(testMode = true, storageDirectory = testStorageDirectory()),
     )

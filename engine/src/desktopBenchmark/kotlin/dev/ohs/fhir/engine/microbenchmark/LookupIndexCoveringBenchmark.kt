@@ -33,20 +33,8 @@ import kotlinx.benchmark.State
 import kotlinx.benchmark.TearDown
 
 /**
- * Whether the reference and uri indices should carry `resourceUuid` the way the token index does.
- *
- * Every filter compiles to `SELECT resourceUuid FROM <table> WHERE ...`, so an index ending in
- * `resourceUuid` answers the subquery outright. `TokenIndexEntity` is `(resourceType, index_name,
- * index_value, resourceUuid)` and its plan says COVERING INDEX; `ReferenceIndexEntity` and
- * `UriIndexEntity` stop at `index_value`, so each match costs a row fetch on top of the seek.
- *
- * The two tables are swept together because their indices are identical in shape. Reference lookups
- * carry the chained, `has` and `revInclude` searches, so whatever this is worth applies more often
- * than a plain reference filter suggests.
- *
- * What the extra column costs is width: a wider index is more bytes to write per row and more pages
- * to hold. This measures the read side only. `ResourceInsertBenchmark` covers writes, but against a
- * Patient, which has no reference or uri index rows.
+ * A reference or uri lookup with the shipped index and with `resourceUuid` appended, which makes it
+ * a covering index as the token index already is. Read cost only.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -92,8 +80,7 @@ open class LookupIndexCoveringBenchmark {
         }
         .getQuery()
 
-    // Only the covering arm should answer the subquery from the index alone. If both arms agree,
-    // the comparison is vacuous.
+    // Only the covering arm should answer the subquery from the index alone.
     val plan = database.planFor(query).joinToString(" | ")
     check(("COVERING INDEX" in plan) == (shape == "covering")) {
       "arm '$shape' produced the wrong plan, so the arms measure the same thing: $plan"

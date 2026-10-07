@@ -41,12 +41,8 @@ import kotlinx.benchmark.State
 import kotlinx.benchmark.TearDown
 
 /**
- * A search through the engine: the query, the rows, and a parse per matched resource. One filter of
- * each supported kind except `near`, which the engine lacks, and date.
- *
- * `_include` joins on `re.resourceType||'/'||re.resourceId = rie.index_value`, which no index can
- * serve; `_revinclude` binds the same strings from Kotlin and seeks. `SearchQueryPlanTest` pins
- * both plans.
+ * Measures a search through the engine, from query to parsed resources, for each filter kind except
+ * `near` and date.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -134,13 +130,10 @@ open class SearchExecutionBenchmark {
       1.0 / IndexBenchmarkDatabase.PREFIX_COMBINATIONS,
       "stringPrefix",
     )
-    // One name, so one patient. A miss here means the seeded names and the queried one drifted
-    // apart and the arm would be timing an empty result.
     check(database.search<Patient>(stringExact).size == 1) {
       "the exact search matched ${database.search<Patient>(stringExact).size} patients, expected 1"
     }
-    // The substring is one family name, which is also a prefix of every longer one sharing it, so
-    // the count varies with the corpus. That it matches at all is what matters.
+    // The family name is also part of longer names, so the count varies with the corpus.
     check(database.search<Patient>(stringContains).isNotEmpty()) {
       "the contains search matched nothing, so it is timing a scan over no result"
     }
@@ -150,7 +143,6 @@ open class SearchExecutionBenchmark {
       1.0 / CODE_COUNT,
       "token",
     )
-    // Probabilities are integers spread evenly over 0..99, so above 90 is nine of every hundred.
     assertSelectivity(
       database.search<RiskAssessment>(number).size,
       riskRows,
@@ -161,7 +153,6 @@ open class SearchExecutionBenchmark {
       "one patient should carry $SUBJECT_SHARE observations, found " +
         database.search<Observation>(reference).size
     }
-    // An include that returns nothing is the same measurement as the filter without it.
     check(database.search<Observation>(include).any { !it.included.isNullOrEmpty() }) {
       "no result carried an included patient, so includeSearch measures the plain token filter"
     }
@@ -175,34 +166,34 @@ open class SearchExecutionBenchmark {
 
   @TearDown fun tearDown() = database.close()
 
-  /** A 1/676 slice, deserialized. The floor the other filters are read against. */
+  /** A prefix match on one slice of the patients. */
   @Benchmark fun stringPrefixSearch(): Int = database.search<Patient>(stringPrefix).size
 
-  /** One row by an indexed equality, the cheapest shape the string index can answer. */
+  /** An indexed equality that matches one row. */
   @Benchmark fun stringExactSearch(): Int = database.search<Patient>(stringExact).size
 
-  /** `:contains` cannot use the index at all; `SearchQueryPlanTest` pins that. This is its cost. */
+  /** `:contains` cannot use the index. */
   @Benchmark fun stringContainsSearch(): Int = database.search<Patient>(stringContains).size
 
-  /** The most common filter in practice, and the only index that is already covering. */
+  /** The token index is the only one that is already covering. */
   @Benchmark fun tokenSearch(): Int = database.search<Observation>(token).size
 
-  /** The only number index the R4 fixtures can produce, over a range rather than an equality. */
+  /** A range over the number index. */
   @Benchmark fun numberSearch(): Int = database.search<RiskAssessment>(number).size
 
-  /** The lookup that chained, `has` and `revInclude` searches are all built out of. */
+  /** The lookup that chained, `has` and `revInclude` searches use. */
   @Benchmark fun referenceSearch(): Int = database.search<Observation>(reference).size
 
-  /** A second query for the referenced patients, then a grouping pass per matched observation. */
+  /** A second query for the referenced patients, grouped per matched observation. */
   @Benchmark fun includeSearch(): Int = database.search<Observation>(include).size
 
-  /** The same in reverse: every observation pointing at a matched patient. */
+  /** Every observation that references a matched patient. */
   @Benchmark fun revIncludeSearch(): Int = database.search<Patient>(revInclude).size
 
-  /** Fifty resources with no filter, which is what an unqualified list screen asks for. */
+  /** One page of patients with no filter. */
   @Benchmark fun firstPageSearch(): Int = database.search<Patient>(firstPage).size
 
-  /** The same filter counted rather than fetched, which reads no payload and parses nothing. */
+  /** The prefix filter counted, so no payload is read or parsed. */
   @Benchmark fun countMatching(): Long = database.count(counted)
 
   private fun patientSearch(init: Search.() -> Unit): Search =
@@ -217,13 +208,13 @@ open class SearchExecutionBenchmark {
     const val SUBJECT = "subject"
     const val PROBABILITY = "probability"
 
-    /** Patients per referenced subject, so a reference lookup matches this many observations. */
+    /** Observations per referenced patient. */
     const val SUBJECT_SHARE = 4
 
-    /** Risk assessments are seeded at a quarter of the corpus; they index nothing else needs. */
+    /** One risk assessment per this many patients. */
     const val RISK_SHARE = 4
 
-    /** Above this, which is nine of every hundred seeded probabilities. */
+    /** Matches about nine in a hundred seeded probabilities. */
     const val RISK_THRESHOLD = 90
 
     const val PAGE = 50

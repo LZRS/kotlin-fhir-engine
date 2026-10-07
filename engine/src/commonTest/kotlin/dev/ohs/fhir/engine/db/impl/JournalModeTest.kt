@@ -25,9 +25,8 @@ import kotlin.test.assertEquals
 import kotlinx.coroutines.test.runTest
 
 /**
- * The journal mode a file-backed database opens in. The engine never sets one, so this is Room's
- * default. Under a rollback journal a search waits for a concurrent sync's transaction, roughly 20x
- * slower on a 20,000-patient corpus.
+ * The engine relies on Room's default journal mode, WAL, so a search does not wait for a concurrent
+ * write.
  */
 class JournalModeTest {
 
@@ -38,9 +37,7 @@ class JournalModeTest {
     database?.close()
   }
 
-  // Underscores rather than a backticked name, as elsewhere in commonTest: D8 refuses to dex a
-  // synthetic class whose name carries spaces from the method enclosing it, and the body has
-  // lambdas.
+  // No spaces in the name: D8 cannot dex the lambdas' synthetic class names otherwise.
   @Test
   fun file_backed_database_opens_in_wal() = runTest {
     val opened =

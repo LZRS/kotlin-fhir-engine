@@ -29,14 +29,7 @@ import kotlinx.benchmark.Scope
 import kotlinx.benchmark.Setup
 import kotlinx.benchmark.State
 
-/**
- * [JsonDiff] produces the RFC 6902 patch behind every local update. It is a hand-written
- * replacement for the JVM-only Jackson + jsonpatch pairing.
- *
- * Both a one-field edit and a wholesale rewrite are measured. The diff walks both trees in full
- * either way, so the gap between them is the share of the cost that is traversal rather than patch
- * construction.
- */
+/** [JsonDiff], which builds the RFC 6902 patch for each local update, on small and large edits. */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(BenchmarkTimeUnit.MICROSECONDS)
@@ -51,7 +44,6 @@ open class JsonDiffBenchmark {
     original = serializeResource(Fixtures.richPatient)
     oneFieldChanged =
       serializeResource(Fixtures.richPatient.copy(active = FhirBoolean(value = false)))
-    // A different family name on every entry, so the diff has to emit an op per name.
     heavilyChanged =
       serializeResource(
         Fixtures.richPatient.copy(
@@ -64,8 +56,6 @@ open class JsonDiffBenchmark {
             },
         ),
       )
-    // An empty patch would mean the fixtures are identical, leaving these benchmarks measuring the
-    // cost of finding no differences.
     check(JsonDiff.diff(original, oneFieldChanged) != EMPTY_PATCH) {
       "oneFieldChanged is identical to the original, so diffOneFieldChanged measures nothing."
     }
@@ -78,7 +68,6 @@ open class JsonDiffBenchmark {
 
   @Benchmark fun diffHeavilyChanged(): String = JsonDiff.diff(original, heavilyChanged)
 
-  /** The cost of proving two identical resources have no differences. */
   @Benchmark fun diffUnchanged(): String = JsonDiff.diff(original, original)
 
   private companion object {

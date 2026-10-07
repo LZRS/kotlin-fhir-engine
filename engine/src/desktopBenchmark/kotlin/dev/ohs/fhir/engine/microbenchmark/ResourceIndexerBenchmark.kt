@@ -28,10 +28,7 @@ import kotlinx.benchmark.Scope
 import kotlinx.benchmark.Setup
 import kotlinx.benchmark.State
 
-/**
- * Indexing runs on every write, evaluating one FHIRPath expression per search parameter per
- * resource. It is the engine's most likely CPU bottleneck on the write path.
- */
+/** Measures [ResourceIndexer], which evaluates one FHIRPath expression per search parameter. */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(BenchmarkTimeUnit.MICROSECONDS)
@@ -48,8 +45,7 @@ open class ResourceIndexerBenchmark {
     requireIndexes(Fixtures.observation)
   }
 
-  // ResourceIndices is internal to the engine, so a public @Benchmark method cannot return it.
-  // Blackhole consumption keeps the result from being optimised away.
+  // ResourceIndices is internal, so a public @Benchmark cannot return it.
   @Benchmark
   fun indexMinimalPatient(blackhole: Blackhole) =
     blackhole.consume(indexer.index(Fixtures.minimalPatient))
@@ -62,11 +58,7 @@ open class ResourceIndexerBenchmark {
   fun indexObservation(blackhole: Blackhole) =
     blackhole.consume(indexer.index(Fixtures.observation))
 
-  /**
-   * [ResourceIndexer] swallows FHIRPath expressions it cannot evaluate, so a fixture that stopped
-   * matching any search parameter would still index cleanly, to nothing, and this class would
-   * measure an empty loop. Fail the run instead.
-   */
+  /** [ResourceIndexer] skips expressions it cannot evaluate, so an empty result is silent. */
   private fun requireIndexes(resource: Resource) {
     val indices = indexer.index(resource)
     val total =

@@ -42,10 +42,7 @@ import kotlinx.coroutines.flow.onEach
 /** Implementation of [FhirEngine] backed by a [Database]. */
 internal class FhirEngineImpl(private val database: Database) : FhirEngine {
 
-  /**
-   * Closes the underlying database connection. After this, the engine is unusable and every
-   * operation on it fails. Called by [dev.ohs.fhir.engine.FhirEngineProvider.reset].
-   */
+  /** Closes the database connection. The engine is unusable afterwards. */
   fun closeDatabase() {
     database.close()
   }

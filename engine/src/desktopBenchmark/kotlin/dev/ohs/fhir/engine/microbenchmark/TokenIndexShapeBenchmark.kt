@@ -33,10 +33,8 @@ import kotlinx.benchmark.State
 import kotlinx.benchmark.TearDown
 
 /**
- * Token search with and without a system, against the token index with and without `index_system`.
- *
- * A search with a system adds `IFNULL(index_system,'') = ?`. The shipped index is `(resourceType,
- * index_name, index_value, resourceUuid)`, so that predicate costs a row fetch per match.
+ * Measures token search with and without a system, against the token index with and without
+ * `index_system`. Without it, the system predicate costs a row fetch per match.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)

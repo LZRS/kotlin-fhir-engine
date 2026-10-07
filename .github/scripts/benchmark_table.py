@@ -1,21 +1,7 @@
 #!/usr/bin/env python3
 """Render kotlinx-benchmark JSON reports as a Markdown table for a pull request comment.
 
-The report is JMH's own schema: one entry per benchmark-and-parameter combination, each carrying a
-score, an error at 99.9% confidence, and the parameter values that produced it.
-
-With only a head report, the output is a table of score and error per benchmark. Every row prints
-its error alongside its score: these runs happen on shared GitHub runners whose machine class varies
-between jobs, and a score without its error invites a comparison the numbers cannot support.
-
-With a base report as well, the output is a table of the difference. CI produces the two on the same
-runner in the same job, minutes apart, so unlike two scores from two jobs they can be compared. A
-row is flagged when the difference exceeds its own confidence interval and is at least
-MIN_RELATIVE_CHANGE, so a tight-but-tiny shift and a large-but-noisy one are each left unflagged.
-
-An unflagged row is only "unchanged" if a change of MIN_RELATIVE_CHANGE would have been flagged.
-When the two errors together are wider than that, the row is marked too noisy to tell, with the
-smallest change it could have caught, rather than left blank. See docs/benchmarking.md.
+With --base, the table shows the change from base to head. See docs/benchmarking.md.
 
 Usage: benchmark_table.py <head-dir-or-file> [--base <dir-or-file>] [--marker <html-comment>]
 """
@@ -28,24 +14,19 @@ import math
 import pathlib
 import sys
 
-# Lets the commenting workflow find its own previous comment and update it in place rather than
-# adding one per push.
+# Lets the commenting workflow find and update its previous comment.
 DEFAULT_MARKER = "<!-- micro-benchmarks -->"
 
-# A change smaller than this is not flagged even when statistically distinct: the flag is for
-# changes worth looking at.
+# A smaller change is not flagged, even when it is statistically distinct.
 MIN_RELATIVE_CHANGE = 0.05
 
 Key = tuple[str, tuple[tuple[str, str], ...]]
 
 
 def find_reports(target: pathlib.Path) -> list[pathlib.Path]:
-    """The newest run of each benchmark configuration, not every run of every one.
+    """The newest run of each benchmark configuration.
 
-    kotlinx-benchmark writes each run to `<configuration>/<timestamp>/` and never prunes, so a
-    directory run against more than once holds several. Merging them would print the same benchmark
-    many times with different scores. The newest is chosen per configuration, because the
-    pull-request tier is split across two and keeping only the single newest would drop one half.
+    kotlinx-benchmark writes each run to `<configuration>/<timestamp>/` and never prunes old runs.
     """
     if target.is_file():
         return [target]
@@ -153,13 +134,8 @@ def render_single(entries: list[dict], marker: str) -> str:
 def classify(base: dict, head: dict) -> tuple[str, float, float]:
     """A verdict, the relative change of head against base, and the smallest detectable change.
 
-    The question is whether the difference between the two scores is distinguishable from zero, not
-    whether their intervals happen to overlap. For independent measurements the variance of a
-    difference is the sum of the variances, so its interval is the two errors combined in
-    quadrature. Both sides run the same iteration count and share a t-quantile, which makes that
-    exact rather than approximate. Adding the errors linearly, the common shortcut, is conservative
-    by up to a factor of root two: on this suite it left six more benchmarks unable to see a 5%
-    change.
+    The interval of the difference is the two errors combined in quadrature. Both sides run the same
+    iteration count, so they share a t-quantile and this is exact.
     """
     base_metric, head_metric = base["primaryMetric"], head["primaryMetric"]
     base_score, head_score = base_metric["score"], head_metric["score"]
@@ -263,8 +239,7 @@ def main() -> int:
         else []
     )
 
-    # A base that produced nothing (a branch predating the benchmarks, or a failed run) is reported
-    # as a plain table rather than as every benchmark having appeared at once.
+    # With no base entries, every row would show as new.
     if base_entries and head_entries:
         print(render_diff(base_entries, head_entries, arguments.marker))
     else:

@@ -38,14 +38,8 @@ import dev.ohs.fhir.model.r4.terminologies.AdministrativeGender
 import kotlinx.datetime.LocalDate
 
 /**
- * Sample resources shared by every benchmark in this source set.
- *
- * [minimalPatient] carries the fields almost every record has; [richPatient] carries the ones that
- * make a record expensive — repeated names, identifiers, telecom and addresses. Indexing and
- * serialization both scale with that difference.
- *
- * [observation] is the only non-Patient fixture, and the only one carrying a `value[x]`, so it is
- * what the token and quantity paths are measured against.
+ * Sample resources shared by the benchmarks. [minimalPatient] has the common fields; [richPatient]
+ * adds repeated names, identifiers, telecom and addresses.
  */
 object Fixtures {
 

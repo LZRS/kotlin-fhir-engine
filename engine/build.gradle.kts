@@ -34,9 +34,8 @@ kotlin {
       .configure { instrumentationRunner = "androidx.test.runner.AndroidJUnitRunner" }
   }
 
-  // Micro-benchmarks live in their own compilation associated with `main`, which grants them
-  // access to the engine's `internal` declarations, the same way test compilations do. Its default
-  // source set is `desktopBenchmark`. See docs/benchmarking.md.
+  // Associated with `main` so benchmarks can use `internal` declarations. Source set:
+  // `desktopBenchmark`.
   jvm("desktop") {
     val mainCompilation = compilations.getByName("main")
     compilations.create("benchmark") { associateWith(mainCompilation) }
@@ -163,31 +162,24 @@ kotlin {
 // JMH subclasses the @State class to generate its harness, and Kotlin classes are final by default.
 allOpen { annotation("org.openjdk.jmh.annotations.State") }
 
-// kotlinx-benchmark names each runner `desktopBenchmark<Configuration>Benchmark`, while the
-// generate, compile and jar tasks around them end in something else. Matched on the name because
-// the plugin sets `group` after this action runs.
+// Runner tasks are named `desktopBenchmark<Configuration>Benchmark`. Matched by name because the
+// plugin sets `group` after this runs.
 val benchmarkRuns = tasks.withType<JavaExec>().matching { it.name.endsWith("Benchmark") }
 
 benchmarkRuns.configureEach {
-  // -Pbenchmark.tmpdir moves benchmark databases, e.g. onto tmpfs in CI to take disk jitter out.
-  // JMH forks inherit the host JVM's arguments, so setting it on the exec task reaches them.
+  // -Pbenchmark.tmpdir moves benchmark databases. JMH forks inherit these JVM arguments.
   providers.gradleProperty("benchmark.tmpdir").orNull?.let { jvmArgs("-Djava.io.tmpdir=$it") }
 
-  // kotlinx-benchmark builds its JMH Runner with shouldFailOnError left at JMH's default of false,
-  // and exposes no setting to change it. A benchmark whose @Setup throws is printed as `<failure>`,
-  // dropped from the JSON report, which carries no error field, and the process still exits 0.
-  // Watch the runner's own output instead and fail the task on the markers it prints. See
-  // docs/benchmarking.md.
+  // kotlinx-benchmark exits 0 and drops a benchmark from the report when it fails, with no setting
+  // to change this. Fail the task on the failure markers in the runner's output instead.
   val transcript = ByteArrayOutputStream()
-  // Both streams into the one transcript. The markers go to stdout today, but this check is the
-  // only thing failing the build, so a runner that ever printed one to stderr would take the
-  // guarantee with it. TeeOutputStream is Ant's, which Gradle puts on the build script classpath.
+  // Both streams, in case a marker goes to stderr.
   standardOutput = TeeOutputStream(System.out, transcript)
   errorOutput = TeeOutputStream(System.err, transcript)
   doLast {
     val lines = transcript.toString().lineSequence().map { it.trim() }.toList()
-    // A failed benchmark emits several markers, so the largest count is the number lost, not
-    // their sum. "Failure:" alone is the runner failing before any benchmark ran.
+    // One failure prints several markers, so take the largest count, not the sum. "Failure:" alone
+    // means the runner failed before any benchmark ran.
     val count =
       maxOf(
         lines.count { it == "<failure>" },
@@ -283,9 +275,7 @@ tasks
     }
   }
 
-// JournalModeTest asserts WAL, which the bundled SQLite driver gives on Android, iOS and desktop.
-// The web driver runs over OPFS, where WAL needs shared memory that may not be available, and no
-// browser here can say which. Excluded until it is measured rather than asserted either way.
+// JournalModeTest asserts WAL. On web, OPFS may not support WAL, and it is not yet measured.
 tasks.withType<org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest>().configureEach {
   filter.excludeTestsMatching("dev.ohs.fhir.engine.db.impl.JournalModeTest")
 }

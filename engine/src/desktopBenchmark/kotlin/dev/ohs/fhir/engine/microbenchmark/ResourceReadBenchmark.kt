@@ -73,7 +73,6 @@ internal class CrudFixture(label: String) {
   }
 
   companion object {
-    /** Large enough that a per-invocation hook is sound, small enough to stay quick. */
     const val BATCH = 50
 
     val TIMESTAMP: Instant = Instant.fromEpochMilliseconds(1_766_000_000_000)

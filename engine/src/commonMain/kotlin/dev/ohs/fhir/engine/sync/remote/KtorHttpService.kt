@@ -66,10 +66,7 @@ internal class KtorHttpService(
     this.compressUploads = compressUploads && supportsRequestCompression()
   }
 
-  /**
-   * Closes the [HttpClient] this service was built with, releasing its engine and thread pool.
-   * Every later request on it fails.
-   */
+  /** Closes the [HttpClient]. Every later request on this service fails. */
   override fun close() {
     client.close()
   }

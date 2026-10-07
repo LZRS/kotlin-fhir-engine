@@ -33,19 +33,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 
 /**
- * Ingesting a download, which is the write path a first sync actually takes.
- *
- * [BulkImportBenchmark] measures `insertSyncedResources`, the innermost step. `syncDownload` wraps
- * it in per-page conflict detection: for every page it reads the whole local change ledger through
- * `getAllLocalChanges`, deserializes each entry, and intersects their ids with the page's.
- *
- * [pendingChanges] sweeps the size of that ledger. Nothing in the download conflicts with it — the
- * queue holds observations and the pages carry patients — so the ledger is neither consumed nor
- * resolved, and the only thing varying is how much of it is read per page. An ingest whose cost
- * depends on a queue it never touches is the shape this is looking for.
- *
- * Every invocation downloads the same [PAGES] x [PAGE] resources. Ids repeat between invocations,
- * and `insertResource` replaces on conflict, so the corpus stays the size of one download.
+ * Measures `syncDownload` of [PAGES] x [PAGE] patients with [pendingChanges] unrelated local
+ * changes queued. Ids repeat, so each invocation replaces the previous one's rows.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -67,9 +56,6 @@ open class SyncDownloadBenchmark {
         (0 until PAGE).map { EngineBenchmarkDatabase.patient(page * PAGE + it) }
       }
 
-    // Every arm holds the same resources; only how many still have a pending change differs.
-    // Seeding fewer for the smaller arms would vary the corpus the download writes into as well,
-    // and the sweep could not say which of the two it measured.
     val queued = (0 until MAX_PENDING).map { EngineBenchmarkDatabase.observation(it, MAX_PENDING) }
     database.insert(queued)
     database.discardChanges(queued.drop(pendingChanges))
@@ -82,8 +68,6 @@ open class SyncDownloadBenchmark {
       "the download wrote ${database.countOf(ResourceType.Patient)} patients, expected " +
         "${PAGES * PAGE}"
     }
-    // A conflict would resolve and discard queue entries, so the sweep would measure a queue that
-    // shrinks as the run goes on.
     check(database.localChangeCount() == pendingChanges) {
       "the download consumed ${pendingChanges - database.localChangeCount()} queued changes, so " +
         "the arms no longer differ only in queue size"
@@ -98,13 +82,12 @@ open class SyncDownloadBenchmark {
   }
 
   private companion object {
-    /** A plausible server page. */
     const val PAGE = 100
 
-    /** Enough pages that a per-page cost is visible against the per-resource one. */
+    /** Enough pages that a per-page cost shows. */
     const val PAGES = 10
 
-    /** Seeded by every arm, so the corpus is constant and only the queue varies. */
+    /** Seeded by every arm, so only the queue size varies. */
     const val MAX_PENDING = 1_000
   }
 }

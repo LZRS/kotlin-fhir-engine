@@ -567,12 +567,8 @@ internal class DatabaseImpl(
 }
 
 /**
- * Binds a [dev.ohs.fhir.engine.search.SearchQuery]'s arguments to [statement], in order and
- * one-based.
- *
- * Shared rather than private because the query-plan test and the index benchmarks run the engine's
- * own queries by hand. A copy there that bound a type to a different SQLite storage class than this
- * one would make both assert a plan the engine never produces.
+ * Binds a [dev.ohs.fhir.engine.search.SearchQuery]'s arguments to [statement]. Shared with the
+ * query-plan test and the benchmarks so they bind exactly as the engine does.
  */
 internal fun bindArgs(statement: SQLiteStatement, args: List<Any>) {
   args.forEachIndexed { i, arg ->

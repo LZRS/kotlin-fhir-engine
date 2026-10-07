@@ -33,21 +33,8 @@ import kotlinx.benchmark.State
 import kotlinx.benchmark.TearDown
 
 /**
- * What sorting costs, and whether paging escapes it.
- *
- * No index backs a sorted search. `Search.sort` compiles to a LEFT JOIN onto the index table, a
- * GROUP BY to collapse resources with several indexed values, and an ORDER BY over the result;
- * `SearchQueryPlanTest` shows SQLite answering it with a temporary B-tree for each. The join itself
- * does use the `(resourceUuid, index_name, index_value)` index as a covering one, so what is
- * measured here is the grouping and ordering rather than the lookup.
- *
- * The pair that decides how a client should page is [sortedFirstPage] against [unsortedFirstPage].
- * A LIMIT can stop early only once rows arrive in order, and here they do not, so a sorted page is
- * expected to build the whole ordering before returning its fifty rows. If it does, paging through
- * a sorted list pays that cost per page.
- *
- * The filter arm narrows to a 1/676 slice first, which is the case where sorting should be nearly
- * free: there is almost nothing left to order.
+ * Measures what sorting a search costs, and whether paging avoids it. No index backs a sorted
+ * search, so SQLite groups and orders in temporary B-trees.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -76,9 +63,6 @@ open class SortBenchmark {
     filteredUnsorted = search(filterPrefix = probePrefix())
     filteredSorted = search(filterPrefix = probePrefix(), sort = true)
 
-    // Sorting must not change which resources come back, only their order. If it ever does, the
-    // sorted and unsorted arms are answering different questions and their difference is not the
-    // cost of sorting.
     val unsortedCount = database.count(unsorted)
     check(unsortedCount == rows && database.count(sorted) == rows) {
       "sorted and unsorted searches disagree at $rows rows: $unsortedCount against " +
@@ -97,26 +81,22 @@ open class SortBenchmark {
 
   @TearDown fun tearDown() = database.close()
 
-  /**
-   * Every resource of the type, in storage order. The floor the sorted arms are measured against.
-   */
+  /** Every resource of the type, in storage order. */
   @Benchmark fun unsortedAll(): Int = database.count(unsorted)
 
   /** The same resources ordered by a string parameter. */
   @Benchmark fun sortedAll(): Int = database.count(sorted)
 
-  /** Fifty rows with no ordering, which a LIMIT can satisfy without reading the rest. */
+  /** One page with no ordering, which a LIMIT can stop early on. */
   @Benchmark fun unsortedFirstPage(): Int = database.count(unsortedFirstPage)
 
-  /**
-   * Fifty rows in order. The gap against [unsortedFirstPage] is what paging a sorted list costs.
-   */
+  /** One page in order. Compare with [unsortedFirstPage]. */
   @Benchmark fun sortedFirstPage(): Int = database.count(sortedFirstPage)
 
-  /** A 1/676 slice, unordered. */
+  /** One prefix slice, unordered. */
   @Benchmark fun filteredUnsorted(): Int = database.count(filteredUnsorted)
 
-  /** The same slice ordered, where there is little left to sort. */
+  /** The same slice, ordered. */
   @Benchmark fun filteredSorted(): Int = database.count(filteredSorted)
 
   private fun search(
@@ -141,7 +121,6 @@ open class SortBenchmark {
     /** The parameter `IndexBenchmarkDatabase.seed` writes string index rows for. */
     const val SORT_PARAM = "given"
 
-    /** A plausible page of search results. */
     const val PAGE = 50
   }
 }

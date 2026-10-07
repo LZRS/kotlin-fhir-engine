@@ -110,29 +110,19 @@ object FhirEngineProvider {
 
   /**
    * Closes the database and the data source, and returns the provider to its uninitialized state.
+   * Intended for tests and benchmarks.
    *
    * [init] must be called again before the next [getInstance], and any [FhirEngine] held from
-   * before the reset must be discarded.
+   * before the reset is unusable.
    *
-   * Intended for tests and benchmarks, which need each run to start from a known engine. Two things
-   * outlive a reset, and a caller depending on either being cleared has to arrange it some other
-   * way:
-   * - **Web cannot be reset in one page.** Closing there wedges the SQLite Web Worker, so
-   *   [canCloseDatabaseOnReset] keeps the connection open; the first worker then holds the
-   *   exclusive OPFS sync access handle, and a later [init] plus [getInstance] against a persistent
-   *   store blocks on the reopen. Only an in-memory store (`testMode`) survives the round trip. A
-   *   browser gets a cold engine by reloading the page.
-   * - **The persisted data store is not cleared.** Every platform caches the underlying `DataStore`
-   *   in a process-level singleton, so sync watermarks written before a reset are still there after
-   *   it. A test needing them gone needs its own `storageDirectory`.
-   *
-   * Everywhere but web the database is closed, so an engine held across a reset fails on its next
-   * call rather than writing to a database nothing owns.
+   * Limits:
+   * - On web the database is not closed (see [canCloseDatabaseOnReset]), so only an in-memory store
+   *   (`testMode`) can be opened again in the same page.
+   * - The persisted `DataStore` is a process-level singleton and keeps its sync watermarks. Use a
+   *   new `storageDirectory` to start without them.
    */
   fun reset() {
     if (canCloseDatabaseOnReset()) (fhirEngine as? FhirEngineImpl)?.closeDatabase()
-    // Holds an HttpClient with its own engine and thread pool, which nulling the field alone would
-    // leak once per init/reset cycle.
     dataSource?.close()
     fhirEngine = null
     dataSource = null

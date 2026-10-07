@@ -32,23 +32,8 @@ import kotlinx.benchmark.TearDown
 import org.openjdk.jmh.annotations.Level
 
 /*
- * The write path as an application reaches it: EngineCreateBenchmark, EngineUpdateBenchmark,
- * EngineDeleteBenchmark, BulkImportBenchmark and LocalChangeReadBenchmark, all through
- * `DatabaseImpl`.
- *
- * `DatabaseImpl` differs from the `ResourceDao` the `Resource*Benchmark` classes call in two ways:
- * it wraps the whole batch in one IMMEDIATE transaction, and it records a local change per
- * resource, which serializes it a second time and walks the whole JSON tree collecting references.
- * An update pays more again — `LocalChangeDao.addUpdate` diffs the stored payload against the new
- * one and extracts the reference difference between the two versions.
- *
- * The two pull in opposite directions, so read these against the CRUD classes rather than alone:
- * the transaction is a saving and the ledger is a cost. BulkImportBenchmark is the same shape as a
- * create without the ledger, which bounds what the ledger can account for. See
- * docs/benchmarking.md for the measurements.
- *
- * Batches rather than single resources, and for the same reason as the CRUD classes: JMH's
- * per-invocation hooks are unreliable below a millisecond.
+ * The write path through `DatabaseImpl`. Each invocation writes a batch, not one resource, because
+ * JMH's per-invocation hooks are unreliable below a millisecond.
  */
 
 /** Creating resources locally, which records an insert per resource in the ledger. */
@@ -68,10 +53,7 @@ open class EngineCreateBenchmark {
 
   @TearDown fun tearDown() = database.close()
 
-  /**
-   * Both the rows and the ledger entries, or the two tables grow for the whole run and later
-   * invocations write into bigger indices than earlier ones.
-   */
+  /** Removes both the rows and the ledger entries so neither table grows across invocations. */
   @TearDown(Level.Invocation)
   fun removeWritten() {
     database.delete(batch)
@@ -82,12 +64,8 @@ open class EngineCreateBenchmark {
 }
 
 /**
- * Updating resources that already exist, which diffs each against its stored payload.
- *
- * The variants alternate because writing the same change twice is not a change:
- * `LocalChangeDao.addUpdate` returns early when the new payload matches the stored one, skipping
- * the ledger row and the reference extraction with it. One variant every invocation would leave
- * every scored invocation measuring a diff that finds nothing.
+ * Updating resources that already exist, which diffs each against its stored payload. Two variants
+ * alternate because `LocalChangeDao.addUpdate` skips an update that matches the stored payload.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -108,15 +86,12 @@ open class EngineUpdateBenchmark {
         batch.map { it.copy(active = FhirBoolean(value = false)) },
         batch.map { it.copy(active = FhirBoolean(value = true)) },
       )
-    // Seeded as remote, so the ledger starts empty and each invocation records exactly one update
-    // per resource rather than merging into an insert left behind by the setup.
+    // Seeded as remote so the ledger starts empty.
     database.seedGiven(batch)
     check(database.localChangeCount() == 0) {
       "seeding recorded ${database.localChangeCount()} local changes; the update arm would then " +
         "be measuring a merge into them"
     }
-    // Both variants must differ from whatever is stored when their turn comes, or the alternation
-    // is not buying anything and the early return is back.
     variants.forEachIndexed { index, variant ->
       database.update(variant)
       check(database.localChangeCount() == CrudFixture.BATCH) {
@@ -151,9 +126,7 @@ open class EngineDeleteBenchmark {
   fun setUp() {
     database = EngineBenchmarkDatabase.create("delete")
     batch = writeBatch()
-    // A delete that matches nothing returns without touching the ledger or the index tables, and
-    // would read as a very fast delete. Prove once that the restore-and-delete cycle the
-    // per-invocation setup relies on actually moves rows.
+    // A delete that matches nothing returns early, so check once that the cycle moves rows.
     database.seedGiven(batch)
     check(database.countOf(ResourceType.Patient) == CrudFixture.BATCH.toLong()) {
       "seeding left ${database.countOf(ResourceType.Patient)} patients, expected " +
@@ -169,7 +142,7 @@ open class EngineDeleteBenchmark {
 
   @TearDown fun tearDown() = database.close()
 
-  /** A delete consumes its rows, so they are restored untimed, along with a clean ledger. */
+  /** Restores the deleted rows and clears the ledger, untimed. */
   @Setup(Level.Invocation)
   fun restoreRows() {
     database.discardChanges(batch)
@@ -180,11 +153,8 @@ open class EngineDeleteBenchmark {
 }
 
 /**
- * The download path: many resources in one transaction, with no local change recorded.
- *
- * This is what a first sync does, and the one write shape whose cost is paid in bulk rather than a
- * resource at a time. [BULK] resources an invocation, against the fifty of the other classes, so
- * compare per resource and not row to row.
+ * The download path: many resources in one transaction, with no local change recorded. The batch is
+ * larger than the other classes', so compare per resource.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -202,7 +172,7 @@ open class BulkImportBenchmark {
 
   @TearDown fun tearDown() = database.close()
 
-  /** Emptied rather than deleted row by row: every invocation imports the same corpus again. */
+  /** Every invocation imports the same corpus into an empty database. */
   @TearDown(Level.Invocation)
   fun emptyDatabase() {
     database.clear()
@@ -211,19 +181,13 @@ open class BulkImportBenchmark {
   @Benchmark fun importBatch() = database.importRemote(batch)
 
   private companion object {
-    /**
-     * A plausible download page, and enough that the per-transaction cost is not the measurement.
-     */
     const val BULK = 500
   }
 }
 
 /**
- * What the upload pipeline reads before it can generate a single request.
- *
- * `FhirEngineImpl.syncUpload` fetches every pending change and then their references, both of which
- * grow with how long a device has been offline. [UploadAssemblyBenchmark] measures what is done
- * with them afterwards; this is the cost of getting them out of the database.
+ * Reading the pending local changes and their references, which upload does before it builds a
+ * request. [UploadAssemblyBenchmark] measures what happens to them afterwards.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -238,8 +202,7 @@ open class LocalChangeReadBenchmark {
   @Setup
   fun setUp() {
     database = EngineBenchmarkDatabase.create("localchange-$changeCount")
-    // Created locally, and each one referencing a patient, so the ledger holds both a change and a
-    // reference row per resource.
+    // Created locally with a reference, so each has a change row and a reference row.
     database.insert(
       (0 until changeCount).map { EngineBenchmarkDatabase.observation(it, changeCount) },
     )
@@ -265,6 +228,5 @@ open class LocalChangeReadBenchmark {
   }
 }
 
-/** The resources every write class above writes: the same batch size as the CRUD benchmarks. */
 private fun writeBatch(): List<Patient> =
   (0 until CrudFixture.BATCH).map(EngineBenchmarkDatabase::patient)

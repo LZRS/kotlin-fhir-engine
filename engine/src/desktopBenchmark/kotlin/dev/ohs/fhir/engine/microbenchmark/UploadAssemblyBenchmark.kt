@@ -38,19 +38,8 @@ import kotlinx.benchmark.State
 import kotlinx.coroutines.runBlocking
 
 /**
- * Turning a queue of pending changes into upload requests.
- *
- * [PatchOrderingBenchmark] measures Tarjan's alone. This measures what surrounds it: squashing
- * every change recorded against one resource into a single patch, which replays each RFC 6902
- * payload over the one before it, and then building the HTTP requests. Like the ordering, both grow
- * with how long a device has been offline rather than with the size of any one resource.
- *
- * Every resource carries an insert followed by [UPDATES_PER_RESOURCE] updates, because a squash
- * over a single change is not a squash. The alternative generator keeps each change as its own
- * request, so the pair prices the audit trail that choice buys.
- *
- * [changeCount] counts resources, not changes; the queue itself is that many times
- * [CHANGES_PER_RESOURCE].
+ * Measures turning a queue of pending changes into upload requests. [changeCount] counts resources;
+ * each has [CHANGES_PER_RESOURCE] changes.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -72,15 +61,11 @@ open class UploadAssemblyBenchmark {
     references = buildReferences(changeCount)
     squashed = runBlocking { PerResourcePatchGenerator.generate(localChanges, references) }
 
-    // One patch per resource is the point of squashing; if it ever stopped collapsing, this would
-    // quietly become the per-change generator with more steps.
     val patches = squashed.sumOf { it.patchMappings.size }
     check(patches == changeCount) {
       "squashing $changeCount resources produced $patches patches, so the changes are no longer " +
         "being merged per resource"
     }
-    // The references have to name nodes the patches actually carry, or every edge is dropped and
-    // the ordering half of the work disappears.
     check(squashed.size < changeCount) {
       "no component collapsed, so the reference values no longer match any patch"
     }
@@ -91,25 +76,22 @@ open class UploadAssemblyBenchmark {
   fun squashPerResource(blackhole: Blackhole) =
     blackhole.consume(runBlocking { PerResourcePatchGenerator.generate(localChanges, references) })
 
-  /** The audit-trail alternative: every change kept, so no payload is ever replayed. */
+  /** Every change kept as its own patch, so no payload is replayed. */
   @Benchmark
   fun patchPerChange(blackhole: Blackhole) =
     blackhole.consume(runBlocking { PerChangePatchGenerator.generate(localChanges, references) })
 
-  /** The squashed patches as transaction bundles, which is what a bundle upload sends. */
+  /** The squashed patches as transaction bundles. */
   @Benchmark
   fun bundleUploadRequests(blackhole: Blackhole) =
     blackhole.consume(bundleGenerator.generateUploadRequests(squashed))
 
-  /** The same patches as one request each, which is what a URL upload sends. */
+  /** The squashed patches as one request each. */
   @Benchmark
   fun urlUploadRequests(blackhole: Blackhole) =
     blackhole.consume(urlGenerator.generateUploadRequests(squashed))
 
-  /**
-   * An insert carrying the whole resource, then updates carrying RFC 6902 patches, which is what
-   * `LocalChangeDao` records for a resource created and then edited offline.
-   */
+  /** An insert with the whole resource, then updates with RFC 6902 patches, per resource. */
   private fun buildLocalChanges(resources: Int): List<LocalChange> =
     (0 until resources).flatMap { index ->
       val inserted =
@@ -147,8 +129,8 @@ open class UploadAssemblyBenchmark {
     )
 
   /**
-   * Disjoint three-node cycles, the case ordering has to collapse rather than emit a node each.
-   * Attached to the insert of each resource, because only an insert forms an edge in the graph.
+   * Disjoint three-node cycles, which the ordering must collapse. Attached to each insert, because
+   * only an insert forms an edge.
    */
   private fun buildReferences(resources: Int): List<LocalChangeResourceReference> =
     (0 until resources).mapNotNull { index ->

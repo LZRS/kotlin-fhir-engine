@@ -34,19 +34,8 @@ import kotlinx.benchmark.TearDown
 import org.openjdk.jmh.annotations.Level
 
 /**
- * What a read costs while something else is writing.
- *
- * Every other benchmark here runs alone, so SQLite never has to arbitrate. An application does: a
- * sync writes while the screen in front of the user reads. Under a rollback journal a writer holds
- * an exclusive lock for the length of its transaction and readers wait for it; under WAL they do
- * not. Room opens in WAL, so `delete` is the arm that has to be asked for.
- *
- * A journal mode acts on readers competing with a writer, which is the comparison
- * [SqliteTuningBenchmark] cannot make from one thread.
- *
- * [writers] is the load: zero is the uncontended floor, one is a thread committing small
- * transactions as fast as it can, which is the worst case for lock hand-off. Read each [journal]
- * arm against its own floor rather than across arms.
+ * What a read costs while another thread writes, under WAL and under a rollback journal. Compare
+ * each [journal] arm with its own `writers = 0` floor, not across arms.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -56,6 +45,7 @@ open class ConcurrentAccessBenchmark {
   /** `wal` is what Room opens with; `delete` is SQLite's rollback journal, asked for by name. */
   @Param("wal", "delete") var journal: String = ""
 
+  /** `0` reads alone; `1` adds a thread that commits small transactions in a loop. */
   @Param("0", "1") var writers: Int = 0
 
   private lateinit var database: IndexBenchmarkDatabase
@@ -68,8 +58,6 @@ open class ConcurrentAccessBenchmark {
   @Setup
   fun setUp() {
     database = IndexBenchmarkDatabase.create("concurrent-$journal-$writers")
-    // Both are set explicitly. Room opens in WAL, so leaving one arm alone would compare WAL
-    // against itself.
     when (journal) {
       "wal" -> database.pragma("journal_mode=WAL")
       "delete" -> database.pragma("journal_mode=DELETE")
@@ -95,10 +83,7 @@ open class ConcurrentAccessBenchmark {
     )
   }
 
-  /**
-   * The writer runs for the length of an iteration, not of an invocation: starting a thread costs
-   * more than the read being measured.
-   */
+  /** Per iteration, not per invocation: starting a thread costs more than the read. */
   @Setup(Level.Iteration)
   fun startWriting() {
     if (writers == 0) return
@@ -112,7 +97,7 @@ open class ConcurrentAccessBenchmark {
         .apply { start() }
   }
 
-  /** Rows the writer added go with it, or the table grows for the whole run. */
+  /** Deletes the writer's rows so the table does not grow across iterations. */
   @TearDown(Level.Iteration)
   fun stopWriting() {
     writing = false
@@ -126,7 +111,6 @@ open class ConcurrentAccessBenchmark {
   @Benchmark fun prefixSearch(): Int = database.count(query)
 
   private companion object {
-    /** Large enough that a read is real work, small enough to seed quickly. */
     const val ROWS = 20_000
 
     /** Small transactions, so the writer takes and releases the lock constantly. */

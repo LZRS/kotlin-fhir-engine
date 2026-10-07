@@ -43,11 +43,8 @@ internal class IndexBenchmarkDatabase(private val file: File) {
       .build()
 
   /**
-   * Writes [rows] patients, each with one date index row and one string index row.
-   *
-   * Both value distributions are scale-invariant: dates spread evenly across [DAY_SPREAD] and
-   * string prefixes cycle through all 676 two-letter combinations, so a fixed query selects the
-   * same fraction of rows at every size.
+   * Writes [rows] patients, each with one date index row and one string index row. Values are
+   * spread so a fixed query selects the same fraction of rows at every size.
    */
   fun seed(rows: Int) = runBlocking {
     database.useWriterConnection { transactor ->
@@ -94,12 +91,8 @@ internal class IndexBenchmarkDatabase(private val file: File) {
   }
 
   /**
-   * Writes [rows] observations, each with one quantity index row.
-   *
-   * Codes cycle through [QUANTITY_UNITS] and values spread evenly across [VALUE_SPREAD], so a fixed
-   * value window combined with a fixed unit selects the same fraction of rows at every size. The
-   * two distributions have different periods, so a window of rows still holds every unit in equal
-   * measure.
+   * Writes [rows] observations, each with one quantity index row. Codes cycle through
+   * [QUANTITY_UNITS] and values spread evenly across [VALUE_SPREAD].
    */
   fun seedQuantity(rows: Int) = runBlocking {
     database.useWriterConnection { transactor ->
@@ -136,10 +129,8 @@ internal class IndexBenchmarkDatabase(private val file: File) {
   }
 
   /**
-   * Writes [rows] observations, each with one reference index row and one uri index row.
-   *
-   * Values cycle through [LOOKUP_VALUES], so a search for one of them selects the same fraction at
-   * every size.
+   * Writes [rows] observations, each with one reference index row and one uri index row. Values
+   * cycle through [LOOKUP_VALUES].
    */
   fun seedLookups(rows: Int) = runBlocking {
     database.useWriterConnection { transactor ->
@@ -257,7 +248,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
     }
   }
 
-  /** Removes everything the write benchmarks appended, returning the table to its seeded size. */
+  /** Removes the rows tagged with [INSERTED_MARKER]. */
   fun deleteInsertedRows() = runBlocking {
     database.useWriterConnection { transactor ->
       transactor.withTransaction(Transactor.SQLiteTransactionType.IMMEDIATE) {
@@ -297,7 +288,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
     database.useWriterConnection { it.exec("PRAGMA $statement") }
   }
 
-  /** Reads a PRAGMA back, so an arm can prove the setting it names is the one in force. */
+  /** Reads a PRAGMA back, so an arm can check its setting is in force. */
   fun pragmaValue(name: String): String = runBlocking {
     database.useReaderConnection { transactor ->
       transactor.usePrepared("PRAGMA $name") { statement ->
@@ -318,7 +309,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
     }
   }
 
-  /** The plan SQLite chose, for asserting in `@Setup` that the shape under test is in use. */
+  /** The plan SQLite chose for [query]. */
   fun planFor(query: SearchQuery): List<String> = runBlocking {
     database.useReaderConnection { transactor ->
       transactor.usePrepared("EXPLAIN QUERY PLAN ${query.query}") { statement ->
@@ -343,10 +334,10 @@ internal class IndexBenchmarkDatabase(private val file: File) {
   }
 
   companion object {
-    /** Tags rows a write benchmark added, so [deleteInsertedRows] can remove exactly those. */
+    /** Tags appended rows so [deleteInsertedRows] removes only those. */
     const val INSERTED_MARKER = "Benchmark.inserted"
 
-    /** Roughly 55 years of birthdates, so a decade-wide range is a real slice. */
+    /** Days the seeded birthdates spread across. */
     const val DAY_SPREAD = 20_000
 
     const val UCUM_SYSTEM = "http://unitsofmeasure.org"
@@ -354,19 +345,14 @@ internal class IndexBenchmarkDatabase(private val file: File) {
     const val TOKEN_SYSTEM = "http://loinc.org"
 
     /**
-     * Units the engine's UCUM canonicalisation leaves alone. It rewrites the code for units it can
-     * convert — `kg` becomes `g1`, `Cel` becomes the empty string — which would make a seeded code
-     * and a queried one disagree. [QuantityIndexShapeBenchmark] asserts the pass-through holds.
+     * Units the engine's UCUM canonicalisation leaves unchanged, so seeded and queried codes match.
      */
     val QUANTITY_UNITS = listOf("g/dL", "mg/dL", "/min", "mmol/L", "U/L", "ng/mL", "pg/mL", "mIU/L")
 
     /** Quantity values spread across this range, whatever the row count. */
     const val VALUE_SPREAD = 10.0
 
-    /**
-     * Distinct values a reference or uri index row cycles through, so a lookup for one of them is
-     * selective at any size.
-     */
+    /** Values the reference, uri and token index rows cycle through. */
     val LOOKUP_VALUES = (0 until 64).map { "lookup-$it" }
 
     private val LETTERS = ('a'..'z').toList()
@@ -385,7 +371,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
 
     fun uuidFor(row: Int) = "00000000-0000-0000-0000-${row.toString().padStart(12, '0')}"
 
-    /** A fresh database file per trial, so nothing carries over between parameter combinations. */
+    /** A fresh database file per trial. */
     fun create(label: String): IndexBenchmarkDatabase {
       val file = File.createTempFile("bench-$label-", ".db")
       file.delete()

@@ -33,26 +33,8 @@ import kotlinx.benchmark.State
 import kotlinx.benchmark.TearDown
 
 /**
- * Whether `QuantityIndexEntity` should index the unit before the value.
- *
- * The index is `(resourceType, index_name, index_value, index_code)`. A quantity search that names
- * a unit emits two equality predicates and a range:
- * ```
- * index_system = ? AND index_code = ? AND index_value >= ? AND index_value < ?
- * ```
- *
- * An index serves a range only on the column immediately after its equality prefix, and everything
- * after that range is unreachable. `index_code` therefore sits in the index and goes unused, so the
- * range spans every unit recorded for the parameter rather than the one the caller asked for.
- * `SearchQueryPlanTest` pins the plan.
- *
- * The `codeFirst` arm swaps the two, giving three equality columns before the range. What it costs
- * is a search that omits the unit: the gap at `index_code` then leaves the range unreachable too,
- * which [quantitySearchWithoutUnit] measures on the same data. The `both` arm keeps each index and
- * lets SQLite choose per query, trading a second index on every quantity write for it.
- *
- * `index_system` is in none of the arms. It is UCUM on essentially every row, so indexing it would
- * add a column that rejects nothing.
+ * Measures quantity search with `QuantityIndexEntity` indexing the unit before or after the value.
+ * An index serves a range only on the column right after its equality prefix.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -88,23 +70,18 @@ open class QuantityIndexShapeBenchmark {
     withUnit = quantitySearch(unit = PROBE_UNIT)
     withoutUnit = quantitySearch(unit = null)
 
-    // The engine rewrites the code for units it can convert, so a seeded code and a queried one
-    // would silently stop matching. PROBE_UNIT is one the conversion leaves alone; fail if that
-    // ever changes rather than measuring a query that matches nothing.
+    // The engine rewrites the code for units it can convert; PROBE_UNIT must stay verbatim.
     check(PROBE_UNIT in withUnit.args.map { it.toString() }) {
       "the engine no longer queries '$PROBE_UNIT' verbatim, so the seeded codes do not match it: " +
         withUnit.args
     }
 
-    // The arms must differ before they are worth timing: `current` cannot narrow on the unit and
-    // the other two must.
+    // `current` cannot narrow on the unit; the other arms must.
     val plan = database.planFor(withUnit).joinToString(" | ")
     check(("index_code=?" in plan) == (shape != "current")) {
       "arm '$shape' produced the wrong plan, so the arms measure the same thing: $plan"
     }
 
-    // Both arms run the same WHERE and so match the same rows: one unit of eight, across a value
-    // window that is a tenth of the seeded spread.
     assertSelectivity(
       database.count(withUnit),
       rows,
@@ -115,13 +92,12 @@ open class QuantityIndexShapeBenchmark {
 
   @TearDown fun tearDown() = database.close()
 
-  /** The shape the reordering is for: a value in a named unit. */
+  /** A value in a named unit. */
   @Benchmark fun quantitySearchWithUnit(): Int = database.count(withUnit)
 
   /**
-   * The shape it costs: no unit, so `codeFirst` leaves a gap the range cannot reach across. Not
-   * comparable to [quantitySearchWithUnit], which matches an eighth as many rows; compare each
-   * across the arms.
+   * No unit, so `codeFirst` cannot use the range. Matches more rows than [quantitySearchWithUnit];
+   * compare it only across the arms.
    */
   @Benchmark fun quantitySearchWithoutUnit(): Int = database.count(withoutUnit)
 
@@ -148,10 +124,10 @@ open class QuantityIndexShapeBenchmark {
     const val CODE_FIRST = "`resourceType`, `index_name`, `index_code`, `index_value`"
     const val FOREIGN_LOOKUP = "`resourceUuid`"
 
-    /** One of the seeded units, chosen because UCUM canonicalisation leaves it alone. */
+    /** A seeded unit that UCUM canonicalisation leaves unchanged. */
     const val PROBE_UNIT = "g/dL"
 
-    /** Scale 0, so the engine matches [4.5, 5.5): a window of [WINDOW] across the spread. */
+    /** Scale 0, so the engine matches [4.5, 5.5), a window of [WINDOW]. */
     const val PROBE_VALUE = "5"
     const val WINDOW = 1.0
   }

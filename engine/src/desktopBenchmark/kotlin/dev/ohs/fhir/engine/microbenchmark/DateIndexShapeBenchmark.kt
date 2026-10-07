@@ -35,18 +35,8 @@ import kotlinx.benchmark.TearDown
 import kotlinx.datetime.LocalDate
 
 /**
- * Whether the date index's column order matters, and at what size.
- *
- * `DateIndexEntity`'s filtering index is `(resourceType, index_name, resourceUuid, index_from,
- * index_to)`. A range predicate can only use the column after the equality prefix, and
- * `resourceUuid` sits in between, so no date comparator can range; `SearchQueryPlanTest` confirms
- * it. Reordering it measured about 13% worse end to end against a 1,000-patient corpus, on both a
- * date range search and a delete. [rows] sweeps whether that reverses once the table is large
- * enough for a seek to beat a scan.
- *
- * Indices are rebuilt with raw DDL per trial, so both shapes are measured in one JVM against one
- * schema. JMH forks, warms and reports an error bar per combination, so no hand-rolled interleaving
- * is needed.
+ * A date range search against the shipped date index and one with the range columns ahead of
+ * `resourceUuid`, across table sizes. Indices are rebuilt with raw DDL per trial.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -55,7 +45,7 @@ open class DateIndexShapeBenchmark {
 
   @Param("1000", "10000", "50000") var rows: Int = 0
 
-  /** `current` is what the engine ships; `rangeLast` is the reordering under evaluation. */
+  /** `current` is what the engine ships; `rangeLast` puts `resourceUuid` last. */
   @Param("current", "rangeLast") var shape: String = ""
 
   private lateinit var database: IndexBenchmarkDatabase
@@ -67,7 +57,6 @@ open class DateIndexShapeBenchmark {
     database.seed(rows)
     database.reindex("DateIndexEntity", indexDefinitions())
 
-    // A window inside the seeded spread, so the range selects a slice at every size.
     query =
       Search(ResourceType.Patient)
         .apply {
@@ -88,8 +77,7 @@ open class DateIndexShapeBenchmark {
         }
         .getQuery()
 
-    // Both arms must select the same slice, or the comparison is between two queries rather than
-    // two index shapes. The window is 730 days of the seeded spread, a fixed fraction at any size.
+    // Both arms must select the same slice.
     assertSelectivity(database.count(query), rows, WINDOW_DAYS.toDouble() / DAY_SPREAD, shape)
   }
 
@@ -105,14 +93,12 @@ open class DateIndexShapeBenchmark {
 
   private fun indexDefinitions(): List<String> =
     when (shape) {
-      // resourceUuid third, blocking the range columns behind it.
       "current" ->
         listOf(
           "`resourceType`, `index_name`, `resourceUuid`, `index_from`, `index_to`",
           "`resourceUuid`, `index_name`, `index_from`",
         )
-      // resourceUuid last so the ranges are reachable, plus a second index for the comparators
-      // that range over index_to rather than index_from.
+      // The second index serves comparators that range over index_to.
       "rangeLast" ->
         listOf(
           "`resourceType`, `index_name`, `index_from`, `index_to`, `resourceUuid`",

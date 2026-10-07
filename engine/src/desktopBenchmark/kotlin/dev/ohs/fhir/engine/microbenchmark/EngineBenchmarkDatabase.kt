@@ -50,21 +50,11 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.LocalDate
 
 /**
- * A real [DatabaseImpl], written through the engine's own paths, for measuring what a search or a
- * write costs end to end.
- *
- * The counterpart to [IndexBenchmarkDatabase], which writes index rows by hand so that only SQLite
- * is in the measurement. Everything here pays for FHIRPath indexing, serialization, Room and the
- * local-change ledger, because the question is what the engine costs rather than what an index
- * costs. Seeding is correspondingly expensive — roughly 300 us a resource — so these corpora are
- * smaller than the index sweeps'.
- *
- * Value distributions are scale-invariant the same way: names cycle through all 676 two-letter
- * prefixes, observation codes through [CODES], and probabilities spread evenly across [MAX_RISK],
- * so a fixed query selects the same fraction of the corpus at every size.
+ * A real [DatabaseImpl], written through the engine's own paths, for measuring a search or a write
+ * end to end. Values are spread so a fixed query selects the same fraction at every corpus size.
  */
 internal class EngineBenchmarkDatabase(
-  /** Exposed so [DatabaseOpenBenchmark] can close a database and open the same files again. */
+  /** Exposed so [DatabaseOpenBenchmark] can reopen the same files. */
   val directory: File,
 ) {
 
@@ -76,13 +66,7 @@ internal class EngineBenchmarkDatabase(
       inMemory = false,
     )
 
-  /**
-   * Writes [rows] patients as remote resources.
-   *
-   * Remote rather than local: an insert through [DatabaseImpl.insert] also records a local change,
-   * which is a write-path cost and not something a search should pay for in its setup.
-   * `EngineCreateBenchmark` measures that path instead.
-   */
+  /** Writes [rows] patients as remote resources, so no local change is recorded. */
   fun seedPatients(rows: Int) = runBlocking {
     (0 until rows).chunked(SEED_BATCH).forEach { chunk ->
       database.insertRemote(*chunk.map(::patient).toTypedArray())
@@ -113,17 +97,13 @@ internal class EngineBenchmarkDatabase(
     resources.chunked(SEED_BATCH).forEach { chunk -> database.insertRemote(*chunk.toTypedArray()) }
   }
 
-  /**
-   * Runs [search] the way `FhirEngine.search` does, resources deserialized and includes fetched.
-   */
+  /** Runs [search] the way `FhirEngine.search` does. */
   fun <R : Resource> search(search: Search): List<SearchResult<R>> = runBlocking {
     search.execute(database)
   }
 
-  /** The `COUNT(*)` path, which returns a number rather than any resource. */
   fun count(search: Search): Long = runBlocking { search.count(database) }
 
-  /** How many resources of [type] the corpus holds, for a benchmark asserting its own fixture. */
   fun countOf(type: ResourceType): Long = runBlocking { Search(type).count(database) }
 
   fun insert(resources: List<Resource>) = runBlocking { database.insert(*resources.toTypedArray()) }
@@ -134,22 +114,19 @@ internal class EngineBenchmarkDatabase(
     resources.forEach { database.delete(it.resourceTypeEnum, it.id.orEmpty()) }
   }
 
-  /** The download path: many resources in one transaction, with no local change recorded. */
+  /** The download path: one transaction, no local change recorded. */
   fun importRemote(resources: List<Resource>) = runBlocking {
     database.insertSyncedResources(resources)
   }
 
   /**
-   * Removes the local changes a write benchmark's invocation recorded.
-   *
-   * A create followed by a delete leaves two rows in the ledger rather than none, so without this
-   * the table grows for the whole run and every later invocation writes into a bigger one.
+   * Removes the local changes recorded for [resources]. A create then a delete leaves two rows, so
+   * without this the table grows across invocations.
    */
   fun discardChanges(resources: List<Resource>) = runBlocking { database.deleteUpdates(resources) }
 
   fun localChangeCount(): Int = runBlocking { database.getLocalChangesCount() }
 
-  /** Everything the upload pipeline reads before it can generate a single request. */
   fun allLocalChanges() = runBlocking { database.getAllLocalChanges() }
 
   fun localChangeReferences(ids: List<Long>) = runBlocking {
@@ -164,13 +141,13 @@ internal class EngineBenchmarkDatabase(
   }
 
   companion object {
-    /** Resources per transaction while seeding. Bounds memory without paying a commit per row. */
+    /** Resources per transaction while seeding. */
     const val SEED_BATCH = 500
 
     private const val LOINC = "http://loinc.org"
     private const val UCUM = "http://unitsofmeasure.org"
 
-    /** Distinct observation codes, so a token search for one of them selects 1/64 at any size. */
+    /** Observation codes; a token search for one selects 1/64 of the observations. */
     val CODES = (0 until 64).map { "code-$it" }
 
     /** Risk probabilities spread across this range, whatever the row count. */
@@ -180,10 +157,7 @@ internal class EngineBenchmarkDatabase(
 
     fun organizationId(row: Int) = "engine-organization-$row"
 
-    /**
-     * Distinct organizations the patients are spread over. Few enough that an `_include` resolves
-     * to a small set however large the corpus, which is the shape a real one has.
-     */
+    /** Organizations the patients are spread over, so an `_include` resolves to a small set. */
     const val ORGANIZATIONS = 64
 
     /** The family name at [row]; its two-letter prefix selects 1/676 of the patients. */
@@ -212,9 +186,7 @@ internal class EngineBenchmarkDatabase(
             value = if (row % 2 == 0) AdministrativeGender.Female else AdministrativeGender.Male,
           ),
         birthDate = Date(value = FhirDate.Date(date = LocalDate(1980, 4, 17))),
-        // Two references apiece. A patient carrying none costs `LocalChangeDao` nothing to extract,
-        // and an update's reference diff — which walks both the old and the new tree — then
-        // measures an empty walk.
+        // References give an update's reference diff something to walk.
         managingOrganization =
           Reference(
             reference = FhirString(value = "Organization/${organizationId(row % ORGANIZATIONS)}"),
@@ -275,13 +247,10 @@ internal class EngineBenchmarkDatabase(
           ),
       )
 
-    /**
-     * The probability at [row]: an integer spread evenly across [MAX_RISK] whatever the row count,
-     * so a fixed threshold selects the same fraction of the corpus at every size.
-     */
+    /** The probability at [row], spread evenly across [MAX_RISK] whatever the row count. */
     fun probabilityFor(row: Int, rows: Int): Int = row * MAX_RISK / rows
 
-    /** A fresh database directory per trial, so nothing carries over between combinations. */
+    /** A fresh database directory per trial. */
     fun create(label: String): EngineBenchmarkDatabase {
       val directory = File.createTempFile("bench-engine-$label-", "")
       directory.delete()

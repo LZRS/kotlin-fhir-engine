@@ -29,7 +29,7 @@ import kotlinx.benchmark.Scope
 import kotlinx.benchmark.Setup
 import kotlinx.benchmark.State
 
-/** Rewriting a quantity into its canonical unit, paid by every indexed quantity and filter. */
+/** Measures rewriting a quantity into its canonical unit, done for every quantity index. */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(BenchmarkTimeUnit.MICROSECONDS)
@@ -39,10 +39,6 @@ open class UcumCanonicalBenchmark {
   private val passThrough = UcumValue(code = "g/dL", value = BigDecimal.fromInt(13))
   private val calendar = UcumValue(code = "wk", value = BigDecimal.fromInt(6))
 
-  /**
-   * The arms are only distinct while the conversion keeps treating them differently. If `kg` ever
-   * stopped converting, or `g/dL` started, the three would be one measurement under three names.
-   */
   @Setup
   fun setUp() {
     check(convertible.toEqualCanonical().code != convertible.code) {
@@ -57,11 +53,11 @@ open class UcumCanonicalBenchmark {
   @Benchmark
   fun convertibleUnit(blackhole: Blackhole) = blackhole.consume(convertible.toEqualCanonical())
 
-  /** A unit with none, which is the common case and the one that should be cheap. */
+  /** A unit with no canonical form, the common case. */
   @Benchmark
   fun passThroughUnit(blackhole: Blackhole) = blackhole.consume(passThrough.toEqualCanonical())
 
-  /** The looser canonicalization, which additionally resolves calendar units like `wk`. */
+  /** The looser canonicalization, which also resolves calendar units like `wk`. */
   @Benchmark
   fun calendarUnit(blackhole: Blackhole) = blackhole.consume(calendar.toEquivalentCanonical())
 }

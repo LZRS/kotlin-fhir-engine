@@ -38,12 +38,8 @@ import kotlinx.benchmark.Scope
 import kotlinx.benchmark.State
 
 /**
- * Translating a [Search] into SQL happens once per query, before any database work begins. It is
- * pure string and list assembly, so it is the part of a search whose cost does not depend on how
- * much data is stored.
- *
- * Each benchmark rebuilds its [Search] inside the measured region: callers construct a fresh one
- * per query, so the DSL's own allocation is part of what a caller pays.
+ * Measures translating a [Search] into SQL. Each benchmark builds its [Search] inside the timed
+ * region, as callers build a new one per query.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -77,7 +73,7 @@ open class SearchQueryBenchmark {
       .apply { sort(StringClientParam("given"), Order.ASCENDING) }
       .getQuery()
 
-  /** Reverse chaining builds and embeds a nested query, which is the expensive shape. */
+  /** Reverse chaining embeds a nested query. */
   @Benchmark
   fun nestedHasAndRevInclude(): SearchQuery =
     Search(type = ResourceType.Patient)
@@ -89,20 +85,14 @@ open class SearchQueryBenchmark {
       }
       .getQuery()
 
-  /** The `COUNT(*)` variant, which takes a different branch through the builder. */
+  /** The `COUNT(*)` variant, a different branch through the builder. */
   @Benchmark
   fun countQuery(): SearchQuery =
     Search(type = ResourceType.Patient)
       .apply { filter(StringClientParam("given"), { value = "Ada" }) }
       .getQuery(isCount = true)
 
-  /**
-   * The other way into a [Search]: parsing an x-fhir-query string rather than building one.
-   *
-   * Questionnaires carry these, so a form with several answer-option queries pays this per field
-   * before any SQL is generated. It looks up a search parameter definition per term, which is the
-   * part that is not obviously cheap.
-   */
+  /** Parses an x-fhir-query string, which looks up a search parameter definition per term. */
   @Benchmark
   fun translateXFhirQuery(): Search =
     XFhirQueryTranslator.translate("Patient?active=true&gender=male&_sort=family&_count=11")

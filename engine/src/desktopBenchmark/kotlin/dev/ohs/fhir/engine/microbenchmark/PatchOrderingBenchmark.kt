@@ -34,12 +34,8 @@ import kotlinx.benchmark.Setup
 import kotlinx.benchmark.State
 
 /**
- * Ordering pending uploads runs Tarjan's algorithm over the graph of references between them. It is
- * the one place in the engine whose cost grows with the size of the offline queue rather than with
- * a single resource, so a complexity regression here would stay invisible until a long-offline
- * device tried to sync.
- *
- * [changeCount] is swept so the shape of that growth is visible.
+ * Ordering pending uploads by the references between them, across queue sizes, for an acyclic chain
+ * and for cycles.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -59,11 +55,7 @@ open class PatchOrderingBenchmark {
     chainedMappings = buildMappings(changeCount)
     chainedReferences = buildReferences(changeCount) { index -> listOf(index - 1) }
 
-    // Disjoint three-node cycles, which force Tarjan's to collapse components rather than emit one
-    // node each. Cycles are the case the engine has to handle, so they are worth timing against the
-    // acyclic baseline. Neither swept count divides by three, so the last component is a partial
-    // triple whose back-edge falls outside the range and is dropped; one short chain among 16 or
-    // 166 cycles does not change what is being measured.
+    // Disjoint three-node cycles. The last group may be a partial triple with no back-edge.
     cyclicMappings = buildMappings(changeCount)
     cyclicReferences =
       buildReferences(changeCount) { index ->
@@ -73,8 +65,7 @@ open class PatchOrderingBenchmark {
       }
   }
 
-  // StronglyConnectedPatchMappings is internal to the engine, so a public @Benchmark method cannot
-  // return it. Blackhole consumption keeps the result from being optimised away.
+  // The result type is internal, so it goes to a Blackhole instead of being returned.
   @Benchmark
   fun orderChainedReferences(blackhole: Blackhole) =
     blackhole.consume(chainedMappings.sccOrderByReferences(chainedReferences))
@@ -109,9 +100,8 @@ open class PatchOrderingBenchmark {
     }
 
   /**
-   * References are keyed by local-change id, which [buildMappings] sets equal to the change's own
-   * index. [targets] names the indices a change points at; targets outside the range are dropped,
-   * which is what lets a chain's first element simply have no outgoing edge.
+   * [targets] names the indices a change points at; local-change ids equal indices. Targets outside
+   * the range are dropped.
    */
   private fun buildReferences(
     count: Int,
@@ -131,10 +121,7 @@ open class PatchOrderingBenchmark {
 
   private fun resourceId(index: Int) = "resource-$index"
 
-  /**
-   * How `PatchOrdering` names a node: the patch's type and id joined, which is also the form a
-   * reference value takes. The two must agree or every edge is dropped.
-   */
+  /** Must match how `PatchOrdering` names a node, or every edge is dropped. */
   private fun nodeId(index: Int) = "$RESOURCE_TYPE/${resourceId(index)}"
 
   private companion object {

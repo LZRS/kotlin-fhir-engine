@@ -27,14 +27,7 @@ import kotlinx.benchmark.Scope
 import kotlinx.benchmark.Setup
 import kotlinx.benchmark.State
 
-/**
- * Every read and every write round-trips through these two functions, so their cost is a floor
- * under all of the engine's storage paths.
- *
- * Most of what this measures belongs to `fhir-model-r4` and kotlinx.serialization rather than to
- * the engine. It is here because the floor is worth knowing either way, and because the
- * `explicitNulls`/`encodeDefaults` settings in `ResourceSerializer.kt` are the engine's own choice.
- */
+/** Measures resource JSON serialization and deserialization, which every read and write runs. */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(BenchmarkTimeUnit.MICROSECONDS)

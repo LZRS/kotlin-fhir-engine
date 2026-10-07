@@ -32,15 +32,8 @@ import kotlinx.benchmark.State
 import kotlinx.benchmark.TearDown
 
 /**
- * Whether making `StringIndexEntity.index_value` NOCASE pays for itself, and at what size.
- *
- * A prefix search compiles to `index_value LIKE ? || '%' COLLATE NOCASE`, which cannot use a BINARY
- * index. Declaring the column NOCASE and binding the pattern whole turns it into a range seek. That
- * combination measured as no change at 1,000 patients; [rows] sweeps whether size changes the
- * answer.
- *
- * The two arms differ in both the index collation and the SQL, because either alone leaves the
- * optimisation off.
+ * Measures a prefix search with `StringIndexEntity.index_value` indexed BINARY or NOCASE. The
+ * prefix `LIKE` becomes a range seek only with a NOCASE index and the pattern bound whole.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -67,8 +60,7 @@ open class StringIndexCollationBenchmark {
             "`resourceType`, `index_name`, `index_value`",
             "`resourceUuid`, `index_name`, `index_value`",
           )
-        // COLLATE NOCASE is explicit because `index_value` is declared BINARY: an index over it
-        // inherits that collation, so without this the "nocase" arm is a second BINARY arm.
+        // `index_value` is declared BINARY, and an index inherits that unless it names NOCASE.
         "nocase" ->
           listOf(
             "`resourceType`, `index_name`, `index_value` COLLATE NOCASE",
@@ -83,8 +75,7 @@ open class StringIndexCollationBenchmark {
       Search(ResourceType.Patient)
         .apply { filter(StringClientParam("given"), { value = prefix }) }
         .getQuery()
-    // `nocase` binds the pattern whole, the half of the optimisation that lives in the SQL rather
-    // than in the schema.
+    // The `nocase` arm also binds the pattern whole.
     if (collation == "nocase") {
       query =
         SearchQuery(
@@ -93,15 +84,13 @@ open class StringIndexCollationBenchmark {
         )
     }
 
-    // The arms must differ before they are worth timing: `binary` must fail to narrow on
-    // index_value and `nocase` must succeed.
+    // `binary` must not narrow on index_value; `nocase` must.
     val plan = database.planFor(query).joinToString(" | ")
     val narrowsOnValue = "index_value>?" in plan
     check(narrowsOnValue == (collation == "nocase")) {
       "arm '$collation' produced the wrong plan, so the arms measure the same thing: $plan"
     }
 
-    // One of 676 two-letter prefixes, so both arms must land on the same small slice.
     assertSelectivity(
       database.count(query),
       rows,

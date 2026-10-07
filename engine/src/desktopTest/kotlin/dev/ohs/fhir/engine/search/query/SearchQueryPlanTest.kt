@@ -54,18 +54,11 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.LocalDate
 
 /**
- * Asserts which SQLite index each search shape actually uses, via `EXPLAIN QUERY PLAN`.
+ * Asserts which SQLite index each search shape uses, via `EXPLAIN QUERY PLAN`. The plan wording
+ * varies between SQLite versions, so lines are matched by substring.
  *
- * These are not benchmarks. A lost index only shows up in a timing run at a large corpus, and a
- * warm page cache hides it even then; the query plan says so immediately and against an empty
- * database. Timing answers how slow, this answers why.
- *
- * The plan text comes from SQLite, so it is checked by substring rather than equality: the wording
- * varies between versions, but the index name and the constrained columns are what matter.
- *
- * Some tests pin behaviour that is suboptimal but current, and say so in their names. If a schema
- * change fixes one, that test will fail: read the comment, confirm the plan improved, and tighten
- * the assertion.
+ * Some tests pin a known shortfall. If one fails, confirm the plan improved and tighten the
+ * assertion.
  */
 class SearchQueryPlanTest {
 
@@ -97,7 +90,7 @@ class SearchQueryPlanTest {
   fun `token search is answered entirely from a covering index`() = runTest {
     val plan = planFor(tokenSearch())
 
-    // The only index table whose index ends in resourceUuid, so the subquery never touches a row.
+    // The only index that ends in resourceUuid, so the subquery never reads a table row.
     assertIndexUsed(
       plan,
       table = "TokenIndexEntity",
@@ -143,10 +136,8 @@ class SearchQueryPlanTest {
   }
 
   /**
-   * A shortfall, pinned. `index_QuantityIndexEntity_resourceType_index_name_index_value_index_code`
-   * puts the range column before `index_code`, and nothing after a range is reachable, so a search
-   * that names a unit narrows on the value alone and ranges across every unit recorded for the
-   * parameter. `index_system` is not in the index at all.
+   * Known shortfall: the index puts `index_value` before `index_code`, so the unit is not used. See
+   * "Known shortfalls" in docs/benchmarking.md.
    */
   @Test
   fun `quantity search with a unit cannot narrow on the unit`() = runTest {
@@ -160,9 +151,7 @@ class SearchQueryPlanTest {
   }
 
   /**
-   * A shortfall, pinned. Every filter subquery selects `resourceUuid` alone, so an index ending in
-   * it answers the subquery outright. `TokenIndexEntity` carries the column and is covering; the
-   * reference and uri indices stop at `index_value`, so each match costs a row fetch.
+   * Known shortfall: these indices do not end in `resourceUuid`, so each match costs a row fetch.
    */
   @Test
   fun `reference and uri searches are not answered from a covering index`() = runTest {
@@ -176,10 +165,8 @@ class SearchQueryPlanTest {
   }
 
   /**
-   * A shortfall, pinned. A prefix search compiles to `index_value LIKE ? || '%' COLLATE NOCASE`.
-   * SQLite applies its LIKE optimisation only to a literal or a plain parameter, and only when the
-   * index collation matches the comparison's; neither holds, so the search narrows on
-   * `(resourceType, index_name)` and examines the rest.
+   * Known shortfall: `LIKE ? || '%' COLLATE NOCASE` cannot use the index on `index_value`. See
+   * "Known shortfalls" in docs/benchmarking.md.
    */
   @Test
   fun `prefix string search cannot narrow on index_value`() = runTest {
@@ -190,7 +177,7 @@ class SearchQueryPlanTest {
     )
   }
 
-  /** `:exact` compares BINARY against a BINARY index, so it is the string search that can seek. */
+  /** `:exact` compares BINARY against a BINARY index, so it can seek. */
   @Test
   fun `exact string search narrows on all three index columns`() = runTest {
     assertIndexUsed(
@@ -200,9 +187,7 @@ class SearchQueryPlanTest {
     )
   }
 
-  /**
-   * A leading wildcard rules out a range seek whatever the collation, so this one cannot be fixed.
-   */
+  /** A leading wildcard rules out a seek whatever the collation. */
   @Test
   fun `contains string search cannot narrow on index_value`() = runTest {
     assertIndexUsed(
@@ -213,12 +198,8 @@ class SearchQueryPlanTest {
   }
 
   /**
-   * Suboptimal, pinned deliberately. `index_DateIndexEntity_resourceType_index_name_resourceUuid_
-   * index_from_index_to` places `resourceUuid` between the equality columns and the range columns.
-   * An index can only serve a range predicate on the column immediately after its equality prefix,
-   * so neither `index_to > ?` (`gt`, `ge`, `eb`) nor `index_from < ?` (`sa`, `lt`, `le`) is usable,
-   * and both narrow on `(resourceType, index_name)` alone. See "Known shortfalls" in
-   * docs/benchmarking.md.
+   * Known shortfall: the index puts `resourceUuid` before the range columns, so no date range can
+   * use them. See "Known shortfalls" in docs/benchmarking.md.
    */
   @Test
   fun `date search above a bound cannot use the range columns`() = runTest {
@@ -230,7 +211,6 @@ class SearchQueryPlanTest {
     )
   }
 
-  /** The other comparator family, blocked by the same column ordering. */
   @Test
   fun `date search below a bound cannot use the range columns`() = runTest {
     assertIndexUsed(
@@ -241,7 +221,6 @@ class SearchQueryPlanTest {
     )
   }
 
-  /** Sorting is not index-backed: the plan builds two temporary B-trees. */
   @Test
   fun `sorted search sorts with a temporary b-tree rather than an index`() = runTest {
     val plan = planFor(sortedSearch())
@@ -253,30 +232,17 @@ class SearchQueryPlanTest {
   }
 
   /**
-   * `_include` can seek neither side of its join, which is the worst plan any search shape here
-   * produces.
-   *
-   * The join reads `re.resourceType||'/'||re.resourceId = rie.index_value`. An expression on the
-   * indexed side cannot be a seek, so `index_value` goes unused and SQLite falls back to walking
-   * every reference row of the parameter and, for each, every resource of the included type. The
-   * cost is therefore the product of the two tables rather than the size of the result, and
-   * `SearchExecutionBenchmark.includeSearch` measures it at 36x the same filter without the
-   * include.
-   *
-   * `_revinclude` does the same work correctly — see the test below — by building the `type/id`
-   * strings in Kotlin and binding them, which is also the shape of the fix.
+   * Known shortfall: the join compares `re.resourceType||'/'||re.resourceId`, an expression, so
+   * neither side can seek. See "Known shortfalls" in docs/benchmarking.md.
    */
   @Test
   fun `include search can seek neither side of its join`() = runTest {
     val plan = planFor(includeQuery())
 
-    // index_value is absent: the reference rows are walked, not sought.
     assertIndexUsed(plan, table = "rie", constraints = "resourceType=? AND index_name=?")
-    // resourceId is absent for the same reason, so every resource of the type is visited.
     assertIndexUsed(plan, table = "re", constraints = "resourceType=?")
   }
 
-  /** The counterpart, and the contrast: both sides seek, because neither side is an expression. */
   @Test
   fun `revinclude search seeks both sides of its join`() = runTest {
     val plan = planFor(revIncludeQuery())
@@ -435,9 +401,8 @@ class SearchQueryPlanTest {
   // ---------------------------------------------------------------------------------------------
 
   /**
-   * Asserts [table] is searched through an index constrained by exactly [constraints]. The
-   * constraint list is SQLite's own rendering of which columns it could narrow on, which decides
-   * whether the index is doing its job.
+   * Asserts [table] is searched through an index constrained by exactly [constraints], as SQLite
+   * renders them in the plan.
    */
   private fun assertIndexUsed(
     plan: List<String>,
