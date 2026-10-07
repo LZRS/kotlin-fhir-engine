@@ -183,6 +183,41 @@ internal class IndexBenchmarkDatabase(private val file: File) {
     }
   }
 
+  /**
+   * Writes [rows] observations, each with one token index row in [TOKEN_SYSTEM]. Codes cycle
+   * through [LOOKUP_VALUES].
+   */
+  fun seedTokens(rows: Int) = runBlocking {
+    database.useWriterConnection { transactor ->
+      transactor.withTransaction(Transactor.SQLiteTransactionType.IMMEDIATE) {
+        usePrepared(
+          "INSERT INTO ResourceEntity (resourceUuid, resourceType, resourceId, serializedResource) " +
+            "VALUES (?, 'Observation', ?, '{}')",
+        ) { statement ->
+          repeat(rows) { row ->
+            statement.bindText(1, uuidFor(row))
+            statement.bindText(2, "observation-$row")
+            statement.step()
+            statement.reset()
+          }
+        }
+        usePrepared(
+          "INSERT INTO TokenIndexEntity " +
+            "(resourceUuid, resourceType, index_name, index_path, index_system, index_value) " +
+            "VALUES (?, 'Observation', 'code', 'Observation.code', ?, ?)",
+        ) { statement ->
+          repeat(rows) { row ->
+            statement.bindText(1, uuidFor(row))
+            statement.bindText(2, TOKEN_SYSTEM)
+            statement.bindText(3, LOOKUP_VALUES[row % LOOKUP_VALUES.size])
+            statement.step()
+            statement.reset()
+          }
+        }
+      }
+    }
+  }
+
   /** Appends [count] string index rows in one transaction, reusing existing patient uuids. */
   fun insertIndexRows(count: Int, batch: Int) = runBlocking {
     database.useWriterConnection { transactor ->
@@ -315,6 +350,8 @@ internal class IndexBenchmarkDatabase(private val file: File) {
     const val DAY_SPREAD = 20_000
 
     const val UCUM_SYSTEM = "http://unitsofmeasure.org"
+
+    const val TOKEN_SYSTEM = "http://loinc.org"
 
     /**
      * Units the engine's UCUM canonicalisation leaves alone. It rewrites the code for units it can

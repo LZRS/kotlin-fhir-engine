@@ -245,7 +245,7 @@ benchmark {
       include(
         "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\." +
           "(DateIndexShape|StringIndexCollation|QuantityIndexShape|LookupIndexCovering|" +
-          "ConcurrentAccess|Sort|" +
+          "TokenIndexShape|ConcurrentAccess|Sort|" +
           "SearchExecution|SearchResultSize|LocalChangeRead|BulkImport|DatabaseOpen|SyncDownload|" +
           "Engine(Create|Update|Delete)|ResourceRead)Benchmark",
       )

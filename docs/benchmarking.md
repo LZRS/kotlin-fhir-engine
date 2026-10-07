@@ -27,6 +27,7 @@ declarations. They run on the desktop JVM only, under JMH.
 | `StringIndexCollationBenchmark`  | Prefix search under each string index collation, from 1,000 to 50,000 rows              |
 | `QuantityIndexShapeBenchmark`    | Quantity search, with and without a unit, under each quantity index column order        |
 | `LookupIndexCoveringBenchmark`   | Reference and uri lookups with and without `resourceUuid` in the index                  |
+| `TokenIndexShapeBenchmark`       | Token search with and without a system, with and without `index_system` in the index    |
 | `ConcurrentAccessBenchmark`      | A read competing with a writer, as during a long sync, under each journal mode          |
 | `EngineCreateBenchmark`, `EngineUpdateBenchmark`, `EngineDeleteBenchmark` | Writes through `DatabaseImpl`: one transaction, and a local change per resource |
 | `BulkImportBenchmark`            | A download page written in one transaction, with no local change recorded               |
@@ -66,6 +67,8 @@ without the loss: 91.0, 297.5, 1244.8 with a unit; 135.3, 1097.1, 4883.4 without
 21% on a uri lookup at 50,000 rows (5320 to 3948 us/op, and 5359 to 4215). At 1,000 rows the arms
 are equal, because the whole index is cached. The gap at 50,000 rows is just outside the combined
 error, so its size is provisional.
+
+`TokenIndexShapeBenchmark`: not yet measured.
 
 `SortBenchmark`: an unsorted first page is flat in corpus size (87.7, 107.4, 79.3 us/op at
 1k/10k/50k), because `LIMIT` stops at fifty rows. A sorted first page is linear (1320, 10593, 48886
