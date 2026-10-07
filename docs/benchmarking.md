@@ -1,23 +1,17 @@
 # Benchmarking
 
-The micro benchmarks in `:engine` measure what sits underneath the engine's public surface:
-pure-CPU functions, and SQLite itself.
+The micro benchmarks in `:engine` measure pure-CPU functions and SQLite.
 
 ```bash
 ./gradlew :engine:prBenchmark :engine:prNoisyBenchmark   # what CI runs on a pull request
-./gradlew :engine:indexBenchmark   # the sweeps; about ninety forked trials, tens of minutes
+./gradlew :engine:indexBenchmark   # the sweeps; tens of minutes
 ./gradlew :engine:benchmark        # everything at full size; what CI runs on a push to main
 ```
 
 ## Micro benchmarks
 
-Sources are in `engine/src/desktopBenchmark/kotlin/`, in a `benchmark` compilation associated with
-`main`. The association grants access to the engine's `internal` declarations, the same way test
-compilations do.
-
-Desktop/JVM only. kotlinx-benchmark backs the JVM target with JMH, which forks, warms and reports a
-confidence interval. Its Kotlin/JS support targets Node while this project's web targets are
-browser-configured, and a native target would need a `macosArm64` the engine does not build.
+Sources are in `engine/src/desktopBenchmark/kotlin/` and can use the engine's `internal`
+declarations. They run on the desktop JVM only, under JMH.
 
 | Class                            | What it measures                                                                        |
 |----------------------------------|-----------------------------------------------------------------------------------------|
@@ -48,85 +42,58 @@ browser-configured, and a native target would need a `macosArm64` the engine doe
 | `PayloadRepresentationBenchmark` | Storing `serializedResource` as JSON text against the same resources as a protobuf blob |
 | `SqliteTuningBenchmark`          | `ANALYZE`, `journal_mode` and `synchronous`, which the engine never sets                |
 
-`indexBenchmark` covers more than its name suggests: the index shapes, `SqliteTuningBenchmark`,
-`PayloadRepresentationBenchmark`, and the four CRUD classes the sweeps are read against. They are
-grouped because each carries a `@Param` grid, which is also why the pull-request tier leaves them
-out.
+`indexBenchmark` runs the classes that carry a `@Param` grid or a seeded corpus, at full size. The
+pull-request tier runs most of them at their smallest size.
 
-The index sweeps write rows straight into the index tables rather than through `FhirEngine`,
-because the question is what an index costs, not what indexing costs. It is also what keeps the
-largest sweep affordable: the engine path spends about 200 us of FHIRPath per resource, which would
-turn seconds of setup into minutes.
+The index sweeps write rows straight into the index tables, not through `FhirEngine`. They measure
+what an index costs, not what indexing costs, and the engine path would add about 200 us of FHIRPath
+per resource to setup.
 
-Every index trial asserts its query still selects the slice it was designed for — see
-[Selectivity](#selectivity) — and the collation sweep also asserts its two arms produce different
-query plans. An index created over a column inherits that column's collation whatever the arm
-intended, so two identical arms would otherwise compare to zero difference.
+Every index trial asserts that its query selects the slice it was designed for (see
+[Selectivity](#selectivity)). The collation sweep also asserts that its two arms produce different
+query plans, because an index inherits its column's collation.
 
 ### Current results
 
-`StringIndexCollationBenchmark`, us/op: binary 65.7, 534.2, 3139.9 at 1k/10k/50k rows against
-nocase 22.8, 31.9, 78.9. The first scales with the table, the second barely moves — the difference
-between a scan and a seek, 39.8x at the largest size. The engine ships the `binary` arm; see
+`StringIndexCollationBenchmark`, us/op at 1k/10k/50k rows: `binary` 65.7, 534.2, 3139.9; `nocase`
+22.8, 31.9, 78.9. `binary` scans and `nocase` seeks: 39.8x at 50,000 rows. The engine ships
+`binary`; see [Known shortfalls](#known-shortfalls).
+
+`DateIndexShapeBenchmark`: the reordered index is 11-13% faster at every size, against a selective
+window. Not enough to pay for the extra index and its write cost; see
 [Known shortfalls](#known-shortfalls).
 
-`DateIndexShapeBenchmark`: a flat 11-13% for the reordered index at every size, against a selective
-window. Not enough to pay for the extra index and the write cost it brings; see
+`QuantityIndexShapeBenchmark`, us/op at 1k/10k/50k rows. With a unit: `current` 100.8, 420.0,
+1917.9; `codeFirst` 104.1, 262.3, 1256.8, 34% faster at 50,000 rows. Without a unit: `current`
+155.5, 1053.2, 4701.3; `codeFirst` 340.0, 2644.2, 12188.8, 2.6x slower. `both` keeps the gain
+without the loss: 91.0, 297.5, 1244.8 with a unit; 135.3, 1097.1, 4883.4 without. See
 [Known shortfalls](#known-shortfalls).
 
-`QuantityIndexShapeBenchmark`, us/op at 1k/10k/50k rows. A search naming a unit: `current` 100.8,
-420.0, 1917.9 against `codeFirst` 104.1, 262.3, 1256.8 — a 34% gain at the top size. The same search
-without a unit reverses it: `current` 155.5, 1053.2, 4701.3 against `codeFirst` 340.0, 2644.2,
-12188.8, which is 2.6x worse. Keeping both indices takes the gain without the loss (91.0, 297.5,
-1244.8 with a unit; 135.3, 1097.1, 4883.4 without) at the cost of a second index on every quantity
-write, which is not measured here. See [Known shortfalls](#known-shortfalls).
+`LookupIndexCoveringBenchmark`: appending `resourceUuid` saves about 25% on a reference lookup and
+21% on a uri lookup at 50,000 rows (5320 to 3948 us/op, and 5359 to 4215). At 1,000 rows the arms
+are equal, because the whole index is cached. The gap at 50,000 rows is just outside the combined
+error, so its size is provisional.
 
-`LookupIndexCoveringBenchmark`: appending `resourceUuid` is worth about 25% on a reference lookup
-and 21% on a uri lookup at 50,000 rows (5320 to 3948 us/op, and 5359 to 4215). At 1,000 rows the
-arms are indistinguishable — the whole index is cached, so saving a row fetch saves nothing. The
-gap at 50,000 rows is only just outside the combined error, so treat the size rather than the
-direction as provisional.
+`SortBenchmark`: an unsorted first page is flat in corpus size (87.7, 107.4, 79.3 us/op at
+1k/10k/50k), because `LIMIT` stops at fifty rows. A sorted first page is linear (1320, 10593, 48886
+us/op), because the whole corpus is ordered first. At 50,000 rows a sorted page costs **617x** an
+unsorted one. Sorting an already-filtered slice costs about 5% (6829 against 7163 us/op at 50,000
+rows). See [Sorting](#sorting).
 
-`SortBenchmark` is the largest single effect measured here, and it is about paging rather than
-about an index. An unsorted first page is flat in the size of the corpus — 87.7, 107.4, 79.3 us/op
-at 1k/10k/50k, because `LIMIT` stops as soon as it has fifty rows. A sorted first page is linear —
-1320, 10593, 48886 us/op — because nothing arrives in order, so the whole corpus is ordered before
-fifty rows come back. At 50,000 rows a sorted page costs **617x** an unsorted one, and that ratio
-grows with the table.
+`SqliteTuningBenchmark`: no arm is worth adopting. All four agree within 1% on both write shapes: a
+batched insert 5.61 against 5.67 ms, one transaction per row 2.163 against 2.172 ms. `ANALYZE` does
+nothing for the prefix search (45.0 against 46.3 us/op). The `wal` arm cannot change anything,
+because the engine already opens in WAL, and the class asserts this. These results are from macOS,
+where the default `fsync` is not a full disk barrier, so Android on real storage could differ.
 
-Sorting an already-filtered slice is nearly free by comparison: 6829 against 7163 us/op at 50,000
-rows, about 5%. The cost is in ordering a corpus, not in the ordering itself. See
-[Sorting](#sorting).
+`SearchExecutionBenchmark`, us/op over 1,000 patients and 1,000 observations: string `:exact` 27.1,
+reference 36.5, token 62.6, number range 64.7, count 73.4, string prefix 81.6, `:contains` 87.7,
+unfiltered page of fifty 148.0, `_revinclude` 122.5, `_include` 2229.1.
 
-`SqliteTuningBenchmark`: nothing here is worth adopting, but read the `wal` arm carefully. Room
-already opens in WAL, so that arm asks for a mode in force and cannot change anything; the class now
-asserts as much rather than letting the result read as "WAL made no difference". Its effect is on
-readers competing with a writer, which `ConcurrentAccessBenchmark` measures instead.
-
-What the arms do say: all four agree to within 1% on both write shapes — a batched insert is 5.61 ms
-against 5.67, and one transaction per row 2.163 ms against 2.172 — with the `analyze` arm, which
-cannot affect a write at all, differing from `default` by 0.16%. That is the noise floor. `ANALYZE`
-does nothing for the prefix search either (45.0 against 46.3 us/op), and `walRelaxed`, the one arm
-that does change something by loosening `synchronous`, sits inside it.
-
-One caveat does not transfer: this is macOS, where SQLite's default `fsync` does not force a full
-disk barrier. Journal mode is largely about what a commit must durably record, so a platform with
-stricter durability — Android on real storage — could answer differently. The conclusion is "no
-effect on desktop", not "no effect".
-
-`SearchExecutionBenchmark`, us/op over 1,000 patients and 1,000 observations: a string `:exact`
-27.1, a reference lookup 36.5, a token filter 62.6, a number range 64.7, a count 73.4, a string
-prefix 81.6, `:contains` 87.7, an unfiltered first page of fifty 148.0, `_revinclude` 122.5 — and
-`_include` 2229.1.
-
-That last one is the outlier worth chasing. `_include` costs 36x the same filter without it, while
-`_revinclude` over the same corpus costs 1.5x, and the query plan says why. The `_include` join
-reads `re.resourceType||'/'||re.resourceId = rie.index_value`, and an expression on the indexed side
-cannot be a seek, so neither side of the join uses its index: SQLite walks every reference row of
-the parameter and, for each, every resource of the included type. The cost is the product of the two
-tables rather than the size of the result. `_revinclude` builds the same `type/id` strings in Kotlin
-and binds them, so both sides seek — which is also the shape of the fix.
-`SearchQueryPlanTest` pins both plans.
+`_include` costs 36x the same filter without it; `_revinclude` costs 1.5x. The `_include` join
+compares `re.resourceType||'/'||re.resourceId = rie.index_value`, and SQLite cannot seek on an
+expression, so neither side uses its index. `_revinclude` binds `type/id` strings built in Kotlin,
+so both sides seek. `SearchQueryPlanTest` pins both plans.
 
 `SearchResultSizeBenchmark`, us/op over a fixed 10,000-patient corpus, varying only the page size:
 
@@ -137,49 +104,35 @@ and binds them, so both sides seek — which is also the shape of the fix.
 | 1,000 | 3,018.3 | 21,490.9 | 153,720.5 |
 | 10,000 | 33,823.6 | — | 14,320,242.4 |
 
-A plain page is linear and cheap: about 3.0 us per resource returned, over a fixed 27 us of query.
-That is the whole cost of an unfiltered search, and it matches what the on-device run over 20,000
-patients implies — counting them took 2.75 ms, sorting them about 836 ms, and returning them about
-8,090 ms, or 0.40 ms each on a Tab A9.
+A plain page costs about 3.0 us per resource returned, over 27 us of query. On a Tab A9 over 20,000
+patients the same work cost 0.40 ms per resource.
 
-The include columns are not linear. `pageWithRevInclude` grows 70x for the first ten-fold step and
-93x for the second: a `_revinclude` over a page of ten thousand takes **14.3 seconds** where the
-page alone takes 34 ms. `Search.execute` builds its result by rescanning the whole resolved list
-once per base resource, so the work is the product of the two — and on the revInclude side the
-`type/id` key is rebuilt inside that scan, which is why it is two orders of magnitude worse than
-the include side doing the same thing with a uuid comparison. The include column is quadratic too,
-with a small enough constant that at these sizes it is still dominated by its join; `—` is not
-measured, because the arm is slow enough at 10,000 to be worth skipping until the join is fixed.
+The include columns are not linear. A `_revinclude` over a page of 10,000 takes **14.3 s**, against
+34 ms for the page alone. `Search.execute` rescans the whole resolved list once per base resource,
+and the revInclude side also rebuilds the `type/id` key inside that scan. The include column is
+quadratic too, but its join still dominates at these sizes; `—` is not measured. Grouping the
+resolved resources once, by key, takes the 10,000-row page from 14.3 s to 87 ms (**164x**) and needs
+no schema change.
 
-This is the one shortfall here that needs no schema change and no trade: group the resolved
-resources once, by key, instead of once per base resource. Doing so takes the 10,000-row page from
-14.3 s to 87 ms, **164x**, and makes the column linear.
+`EngineCreateBenchmark` against `ResourceInsertBenchmark`: fifty patients cost 13.5 ms through
+`DatabaseImpl` and 104.1 ms through `ResourceDao` (270 against 2,083 us each, at 9% and 4% error).
+The engine path does more work per resource, the local-change ledger included, but commits once per
+batch instead of once per resource. `BulkImportBenchmark` writes 500 in one transaction at 305 us
+each, without a ledger.
 
-`EngineCreateBenchmark` against `ResourceInsertBenchmark`: writing fifty patients costs 13.5 ms
-through `DatabaseImpl` and 104.1 ms through `ResourceDao` a resource at a time — 270 us against
-2,083 us each. Both arms are noisy, at 9% and 4% error, and the gap is far wider than that spread. The engine path does strictly more work per resource, the local-change ledger
-included, and still wins by eight times, because it commits once for the batch where the DAO path
-commits once per resource. `BulkImportBenchmark` writes 500 in one transaction at 305 us each,
-without a ledger, which bounds what the ledger can be costing.
+Each seeded patient carries two references, so an update diffs them in `LocalChangeDao`. This adds
+about 8% to `EngineUpdateBenchmark` (14.2 to 15.4 ms for fifty). Re-indexing dominates.
 
-Each seeded patient carries two references, so an update pays `LocalChangeDao` to diff them: adding
-those references moved `EngineUpdateBenchmark` from 14.2 ms to 15.4 ms for fifty resources, about
-8%. Re-indexing dominates either way.
+`SyncDownloadBenchmark`, ingesting 1,000 resources in ten pages over a constant corpus: 1,051 ms
+with no pending changes, 1,037 ms with 100, 1,137 ms with 1,000. `syncDownload` calls
+`getAllLocalChanges` once per page and deserializes every entry to intersect ids with the page. A
+query for only the page's edited resources, with the resource type leading so it uses the
+`(resourceType, resourceId)` index, flattens it: 1,082, 1,056, 1,032 ms, about 9% at 1,000.
 
-`SyncDownloadBenchmark`, ingesting 1,000 resources in ten pages over a constant corpus, varying
-only how much of it still has a pending change: 1,051 ms with none, 1,037 ms with 100, 1,137 ms
-with 1,000. The slope is the per-page ledger read — `syncDownload` calls `getAllLocalChanges` once
-per page and deserializes every entry, only to intersect their ids with the page's, and nothing in
-these runs conflicts. Asking instead which of the page is edited, with the resource type leading so
-the query uses the index over `(resourceType, resourceId)`, flattens it: 1,082, 1,056, 1,032 ms.
-About 9% at a queue of a thousand, and no longer growing with it.
+Hold the corpus constant when sweeping the queue; varying it inflates the effect to 22%.
 
-Hold the corpus constant when sweeping the queue. Seeding fewer resources for the smaller arms
-varies what the download writes into as well, and inflates the same measurement to 22%.
-
-The intersection also matches on resource id alone and ignores the type, so a downloaded Patient
-sharing an id with a pending Observation change is treated as a conflict, and resolving it throws
-`ResourceNotFoundException`.
+The intersection matches on resource id only. A downloaded Patient that shares an id with a pending
+Observation change counts as a conflict, and resolving it throws `ResourceNotFoundException`.
 
 `ConcurrentAccessBenchmark`, a prefix search over 20,000 patients with and without a thread
 committing small transactions alongside it:
@@ -189,56 +142,36 @@ committing small transactions alongside it:
 | `wal` | 1,070 us | 1,538 us |
 | `delete` | 1,104 us | 23,637 us |
 
-Under the rollback journal a writer holds an exclusive lock for its whole transaction and readers
-wait, so a read that costs a millisecond alone costs tens of milliseconds while a sync runs — the
-`delete` figure is an order of magnitude and wildly variable (±59,893), because lock waits arrive in
-bursts. Under WAL the same read pays about 44%.
+Under the rollback journal a writer holds an exclusive lock for its transaction and readers wait.
+The `delete` figure varies widely (±59,893) because lock waits arrive in bursts. Under WAL the read
+pays about 44%. The engine already opens in WAL; this is the reason to stay on it.
 
-Room already opens in WAL, so this is not a change to make; it is the reason not to move off it.
-That also corrects what `SqliteTuningBenchmark` appeared to say. Its `wal` arm asks for a mode
-already in force, so of course it measured nothing — a journal mode's effect is on readers competing
-with a writer, which a single-threaded benchmark cannot see. Both classes now assert the mode they
-are running under rather than assuming it.
+`NetworkSyncBenchmark`, with a mocked server: requesting and parsing a page of 100 resources costs
+874.5 us, a page of 500 costs 4,144.6, about 8.2 us a resource. Uploading a bundle of the same sizes
+costs 130.4 and 467.9 us, about 0.84 us a resource. On the device a page of 100 took about 1.6 s,
+so the client's share is under a millisecond.
 
-`NetworkSyncBenchmark`, with the server mocked so no socket is opened: a page of 100 resources costs
-874.5 us to request and parse, a page of 500 costs 4,144.6 — about 8.2 us a resource. Uploading a
-transaction bundle of the same sizes costs 130.4 us and 467.9, about 0.84 us a resource, because
-encoding FHIR is far cheaper than parsing it.
+`CreateBatchSizeBenchmark`, 5,000 patients: 3,827 ms one at a time, 2,568 ms in tens, 2,058 ms in
+hundreds, 1,652 ms in thousands, 1,590 ms in one transaction. Bigger batches always win, and the
+gain flattens after a thousand. On the device a single 20,000-resource `create(vararg)` was slower
+than chunked transactions (8.14 against 5.80 ms a resource). That does not reproduce here up to
+5,000, so it is more likely memory pressure on the tablet.
 
-Set against the on-device run, where a page of 100 took about 1.6 s, the client's own share is under
-a millisecond of it. The time is in the network and the ingest, not in the HTTP path.
+`UploadAssemblyBenchmark`, fifty resources each with an insert and two updates: squashing into one
+patch per resource takes 253.2 us against 2.9 us for keeping every change, because it replays each
+RFC 6902 payload over the one before. Building requests costs 73.4 us as bundles and 71.9 us as
+individual URLs.
 
-`CreateBatchSizeBenchmark`, writing 5,000 patients at different transaction boundaries: 3,827 ms
-one at a time, 2,568 ms in tens, 2,058 ms in hundreds, 1,652 ms in thousands, 1,590 ms in a single
-transaction. Monotonic — bigger batches keep winning, with the gain flattening after a thousand
-(4% from there to 5,000) and one-at-a-time costing 2.4x the best. The on-device run suggested the
-opposite at the top end, a single 20,000-resource `create(vararg)` measuring 8.14 ms a resource
-against 5.80 ms for chunked transactions; that does not reproduce here at any size up to 5,000, so
-it is more likely memory pressure on the tablet than anything in the engine.
+`DatabaseOpenBenchmark`: 1.79 ms to create a schema, 0.49 ms to reopen one holding 500 patients.
+`EngineStartupBenchmark` reports nanoseconds, because the FHIRPath engine and the R4 parameter
+tables are built once per process and that cost falls in warmup. `coldIndexFirstResource` matches
+`indexRichPatient` for the same reason.
 
-`UploadAssemblyBenchmark` at fifty resources, each with an insert and two updates: squashing into
-one patch per resource takes 253.2 us against 2.9 us for keeping every change, because squashing
-replays each RFC 6902 payload over the one before it. Turning the result into requests costs 73.4 us
-as bundles and 71.9 us as individual URLs.
-
-`DatabaseOpenBenchmark`: 1.79 ms to create a schema on a fresh directory, 0.49 ms to reopen one that
-already holds 500 patients. `EngineStartupBenchmark` reports nanoseconds for constructing the
-provider and the indexer, which is the useful answer — the FHIRPath engine and the R4 parameter
-tables are built once for the process, so the cost lands in warmup and no repeated-invocation
-harness can see it. `coldIndexFirstResource` runs level with `indexRichPatient` for the same reason.
-
-`PayloadRepresentationBenchmark`: a binary payload is half the bytes and about 14% of the read.
-Storing 20,000 mixed resources takes 7.19 MB as JSON text against 3.51 MB as a protobuf blob, and
-fetching two hundred of them is 125 us against 44 — a 65% saving on the I/O.
-
-The end-to-end gain is smaller than the size reduction because parsing dominates and does not
-change: decoding those payloads costs 443 us as JSON and 435 us as protobuf, a difference inside
-the error bars. The two halves add up — 125 + 443 against a measured 565, and 44 + 435 against a
-measured 485 — which confirms the benchmark measures what it claims.
-
-The trade is roughly 14% on reads that touch many rows, 10% on a point read, 14% on a write, and
-half the disk, against a destructive schema migration and a wire format that is not
-self-describing.
+`PayloadRepresentationBenchmark`: 20,000 mixed resources take 7.19 MB as JSON and 3.51 MB as
+protobuf. Fetching two hundred costs 125 against 44 us; decoding them costs 443 against 435 us,
+inside the error. The parts add up: 125 + 443 against a measured 565, and 44 + 435 against 485.
+Overall protobuf saves about 14% on multi-row reads, 10% on a point read, 14% on a write, and half
+the disk. It costs a destructive schema migration and a wire format that is not self-describing.
 
 ## Index usage
 
@@ -249,9 +182,8 @@ shape and asserts which SQLite index it uses.
 ./gradlew :engine:desktopTest --tests "*SearchQueryPlanTest*"
 ```
 
-Not a benchmark, deliberately. A lost index only becomes visible in a timing run at a large corpus,
-and a warm page cache hides it even then. The plan reports it in about a second, from an empty
-database. Timing answers how slow; the plan answers why.
+A plan shows a lost index in about a second, on an empty database. A timing run shows it only at a
+large corpus, and a warm page cache can hide it.
 
 | Search                  | Index columns narrowed             | Covering |
 |-------------------------|------------------------------------|----------|
@@ -267,201 +199,124 @@ database. Timing answers how slow; the plan answers why.
 | **`_include`**          | **two — the join compares a concatenation, so neither side seeks** | no |
 
 Reference and uri are the only lookups that are not covering; the token index carries
-`resourceUuid` and theirs do not.
+`resourceUuid` and theirs do not. `_include` is the only plan whose cost grows with the product of
+two tables. Sorting is never index-backed: every sorted search builds two temporary B-trees.
 
-`_include` is the worst plan of the set, and the only one whose cost grows with the product of two
-tables. `_revinclude` runs the same work as two seeks, so the shapes of both the problem and the fix
-are already in the codebase.
-
-Sorting is never index-backed: every sorted search builds two temporary B-trees.
-
-`StringSearchMatchingTest`, alongside it, runs real searches against a real database and asserts
-which rows come back. `SearchTest` only compares generated SQL, so without it the collation could
-be changed in either direction and every test would still pass while search returned the wrong
-rows.
+`StringSearchMatchingTest` runs real searches against a real database and asserts which rows come
+back. `SearchTest` only compares generated SQL, so it cannot catch a collation change that returns
+the wrong rows.
 
 ### Known shortfalls
 
-Each is pinned as a test that names it.
+Each is pinned by a test that names it.
 
 **Prefix string search** compiles to `index_value LIKE ? || '%' COLLATE NOCASE` and narrows on
-`(resourceType, index_name)` alone. Two things block it, and fixing either alone changes nothing:
-SQLite applies its LIKE optimisation only when the pattern is a literal or a plain parameter, and
-it uses an index only when the index collation matches the comparison's. Fixing both is worth 39.8x
-on the largest sweep. Adopting it would cost `:exact` its index — the two cannot both be indexed
-without a second column mirroring `index_value` — and a collation change needs a schema version
-bump.
+`(resourceType, index_name)` only. Two conditions block the index, and both must be fixed: SQLite
+applies its LIKE optimisation only to a literal or plain parameter pattern, and uses an index only
+when its collation matches the comparison's. Fixing both is worth 39.8x on the largest sweep. It
+costs `:exact` its index unless a second column mirrors `index_value`, and the collation change
+needs a schema version bump.
 
 **Date and dateTime** indices are `(resourceType, index_name, resourceUuid, index_from, index_to)`.
-A range predicate can only use the column immediately after the equality prefix, and `resourceUuid`
-sits in between, so neither comparator family can range. Moving it last and adding a second index
-leading with `index_to` makes both usable, and measured worse end to end — about 13% on both a
-birth-date range search and a delete, interleaved, n=3. `DateIndexShapeBenchmark` sweeps the same
-change against a selective window and finds a flat ~13% gain instead. The two do not contradict
-each other; they are different selectivities. Left as it is until something measures a case that
-wants it.
+`resourceUuid` sits between the equality prefix and the range columns, so no range can use the
+index. Moving it last and adding a second index that leads with `index_to` measured about 13% worse
+end to end (a birth-date range search and a delete, interleaved, n=3), and about 13% better in
+`DateIndexShapeBenchmark` against a selective window. Unchanged until a workload needs it.
 
-**Quantity with a unit** is the same defect with a clearer answer. The index is
-`(resourceType, index_name, index_value, index_code)`, and a search naming a unit emits
-`index_system = ? AND index_code = ? AND index_value >= ? AND index_value < ?` — two equality
-predicates and a range. The range column sits in front of `index_code`, and nothing after a range
-is reachable, so the unit is ignored and the scan spans every unit recorded for the parameter.
-Swapping the two is worth 34% at 50,000 rows and nothing at 1,000, but costs 2.6x on a search that
-omits the unit, which then has a gap where the unit would be. Keeping both indices takes the gain without the loss, and the second index
-costs nothing measurable to maintain: importing 500 observations, each carrying a quantity, measured
-208.1 ms without it and 203.8 ms with, inside the error either way.
+**Quantity with a unit**: the index is `(resourceType, index_name, index_value, index_code)`, and a
+search with a unit emits `index_system = ? AND index_code = ? AND index_value >= ? AND index_value
+< ?`. The range on `index_value` comes before `index_code`, so the unit is not used. Swapping the
+two columns gains 34% at 50,000 rows and costs 2.6x on a search without a unit. Keeping both indices
+takes the gain without the loss, at no measurable write cost: 500 observations with a quantity
+imported in 208.1 ms without the second index and 203.8 ms with it.
 
-**`_include` cannot use an index at all**, and it is the largest of these by a wide margin. Its
-join reads `re.resourceType||'/'||re.resourceId = rie.index_value`: a concatenation on the indexed
-side, which SQLite cannot seek. Neither half of the join narrows — the reference rows are walked at
-`(resourceType, index_name)` and the resources at `resourceType` alone — so the work is the product
-of the two tables rather than the size of the result. `SearchExecutionBenchmark` measures a token
-filter with an `_include` at 2,229 us against 62.6 us without it, at only 1,000 patients and 1,000
-observations, and the gap widens with the corpus. `_revinclude` already does the same work as two
-seeks by building the `type/id` strings in Kotlin and binding them, so the fix is to do that on the
-include side too. This is the one shortfall here that needs no schema change and no trade.
+**`_include` cannot use an index.** Its join compares a concatenation, so neither side seeks, and
+the work is the product of the two tables. `SearchExecutionBenchmark` measures 2,229 us with
+`_include` against 62.6 us without, at 1,000 patients and 1,000 observations. The fix is to build
+the `type/id` strings in Kotlin and bind them, as `_revinclude` does. It needs no schema change.
 
-**Reference and uri lookups are not covering.** Every filter subquery selects `resourceUuid` alone,
-so an index ending in that column answers it without touching a row. `TokenIndexEntity` is
-`(resourceType, index_name, index_value, resourceUuid)` and its plan says COVERING INDEX; the
-reference and uri indices stop at `index_value`. Appending the column is worth about 20-25% at
-50,000 rows and nothing at 1,000. It is the cheapest of the three to adopt, and reference lookups
-carry the chained, `has` and `revInclude` searches, so it applies more often than a plain reference
-filter suggests. Widening the index costs nothing measurable on writes: 500 patients carrying two
-references apiece imported in 153.6 ms before and 154.1 ms after.
+**Reference and uri lookups are not covering.** Every filter subquery selects only `resourceUuid`.
+The token index ends in that column and its plan is COVERING; the reference and uri indices stop at
+`index_value`. Appending the column gains about 20-25% at 50,000 rows and nothing at 1,000.
+Reference lookups also carry chained, `_has` and `_revinclude` searches. The write cost is nothing
+measurable: 500 patients with two references each imported in 153.6 ms before and 154.1 ms after.
 
 ### Sorting
 
-Not an index question, and the largest effect in the suite.
+`Search.sort` compiles to a LEFT JOIN onto the index table, a GROUP BY, and an ORDER BY. The join
+uses `(resourceUuid, index_name, index_value)` as a covering index; the GROUP BY and the ORDER BY
+each build a temporary B-tree.
 
-`Search.sort` compiles to a LEFT JOIN onto the index table, a GROUP BY to collapse resources with
-several indexed values, and an ORDER BY. The join uses `(resourceUuid, index_name, index_value)` as
-a covering index, so the lookup is not the problem; SQLite answers the GROUP BY and the ORDER BY
-with a temporary B-tree each.
+**`count`/`from` does not bound the work on a sorted search.** Rows do not arrive in order, so
+`LIMIT` cannot stop early, and a sorted first page orders the whole corpus: 617x an unsorted page
+at 50,000 rows. Every page pays this.
 
-The consequence is that **`count`/`from` does not bound the work on a sorted search**. A LIMIT can
-stop early only once rows arrive in order, and they do not, so a sorted first page orders the whole
-corpus before returning fifty rows — 617x an unsorted page at 50,000 rows, growing with the table.
-Paging through a sorted list pays that on every page.
+Filtering first removes most of it: sorting a 1/676 slice costs about 5%. Avoid a sorted search
+with no filter or a weak one, such as all patients in alphabetical order.
 
-Filtering first largely removes it: sorting a 1/676 slice costs about 5%. So the shape to avoid is
-a sorted search with no filter, or with a weak one, which is also the shape a "browse all patients,
-alphabetically" screen produces.
-
-Nothing is proposed here yet. An index on `ResourceEntity(resourceType, resourceUuid)` might remove
-the GROUP BY B-tree, and the `HAVING MIN(...) >= <sentinel>` the sort emits is worth a second look
-before any of that — for a string sort it compares text against an integer, which SQLite always
-resolves one way.
+Open: an index on `ResourceEntity(resourceType, resourceUuid)` might remove the GROUP BY B-tree.
+For a string sort, the `HAVING MIN(...) >= <sentinel>` the sort emits compares text against an
+integer, which SQLite always resolves the same way.
 
 ### Selectivity
 
-An index can only pay for itself when the predicate rejects most rows. Selectivity is therefore a
-property of the dataset, not only of the query, and getting it wrong disables a whole suite
-silently.
+An index pays only when the predicate rejects most rows, so selectivity depends on the dataset as
+well as the query. A corpus of eight family names, where `family = "Smith"` matches one patient in
+eight, hid the prefix-search change entirely; with 676 names it measured 3.4x to 4.5x end to end.
 
-The end-to-end benchmark suite outside this module ran for a long time against a generated corpus
-of eight given names and eight family names, so `family = "Smith"` matched one patient in eight,
-and a birth-date range asked for thirty years of a seventy-year spread — over 40%. At those
-fractions no index can help, so its search workloads could not tell a working index from a missing
-one. The prefix-search change above measured as no change at all there and was nearly discarded on
-the strength of it. Widening the corpus to 676 distinct names made the same change 3.4x to 4.5x end
-to end, against the 39.8x measured here in isolation.
+Every index benchmark calls `assertSelectivity` in its setup and fails if its predicate stops
+matching the slice it was designed for. Keep a new predicate below a few percent of the table.
 
-Every index benchmark here therefore calls `assertSelectivity` in its setup: a trial whose
-predicate stops matching the slice it was designed for fails loudly instead of quietly measuring
-row fetching. When adding one, check what fraction of the table it matches. Anything above a few
-percent is not measuring indexing.
+### Comparing runs by hand
 
-### Reading these plans
+A better plan is not always faster; that depends on size and selectivity. JMH forks, warms and
+reports a confidence interval itself. For end-to-end comparisons run by hand:
 
-A query plan tells you why something is slow. It does not establish that a better-looking plan is
-faster; that depends on size and selectivity, and here it twice was not.
-
-Benchmarks on a developer machine need care to mean anything. During this work several single-run
-comparisons produced double-digit effects that vanished under repetition, including one on a
-read-only workload that no index change could touch. What worked:
-
-- Interleave the arms. Run A, B, A, B, not all of A then all of B; machine state drifts.
-- At least three repetitions per arm, and compare the spread, not just the medians. Overlapping
-  ranges are not a result.
-- Keep a control group — measurements the change cannot affect. Their spread is the noise floor.
-- Ignore relative deltas on anything below a few milliseconds.
-- Run nothing else on the machine while a sweep is going. A Gradle build counts, and so does a
-  rebase.
-
-The JMH benchmarks need none of this themselves: they fork, warm and report a confidence interval.
-The discipline is for end-to-end comparisons run by hand.
+- Interleave the arms: A, B, A, B.
+- Run at least three repetitions per arm, and compare the spreads, not only the medians.
+- Keep a control measurement the change cannot affect. Its spread is the noise floor.
+- Ignore relative deltas below a few milliseconds.
+- Run nothing else on the machine, including a Gradle build.
 
 ## A failing benchmark does not fail the build
 
-kotlinx-benchmark 0.5.0 builds its JMH `Runner` with `shouldFailOnError` left at JMH's default of
-`false`, and exposes no setting to change it. A benchmark whose `@Setup` throws is reported as
-`<failure>` in the console, omitted from the JSON report, and the process still exits 0. The report
-has no failure or error field, so a run that lost three of twenty benchmarks is indistinguishable
-from one configured to run seventeen.
+kotlinx-benchmark 0.5.0 runs JMH with `shouldFailOnError` set to `false`, and has no setting to
+change it. A benchmark whose `@Setup` throws prints `<failure>`, is left out of the JSON report, and
+the process exits 0. `engine/build.gradle.kts` scans the runner's output and fails the task when a
+failure marker appears.
 
-This is not hypothetical. `StringIndexCollationBenchmark` asserts that its two arms produce
-different query plans; an earlier version built both arms over the same collation, and three of its
-six combinations aborted in setup while Gradle reported `BUILD SUCCESSFUL`.
+## What CI measures
 
-`engine/build.gradle.kts` therefore watches the runner's own output and fails the task when a
-failure marker appears. That check is what the CI job stands on.
+**On a pull request**, the job runs `:engine:prBenchmark` and `:engine:prNoisyBenchmark` against
+the base branch and then the head, on the same runner, and comments with the difference. Scores
+from two different jobs are not comparable, because shared runners differ in machine class.
 
-## What CI measures, and how it compares
+- `prBenchmark` runs everything except `SqliteTuningBenchmark`, `SyncDownloadBenchmark`,
+  `CreateBatchSizeBenchmark`, `ConcurrentAccessBenchmark` and the `prNoisyBenchmark` classes. It
+  uses ten half-second iterations, with the sweeps at their smallest size (`rows=1000`,
+  `changeCount=50`, `pageSize=100`, `results=100`).
+- `prNoisyBenchmark` runs the CRUD, engine write, `BulkImport`, `DatabaseOpen` and `MoreResources`
+  classes at ten one-second iterations, because one invocation can take about 300 ms.
 
-Two tiers, chosen by what triggered the run.
+A row is flagged when the difference is outside its 99.9% confidence interval and is at least 5%.
+The interval of a difference combines the two errors in quadrature. A row whose combined error is
+wider than 5% says **too noisy**, with the smallest change it could detect. A blank row means no
+change of 5% or more.
 
-**On a pull request, `:engine:prBenchmark` and `:engine:prNoisyBenchmark`, twice.** The job checks
-out the base branch beside the head and runs the same tier against each, on the same runner,
-minutes apart. The comment on the pull request is the difference between the two.
+Ten iterations instead of five drop Student's t from 8.47 to 4.78, which narrows every interval to
+about 40% of its width.
 
-The tier is split in two so each benchmark gets the sampling it needs. `prBenchmark` runs
-everything except `SqliteTuningBenchmark` — journal and fsync settings mean nothing on tmpfs, and
-its question is settled — at ten half-second iterations, with the scaling sweeps pinned to their
-smallest size (`rows=1000`, `changeCount=50`). `prNoisyBenchmark` runs the CRUD and `MoreResources`
-benchmarks at ten one-second iterations instead: an indexed update takes about 300 ms on a runner,
-so a half-second iteration would hold a single disk write.
+On a pull request the databases live on tmpfs (`-Pbenchmark.tmpdir=/dev/shm/benchmarks`), because
+the runner's disk speed varied up to 3x within one job. SQL, indexing and cascades still run.
 
-That pairing is the point. Two scores from two CI jobs cannot be compared — shared runners differ
-in machine class between jobs, and this suite has produced double-digit phantom effects from
-exactly that. Two scores from one machine a few minutes apart can be, and their errors say by how
-much. A row is flagged only when the difference lies outside its own 99.9% confidence interval and
-is at least 5%: a tight-but-tiny shift and a large-but-noisy one are each left alone. The interval
-of a difference combines the two errors in quadrature; the common shortcut of requiring the two
-intervals not to overlap adds them instead, which is conservative enough to leave six more
-benchmarks unable to see a 5% change. A flag is a prompt to look, not a verdict — each side is
-still a single run.
-
-An unflagged row is not necessarily unchanged. When the two errors together are wider than 5% of
-the score, a 5% regression could not have been told apart from noise, and the row says **too noisy**
-with the smallest change it could have caught. Read a blank as "no change of 5% or more", and a
-too-noisy row as "no information".
-
-Iteration count matters more than it looks. JMH's interval scales with Student's t, which at five
-iterations is 8.47 and at ten is 4.78, so doubling the iterations shrinks every interval to about
-40% of its width rather than by the square root alone. On the first CI run, at five iterations, 29
-of the 54 pull-request benchmarks could not show a 5% change. Projected from those same runs, ten
-iterations leaves about 13 — mostly the disk-bound CRUD and SQLite-tuning rows, which is the honest
-limit of a shared runner.
-
-On a pull request the benchmark databases live on tmpfs (`-Pbenchmark.tmpdir=/dev/shm/benchmarks`):
-the runner's disk varied up to 3x within one job, which would drown out any code change. Write
-benchmarks still run their SQL, indexing and cascades; only disk speed is removed.
-
-If the base branch predates the benchmarks, its run fails, that failure is tolerated, and the
-comment shows the head on its own with the "indicative only" caveat.
+If the base branch has no benchmarks, its run fails, and the comment shows the head alone.
 
 A pull request labelled `benchmark:full` runs `:engine:benchmark` on both sides instead. To apply
 it to an open pull request, add the label and re-run the job.
 
-**On a push to `main`, `:engine:benchmark`, once.** The full tier, scaling sweeps included.
+**On a push to `main`**, `:engine:benchmark` runs once, at full size.
 
 Both tiers also write their table to the run's summary page.
 
-Locally, the same tasks: `prBenchmark` and `prNoisyBenchmark` for a quick check, `indexBenchmark`
-for the sweeps, `benchmark` for everything. Run nothing else while they run.
-
-CI therefore establishes that the benchmarks run and their assertions hold, and on a pull request
-whether the head is measurably slower than its base on that runner. It establishes nothing about a
-device: this is desktop JVM, a good indicator for algorithmic cost and a poor one for anything
-I/O-bound.
+CI runs on the desktop JVM: a good indicator for algorithmic cost, and a poor one for I/O-bound work
+on a device.
