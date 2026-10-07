@@ -264,12 +264,7 @@ jobs:
         if: github.event_name != 'pull_request'
         run: ./gradlew :engine:benchmark "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
 
-      # One layout for the commenting workflow, whichever tier ran. Each configuration keeps its own
-      # directory: the pull-request tier is split across two, and the table picks the newest run per
-      # configuration. Every directory is collected rather than a named few, because the full tier
-      # on main also runs the `index` configuration and its sweeps are the record a later trend
-      # would be built from. workflow_run.pull_requests is empty for a pull request raised from a
-      # fork, which is how this repository receives them, so the number travels inside the artifact.
+      # Fork pull requests leave workflow_run.pull_requests empty; the artifact carries the number.
       - name: Collect reports
         if: always()
         run: |
