@@ -31,10 +31,11 @@ import kotlinx.benchmark.State
 import kotlinx.benchmark.TearDown
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
+import org.openjdk.jmh.annotations.Level
 
 /**
  * Measures `syncDownload` of [PAGES] x [PAGE] patients with [pendingChanges] unrelated local
- * changes queued. Ids repeat, so each invocation replaces the previous one's rows.
+ * changes queued.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -43,9 +44,13 @@ open class SyncDownloadBenchmark {
 
   @Param("0", "100", "1000") var pendingChanges: Int = 0
 
+  /** `insert` downloads patients the database does not hold; `update` downloads them again. */
+  @Param("insert", "update") var mode: String = ""
+
   private lateinit var database: EngineBenchmarkDatabase
   private lateinit var engine: FhirEngineImpl
   private lateinit var pages: List<List<Resource>>
+  private lateinit var patientIds: Set<String>
 
   @Setup
   fun setUp() {
@@ -55,6 +60,7 @@ open class SyncDownloadBenchmark {
       (0 until PAGES).map { page ->
         (0 until PAGE).map { EngineBenchmarkDatabase.patient(page * PAGE + it) }
       }
+    patientIds = pages.flatten().mapNotNull { it.id }.toSet()
 
     val queued = (0 until MAX_PENDING).map { EngineBenchmarkDatabase.observation(it, MAX_PENDING) }
     database.insert(queued)
@@ -75,6 +81,16 @@ open class SyncDownloadBenchmark {
   }
 
   @TearDown fun tearDown() = database.close()
+
+  /** Untimed. Purging records no local change, so the queue is untouched. */
+  @Setup(Level.Invocation)
+  fun clearPatients() {
+    when (mode) {
+      "insert" -> runBlocking { database.database.purge(ResourceType.Patient, patientIds) }
+      "update" -> Unit
+      else -> error("Unknown mode: $mode")
+    }
+  }
 
   @Benchmark
   fun download() = runBlocking {

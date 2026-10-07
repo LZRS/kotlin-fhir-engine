@@ -32,7 +32,7 @@ declarations. They run on the desktop JVM only, under JMH.
 | `EngineCreateBenchmark`, `EngineUpdateBenchmark`, `EngineDeleteBenchmark` | Writes through `DatabaseImpl`: one transaction, and a local change per resource |
 | `BulkImportBenchmark`            | A download page written in one transaction, with no local change recorded               |
 | `ResourceReadBenchmark`          | Reading by id through `ResourceDao`                                                     |
-| `SyncDownloadBenchmark`          | Ingesting a download through `syncDownload`, swept by the size of the pending queue      |
+| `SyncDownloadBenchmark`          | Ingesting a download through `syncDownload`, as inserts and as updates, by queue size    |
 | `LocalChangeReadBenchmark`       | Reading the pending queue and its references, which is where an upload starts           |
 | `UploadAssemblyBenchmark`        | Squashing pending changes into patches, and patches into upload requests                |
 | `PatchOrderingBenchmark`         | Tarjan's over the pending-upload graph, the only cost that grows with queue length      |
@@ -110,7 +110,7 @@ in one transaction at 305 us each, without a local-change ledger.
 Each seeded patient carries two references, so an update diffs them in `LocalChangeDao`. This adds
 about 8% to `EngineUpdateBenchmark` (14.2 to 15.4 ms for fifty). Re-indexing dominates.
 
-`SyncDownloadBenchmark`, ingesting 1,000 resources in ten pages over a constant corpus: 1,051 ms
+`SyncDownloadBenchmark` in `update` mode, ingesting 1,000 resources in ten pages: 1,051 ms
 with no pending changes, 1,037 ms with 100, 1,137 ms with 1,000. `syncDownload` calls
 `getAllLocalChanges` once per page and deserializes every entry to intersect ids with the page. A
 query for only the page's edited resources, with the resource type leading so it uses the
