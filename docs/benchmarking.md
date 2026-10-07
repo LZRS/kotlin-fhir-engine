@@ -451,6 +451,9 @@ benchmarks still run their SQL, indexing and cascades; only disk speed is remove
 If the base branch predates the benchmarks, its run fails, that failure is tolerated, and the
 comment shows the head on its own with the "indicative only" caveat.
 
+A pull request labelled `benchmark:full` runs `:engine:benchmark` on both sides instead. To apply
+it to an open pull request, add the label and re-run the job.
+
 **On a push to `main`, `:engine:benchmark`, once.** The full tier, scaling sweeps included.
 
 Both tiers also write their table to the run's summary page.

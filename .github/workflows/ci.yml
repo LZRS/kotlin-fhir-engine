@@ -188,6 +188,9 @@ jobs:
   benchmark:
     name: Micro benchmarks
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
 
     steps:
       - uses: actions/checkout@v4
@@ -229,18 +232,33 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           path: base
 
+      # Read from the API, not the event payload, so a re-run picks up a label added since.
+      - name: Choose the tier
+        id: tier
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.number }}
+        run: |
+          if gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json labels --jq '.labels[].name' \
+              | grep -qx 'benchmark:full'; then
+            echo "tasks=:engine:benchmark" >> "$GITHUB_OUTPUT"
+          else
+            echo "tasks=:engine:prBenchmark :engine:prNoisyBenchmark" >> "$GITHUB_OUTPUT"
+          fi
+
       # kotlinx-benchmark exits 0 when a benchmark's @Setup throws, and drops it from the report.
       # The doLast check in engine/build.gradle.kts watches the runner's output and fails the task
       # instead. See docs/benchmarking.md.
-      - name: Run the pull-request tier against the base
+      - name: Run the benchmarks against the base
         if: github.event_name == 'pull_request'
         continue-on-error: true
         working-directory: base
-        run: ./gradlew :engine:prBenchmark :engine:prNoisyBenchmark -Pbenchmark.tmpdir=/dev/shm/benchmarks "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
+        run: ./gradlew ${{ steps.tier.outputs.tasks }} -Pbenchmark.tmpdir=/dev/shm/benchmarks "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
 
-      - name: Run the pull-request tier against the head
+      - name: Run the benchmarks against the head
         if: github.event_name == 'pull_request'
-        run: ./gradlew :engine:prBenchmark :engine:prNoisyBenchmark -Pbenchmark.tmpdir=/dev/shm/benchmarks "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
+        run: ./gradlew ${{ steps.tier.outputs.tasks }} -Pbenchmark.tmpdir=/dev/shm/benchmarks "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
 
       - name: Run the full tier
         if: github.event_name != 'pull_request'
