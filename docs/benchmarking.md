@@ -451,8 +451,9 @@ benchmarks still run their SQL, indexing and cascades; only disk speed is remove
 If the base branch predates the benchmarks, its run fails, that failure is tolerated, and the
 comment shows the head on its own with the "indicative only" caveat.
 
-**On a push to `main`, `:engine:benchmark`, once.** The full tier, scaling sweeps included. Its
-artifact is the record a later trend would be built from; nothing consumes it yet.
+**On a push to `main`, `:engine:benchmark`, once.** The full tier, scaling sweeps included.
+
+Both tiers also write their table to the run's summary page.
 
 Locally, the same tasks: `prBenchmark` and `prNoisyBenchmark` for a quick check, `indexBenchmark`
 for the sweeps, `benchmark` for everything. Run nothing else while they run.

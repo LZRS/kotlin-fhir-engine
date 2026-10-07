@@ -188,8 +188,6 @@ jobs:
   benchmark:
     name: Micro benchmarks
     runs-on: ubuntu-latest
-    # A pull request runs the tier twice; each side takes about a quarter of an hour on CI.
-    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -244,8 +242,6 @@ jobs:
         if: github.event_name == 'pull_request'
         run: ./gradlew :engine:prBenchmark :engine:prNoisyBenchmark -Pbenchmark.tmpdir=/dev/shm/benchmarks "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
 
-      # A push to main runs the full tier, scaling sweeps included. Its artifact is the record any
-      # later trend would be built from.
       - name: Run the full tier
         if: github.event_name != 'pull_request'
         run: ./gradlew :engine:benchmark "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
@@ -265,6 +261,16 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "${{ github.event.number }}" > reports/pr-number.txt
           fi
+
+      - name: Write the job summary
+        if: always()
+        run: |
+          if [ -z "$(find reports/head -name '*.json' -print -quit)" ]; then exit 0; fi
+          BASE=""
+          if [ -n "$(find reports/base -name '*.json' -print -quit)" ]; then
+            BASE="--base reports/base"
+          fi
+          python3 .github/scripts/benchmark_table.py reports/head $BASE >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload benchmark reports
         uses: actions/upload-artifact@v4
