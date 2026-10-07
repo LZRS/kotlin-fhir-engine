@@ -49,7 +49,7 @@ class StringSearchMatchingTest {
 
   @AfterTest
   fun tearDown() {
-    FhirEngineProvider.reset()
+    FhirEngineProvider.resetForTesting()
   }
 
   @Test

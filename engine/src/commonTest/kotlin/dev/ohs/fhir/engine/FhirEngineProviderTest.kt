@@ -30,7 +30,7 @@ class FhirEngineProviderTest {
 
   @AfterTest
   fun tearDown() {
-    FhirEngineProvider.reset()
+    FhirEngineProvider.resetForTesting()
   }
 
   @Test
@@ -51,7 +51,7 @@ class FhirEngineProviderTest {
       testPlatformContext(),
     )
     val engineOne = FhirEngineProvider.getInstance(testPlatformContext())
-    FhirEngineProvider.reset()
+    FhirEngineProvider.resetForTesting()
     FhirEngineProvider.init(
       FhirEngineConfiguration(testMode = true, storageDirectory = testStorageDirectory()),
       testPlatformContext(),
@@ -127,7 +127,7 @@ class FhirEngineProviderTest {
     )
     FhirEngineProvider.getFhirDataStore()
 
-    FhirEngineProvider.reset()
+    FhirEngineProvider.resetForTesting()
 
     assertFailsWith<IllegalStateException> { FhirEngineProvider.getFhirDataStore() }
   }

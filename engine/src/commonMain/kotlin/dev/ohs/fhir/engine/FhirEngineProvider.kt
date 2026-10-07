@@ -110,7 +110,6 @@ object FhirEngineProvider {
 
   /**
    * Closes the database and the data source, and returns the provider to its uninitialized state.
-   * Intended for tests and benchmarks.
    *
    * [init] must be called again before the next [getInstance], and any [FhirEngine] held from
    * before the reset is unusable.
@@ -121,7 +120,7 @@ object FhirEngineProvider {
    * - The persisted `DataStore` is a process-level singleton and keeps its sync watermarks. Use a
    *   new `storageDirectory` to start without them.
    */
-  fun reset() {
+  internal fun resetForTesting() {
     if (canCloseDatabaseOnReset()) (fhirEngine as? FhirEngineImpl)?.closeDatabase()
     dataSource?.close()
     fhirEngine = null

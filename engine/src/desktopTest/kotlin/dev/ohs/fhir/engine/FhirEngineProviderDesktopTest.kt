@@ -31,7 +31,7 @@ class FhirEngineProviderDesktopTest {
 
   @AfterTest
   fun tearDown() {
-    FhirEngineProvider.reset()
+    FhirEngineProvider.resetForTesting()
   }
 
   @Test
@@ -42,23 +42,23 @@ class FhirEngineProviderDesktopTest {
     val engine = FhirEngineProvider.getInstance()
     engine.create(Patient(id = "reset_test_patient_1"))
 
-    FhirEngineProvider.reset()
+    FhirEngineProvider.resetForTesting()
 
     val result = runCatching { engine.create(Patient(id = "reset_test_patient_2")) }
     assertTrue(
       result.isFailure,
-      "The engine held across reset() is still usable, so its database was never closed.",
+      "The engine held across resetForTesting() is still usable, so its database was never closed.",
     )
   }
 
   @Test
-  fun reset_thenInit_shouldReturnWorkingEngine() = runTest {
+  fun resetForTesting_thenInit_shouldReturnWorkingEngine() = runTest {
     FhirEngineProvider.init(
       FhirEngineConfiguration(testMode = true, storageDirectory = testStorageDirectory()),
     )
     FhirEngineProvider.getInstance().create(Patient(id = "reset_test_patient"))
 
-    FhirEngineProvider.reset()
+    FhirEngineProvider.resetForTesting()
 
     FhirEngineProvider.init(
       FhirEngineConfiguration(testMode = true, storageDirectory = testStorageDirectory()),
