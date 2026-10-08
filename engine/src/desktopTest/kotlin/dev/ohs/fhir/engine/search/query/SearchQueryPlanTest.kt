@@ -28,7 +28,9 @@ import dev.ohs.fhir.engine.search.Search
 import dev.ohs.fhir.engine.search.SearchQuery
 import dev.ohs.fhir.engine.search.StringClientParam
 import dev.ohs.fhir.engine.search.StringFilterModifier
+import dev.ohs.fhir.engine.search.TokenClientParam
 import dev.ohs.fhir.engine.search.UriClientParam
+import dev.ohs.fhir.engine.search.filter.TokenFilterValue
 import dev.ohs.fhir.engine.search.getIncludeQuery
 import dev.ohs.fhir.engine.search.getQuery
 import dev.ohs.fhir.engine.search.getRevIncludeQuery
@@ -65,6 +67,7 @@ class SearchQueryPlanTest {
 
   private val BASE_UUID_A = "00000000-0000-0000-0000-000000000001"
   private val BASE_UUID_B = "00000000-0000-0000-0000-000000000002"
+  private val LOINC = "http://loinc.org"
 
   @BeforeTest
   fun setUp() {
@@ -182,6 +185,16 @@ class SearchQueryPlanTest {
     }
   }
 
+  /** A token search with a system also compares `index_system`, so the index carries it too. */
+  @Test
+  fun `token searches with and without a system are answered from a covering index`() = runTest {
+    for ((name, query) in
+      listOf("code" to tokenSearch(system = null), "system" to tokenSearch(LOINC))) {
+      val line = planFor(query).first { it.startsWith("SEARCH ") && "TokenIndexEntity" in it }
+      assertTrue(line.contains("USING COVERING INDEX"), "$name should be covering, got: $line")
+    }
+  }
+
   // ---------------------------------------------------------------------------------------------
   // Search shapes
   // ---------------------------------------------------------------------------------------------
@@ -214,6 +227,13 @@ class SearchQueryPlanTest {
             unit = "g/dL"
           },
         )
+      }
+      .getQuery()
+
+  private fun tokenSearch(system: String?) =
+    Search(ResourceType.Observation)
+      .apply {
+        filter(TokenClientParam("code"), { value = TokenFilterValue.coding(system, "718-7") })
       }
       .getQuery()
 
