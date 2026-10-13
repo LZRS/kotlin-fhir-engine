@@ -81,3 +81,4 @@ kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", versi
 kotlinx-benchmark = { id = "org.jetbrains.kotlinx.benchmark", version.ref = "kotlinx-benchmark" }
 ksp = { id = "com.google.devtools.ksp", version = "2.2.21-2.0.5" }
 maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "maven-publish" }
+room3 = { id = "androidx.room3", version.ref = "androidx-room3" }

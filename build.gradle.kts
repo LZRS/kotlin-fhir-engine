@@ -18,6 +18,7 @@ plugins {
   alias(libs.plugins.kotlinx.benchmark) apply false
   alias(libs.plugins.ksp) apply false
   alias(libs.plugins.maven.publish) apply false
+  alias(libs.plugins.room3) apply false
 }
 
 allprojects { configureSpotless() }
