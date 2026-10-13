@@ -49,6 +49,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlin.test.fail
+import kotlin.uuid.Uuid
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.LocalDate
@@ -64,8 +65,8 @@ class SearchQueryPlanTest {
 
   private lateinit var database: ResourceDatabase
 
-  private val UUID_A = "00000000-0000-0000-0000-000000000001"
-  private val UUID_B = "00000000-0000-0000-0000-000000000002"
+  private val UUID_A = Uuid.parse("00000000-0000-0000-0000-000000000001")
+  private val UUID_B = Uuid.parse("00000000-0000-0000-0000-000000000002")
 
   @BeforeTest
   fun setUp() {
