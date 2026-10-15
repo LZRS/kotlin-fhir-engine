@@ -256,9 +256,7 @@ class SearchQueryPlanTest {
     assertIndexUsed(plan, table = "re", constraints = "resourceUuid=?")
   }
 
-  // ---------------------------------------------------------------------------------------------
   // Search shapes
-  // ---------------------------------------------------------------------------------------------
 
   private fun includeQuery(): SearchQuery =
     Search(ResourceType.Observation)
@@ -397,9 +395,7 @@ class SearchQueryPlanTest {
       .apply { filter(StringClientParam("given"), { value = "Ja" }) }
       .getQuery(isCount = true)
 
-  // ---------------------------------------------------------------------------------------------
   // Plan helpers
-  // ---------------------------------------------------------------------------------------------
 
   /**
    * Asserts [table] is searched through an index constrained by exactly [constraints], as SQLite

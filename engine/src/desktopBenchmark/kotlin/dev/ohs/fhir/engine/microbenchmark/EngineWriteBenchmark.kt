@@ -36,7 +36,7 @@ import org.openjdk.jmh.annotations.Level
  * JMH's per-invocation hooks are unreliable below a millisecond.
  */
 
-/** Creating resources locally, which records an insert per resource in the ledger. */
+/** Creating resources locally, which records an insert per resource in the local changes. */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(BenchmarkTimeUnit.MICROSECONDS)
@@ -53,7 +53,9 @@ open class EngineCreateBenchmark {
 
   @TearDown fun tearDown() = database.close()
 
-  /** Removes both the rows and the ledger entries so neither table grows across invocations. */
+  /**
+   * Removes both the rows and the local changes entries so neither table grows across invocations.
+   */
   @TearDown(Level.Invocation)
   fun removeWritten() {
     database.delete(batch)
@@ -86,7 +88,7 @@ open class EngineUpdateBenchmark {
         batch.map { it.copy(active = FhirBoolean(value = false)) },
         batch.map { it.copy(active = FhirBoolean(value = true)) },
       )
-    // Seeded as remote so the ledger starts empty.
+    // Seeded as remote so the local changes start empty.
     database.seedGiven(batch)
     check(database.localChangeCount() == 0) {
       "seeding recorded ${database.localChangeCount()} local changes; the update arm would then " +
@@ -142,7 +144,7 @@ open class EngineDeleteBenchmark {
 
   @TearDown fun tearDown() = database.close()
 
-  /** Restores the deleted rows and clears the ledger, untimed. */
+  /** Restores the deleted rows and clears the local changes, untimed. */
   @Setup(Level.Invocation)
   fun restoreRows() {
     database.discardChanges(batch)

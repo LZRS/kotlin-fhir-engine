@@ -35,8 +35,8 @@ kotlin {
       .configure { instrumentationRunner = "androidx.test.runner.AndroidJUnitRunner" }
   }
 
-  // Associated with `main` so benchmarks can use `internal` declarations. Source set:
-  // `desktopBenchmark`.
+  // Benchmarks live in desktopBenchmark, associated with main so they can use internal
+  // declarations.
   jvm("desktop") {
     val mainCompilation = compilations.getByName("main")
     compilations.create("benchmark") { associateWith(mainCompilation) }
@@ -281,7 +281,7 @@ tasks
     }
   }
 
-// JournalModeTest asserts WAL. On web, OPFS may not support WAL, and it is not yet measured.
+// OPFS may not support WAL, so JournalModeTest does not run on web.
 tasks.withType<org.jetbrains.kotlin.gradle.targets.js.testing.KotlinJsTest>().configureEach {
   filter.excludeTestsMatching("dev.ohs.fhir.engine.db.impl.JournalModeTest")
 }

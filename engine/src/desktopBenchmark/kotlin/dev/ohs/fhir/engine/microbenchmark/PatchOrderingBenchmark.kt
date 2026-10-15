@@ -100,8 +100,8 @@ open class PatchOrderingBenchmark {
     }
 
   /**
-   * [targets] names the indices a change points at; local-change ids equal indices. Targets outside
-   * the range are dropped.
+   * Builds the reference rows the ordering reads its edges from, so [targets] sets the graph's
+   * shape. `{ i -> listOf(i - 1) }` makes each change reference the one before it.
    */
   private fun buildReferences(
     count: Int,

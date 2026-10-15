@@ -42,7 +42,7 @@ import org.openjdk.jmh.annotations.Level
 @OutputTimeUnit(BenchmarkTimeUnit.MICROSECONDS)
 open class ConcurrentAccessBenchmark {
 
-  /** `wal` is what Room opens with; `delete` is SQLite's rollback journal, asked for by name. */
+  /** `wal` is Room's default, `delete` is SQLite's rollback journal. */
   @Param("wal", "delete") var journal: String = ""
 
   /** `0` reads alone; `1` adds a thread that commits small transactions in a loop. */
