@@ -36,7 +36,7 @@ import kotlinx.datetime.LocalDate
 
 /**
  * A date range search against the shipped date index and one with the range columns ahead of
- * `resourceUuid`, across table sizes. Indices are rebuilt with raw DDL per trial.
+ * `resourceUuid`, across table sizes and window widths. Indices are rebuilt with raw DDL per trial.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -48,11 +48,20 @@ open class DateIndexShapeBenchmark {
   /** `current` is what the engine ships; `rangeLast` puts `resourceUuid` last. */
   @Param("current", "rangeLast") var shape: String = ""
 
+  /** `narrow` matches about 4% of rows; `wide` about 40%. */
+  @Param("narrow", "wide") var window: String = ""
+
   private lateinit var database: IndexBenchmarkDatabase
   private lateinit var query: SearchQuery
 
   @Setup
   fun setUp() {
+    val (from, to) =
+      when (window) {
+        "narrow" -> LocalDate(1990, 1, 1) to LocalDate(1992, 1, 1)
+        "wide" -> LocalDate(1980, 1, 1) to LocalDate(2002, 1, 1)
+        else -> error("Unknown window: $window")
+      }
     database = IndexBenchmarkDatabase.create("date-$shape-$rows")
     database.seed(rows)
     database.reindex("DateIndexEntity", indexDefinitions())
@@ -63,14 +72,14 @@ open class DateIndexShapeBenchmark {
           filter(
             DateClientParam("birthdate"),
             {
-              value = of(FhirDate.Date(LocalDate(1990, 1, 1)))
+              value = of(FhirDate.Date(from))
               prefix = SearchComparator.Gt
             },
           )
           filter(
             DateClientParam("birthdate"),
             {
-              value = of(FhirDate.Date(LocalDate(1992, 1, 1)))
+              value = of(FhirDate.Date(to))
               prefix = SearchComparator.Lt
             },
           )
@@ -78,7 +87,8 @@ open class DateIndexShapeBenchmark {
         .getQuery()
 
     // Both arms must select the same slice.
-    assertSelectivity(database.count(query), rows, WINDOW_DAYS.toDouble() / DAY_SPREAD, shape)
+    val windowDays = to.toEpochDays() - from.toEpochDays()
+    assertSelectivity(database.count(query), rows, windowDays.toDouble() / DAY_SPREAD, shape)
   }
 
   @TearDown fun tearDown() = database.close()
@@ -86,8 +96,6 @@ open class DateIndexShapeBenchmark {
   @Benchmark fun dateRangeSearch(): Int = database.count(query)
 
   private companion object {
-    /** 1990-01-01 to 1992-01-01, against [IndexBenchmarkDatabase.DAY_SPREAD]. */
-    const val WINDOW_DAYS = 730
     const val DAY_SPREAD = IndexBenchmarkDatabase.DAY_SPREAD
   }
 

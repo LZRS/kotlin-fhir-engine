@@ -26,7 +26,7 @@ declarations. They run on the desktop JVM only, under JMH.
 | `SearchExecutionBenchmark`       | A search end to end: the query, the rows, a parse per row, and `_include`/`_revinclude` |
 | `SearchResultSizeBenchmark`      | The same, swept by how many resources come back                                         |
 | `SortBenchmark`                  | What sorting costs, and whether paging escapes it                                       |
-| `DateIndexShapeBenchmark`        | Date range search under each date index column order, from 1,000 to 50,000 rows         |
+| `DateIndexShapeBenchmark`        | Narrow and wide date range searches under each date index column order                  |
 | `StringIndexCollationBenchmark`  | Prefix search under each string index collation, from 1,000 to 50,000 rows              |
 | `QuantityIndexShapeBenchmark`    | Quantity search, with and without a unit, under each quantity index column order        |
 | `LookupIndexCoveringBenchmark`   | Reference and uri lookups with and without `resourceUuid` in the index                  |
