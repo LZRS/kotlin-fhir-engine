@@ -26,6 +26,7 @@ import dev.ohs.fhir.engine.db.impl.ResourceDatabase
 import dev.ohs.fhir.engine.db.impl.bindArgs
 import dev.ohs.fhir.engine.search.SearchQuery
 import java.io.File
+import kotlin.uuid.Uuid
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 
@@ -54,7 +55,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
             "VALUES (?, 'Patient', ?, '{}')",
         ) { statement ->
           repeat(rows) { row ->
-            statement.bindText(1, uuidFor(row))
+            statement.bindBlob(1, uuidFor(row))
             statement.bindText(2, "patient-$row")
             statement.step()
             statement.reset()
@@ -67,7 +68,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
         ) { statement ->
           repeat(rows) { row ->
             val day = row.toLong() * DAY_SPREAD / rows
-            statement.bindText(1, uuidFor(row))
+            statement.bindBlob(1, uuidFor(row))
             statement.bindLong(2, day)
             statement.bindLong(3, day)
             statement.step()
@@ -80,7 +81,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
             "VALUES (?, 'Patient', 'given', 'Patient.name.given', ?)",
         ) { statement ->
           repeat(rows) { row ->
-            statement.bindText(1, uuidFor(row))
+            statement.bindBlob(1, uuidFor(row))
             statement.bindText(2, "${prefixFor(row)}name-$row")
             statement.step()
             statement.reset()
@@ -102,7 +103,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
             "VALUES (?, 'Observation', ?, '{}')",
         ) { statement ->
           repeat(rows) { row ->
-            statement.bindText(1, uuidFor(row))
+            statement.bindBlob(1, uuidFor(row))
             statement.bindText(2, "observation-$row")
             statement.step()
             statement.reset()
@@ -116,7 +117,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
             "?, ?, ?)",
         ) { statement ->
           repeat(rows) { row ->
-            statement.bindText(1, uuidFor(row))
+            statement.bindBlob(1, uuidFor(row))
             statement.bindText(2, UCUM_SYSTEM)
             statement.bindText(3, QUANTITY_UNITS[row % QUANTITY_UNITS.size])
             statement.bindDouble(4, row.toDouble() * VALUE_SPREAD / rows)
@@ -140,7 +141,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
             "VALUES (?, 'Observation', ?, '{}')",
         ) { statement ->
           repeat(rows) { row ->
-            statement.bindText(1, uuidFor(row))
+            statement.bindBlob(1, uuidFor(row))
             statement.bindText(2, "observation-$row")
             statement.step()
             statement.reset()
@@ -152,7 +153,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
             "VALUES (?, 'Observation', 'subject', 'Observation.subject', ?)",
         ) { statement ->
           repeat(rows) { row ->
-            statement.bindText(1, uuidFor(row))
+            statement.bindBlob(1, uuidFor(row))
             statement.bindText(2, "Patient/${LOOKUP_VALUES[row % LOOKUP_VALUES.size]}")
             statement.step()
             statement.reset()
@@ -164,7 +165,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
             "VALUES (?, 'Observation', 'identifier', 'Observation.identifier', ?)",
         ) { statement ->
           repeat(rows) { row ->
-            statement.bindText(1, uuidFor(row))
+            statement.bindBlob(1, uuidFor(row))
             statement.bindText(2, "urn:oid:${LOOKUP_VALUES[row % LOOKUP_VALUES.size]}")
             statement.step()
             statement.reset()
@@ -186,7 +187,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
             "VALUES (?, 'Observation', ?, '{}')",
         ) { statement ->
           repeat(rows) { row ->
-            statement.bindText(1, uuidFor(row))
+            statement.bindBlob(1, uuidFor(row))
             statement.bindText(2, "observation-$row")
             statement.step()
             statement.reset()
@@ -198,7 +199,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
             "VALUES (?, 'Observation', 'code', 'Observation.code', ?, ?)",
         ) { statement ->
           repeat(rows) { row ->
-            statement.bindText(1, uuidFor(row))
+            statement.bindBlob(1, uuidFor(row))
             statement.bindText(2, TOKEN_SYSTEM)
             statement.bindText(3, LOOKUP_VALUES[row % LOOKUP_VALUES.size])
             statement.step()
@@ -219,7 +220,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
             "VALUES (?, 'Patient', 'family', '$INSERTED_MARKER', ?)",
         ) { statement ->
           repeat(count) { row ->
-            statement.bindText(1, uuidFor(row))
+            statement.bindBlob(1, uuidFor(row))
             statement.bindText(2, "batch$batch-row$row")
             statement.step()
             statement.reset()
@@ -239,7 +240,7 @@ internal class IndexBenchmarkDatabase(private val file: File) {
               "(resourceUuid, resourceType, index_name, index_path, index_value) " +
               "VALUES (?, 'Patient', 'family', '$INSERTED_MARKER', ?)",
           ) { statement ->
-            statement.bindText(1, uuidFor(row))
+            statement.bindBlob(1, uuidFor(row))
             statement.bindText(2, "single$batch-row$row")
             statement.step()
           }
@@ -369,7 +370,8 @@ internal class IndexBenchmarkDatabase(private val file: File) {
       return "$first$second"
     }
 
-    fun uuidFor(row: Int) = "00000000-0000-0000-0000-${row.toString().padStart(12, '0')}"
+    /** The 16 bytes the engine stores as a BLOB. */
+    fun uuidFor(row: Int): ByteArray = Uuid.fromLongs(0, row.toLong()).toByteArray()
 
     /** A fresh database file per trial. */
     fun create(label: String): IndexBenchmarkDatabase {
