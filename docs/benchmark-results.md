@@ -58,7 +58,7 @@ From `SearchQueryPlanTest`, on the current schema. Unlike the timings, this tabl
 | string prefix           | all three, range on the value      | no       |
 | **string `:exact`**     | **two — it compares BINARY against a NOCASE index** | no |
 | string `:contains`      | two — a leading wildcard cannot seek | no     |
-| **date, dateTime**      | **two — the range columns unused** | yes      |
+| date, dateTime          | all three, range on `index_from` or `index_to` | yes |
 | `_revinclude`           | all three, then the resource by uuid | no     |
 | `_include`              | two on the references, then the resource by type and id | no |
 
@@ -119,20 +119,7 @@ filter or a weak one, such as all patients in alphabetical order.
 
 ## Known shortfalls
 
-Each is pinned by a test in `SearchQueryPlanTest`. Times are µs per search at 1,000 / 10,000 /
-50,000 rows.
-
-**Date and dateTime** indices are `(resourceType, index_name, resourceUuid, index_from, index_to)`.
-`resourceUuid` sits between the equality prefix and the range columns, so no range can use the
-index. Moving it last is 13–18% faster against a narrow window, about 4% of rows, and 5–7%
-against a wide one, about 40%.
-
-| `DateIndexShapeBenchmark` | 1,000 | 10,000 | 50,000 |
-|---|---:|---:|---:|
-| narrow, `current` | 336 | 3,386 | 19,800 |
-| narrow, `rangeLast` | 276 | 2,949 | 17,280 |
-| wide, `current` | 455 | 4,806 | 28,560 |
-| wide, `rangeLast` | 429 | 4,485 | 27,030 |
+Each is pinned by a test in `SearchQueryPlanTest`.
 
 **String `:exact`** compares `COLLATE BINARY` against `index_value`, which #109 declared NOCASE so
 that a prefix search could use the index. SQLite uses an index only when its collation matches the
@@ -149,7 +136,7 @@ whatever the collation.
 
 The timings above were measured before these changes. Each table comes from the benchmark that
 found the problem and compares the shape shipped then, named `current` in the benchmark, with the
-fix, in the same run.
+fix, in the same run. Times are µs per search at 1,000 / 10,000 / 50,000 rows.
 
 **Prefix string search** compiled to `index_value LIKE ? || '%' COLLATE NOCASE` and narrowed on
 `(resourceType, index_name)` only. SQLite applies its LIKE optimisation only to a literal or plain
@@ -204,6 +191,20 @@ which is 37% faster at 50,000 rows and leaves a code-only search unchanged.
 | code only, `withSystem` | 43 | 108 | 1,770 |
 | system and code, `current` | 46 | 134 | 2,701 |
 | system and code, `withSystem` | 45 | 116 | 1,694 |
+
+**Date and dateTime** indices were `(resourceType, index_name, resourceUuid, index_from, index_to)`.
+`resourceUuid` sat between the equality prefix and the range columns, so no range could use the
+index. #109 moves it last and adds a second index led by `index_to` (`rangeLast` below), since `<`,
+`<=` and `sa` range over `index_from` and `>`, `>=` and `eb` over `index_to`. The date sort is
+unaffected: it looks dates up by `resourceUuid` through a separate index. The narrow window matches
+about 4% of rows and the wide one about 40%.
+
+| `DateIndexShapeBenchmark` | 1,000 | 10,000 | 50,000 |
+|---|---:|---:|---:|
+| narrow, `current` | 336 | 3,386 | 19,800 |
+| narrow, `rangeLast` | 276 | 2,949 | 17,280 |
+| wide, `current` | 455 | 4,806 | 28,560 |
+| wide, `rangeLast` | 429 | 4,485 | 27,030 |
 
 `_include` and `_revinclude` result grouping and sync conflict detection were also fixed in #109;
 see [Result size](#result-size) and [Writes and sync](#writes-and-sync).
