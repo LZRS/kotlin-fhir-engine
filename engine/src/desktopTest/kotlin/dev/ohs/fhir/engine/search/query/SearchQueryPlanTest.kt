@@ -17,11 +17,14 @@ package dev.ohs.fhir.engine.search.query
 
 import androidx.room3.Room
 import androidx.room3.useReaderConnection
-import androidx.sqlite.SQLiteStatement
 import androidx.sqlite.async.step
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.ionspin.kotlin.bignum.decimal.BigDecimal
 import dev.ohs.fhir.engine.db.impl.ResourceDatabase
+import dev.ohs.fhir.engine.db.impl.bindArgs
+import dev.ohs.fhir.engine.search.DateClientParam
+import dev.ohs.fhir.engine.search.NumberClientParam
+import dev.ohs.fhir.engine.search.Order
 import dev.ohs.fhir.engine.search.QuantityClientParam
 import dev.ohs.fhir.engine.search.ReferenceClientParam
 import dev.ohs.fhir.engine.search.Search
@@ -36,8 +39,10 @@ import dev.ohs.fhir.engine.search.getQuery
 import dev.ohs.fhir.engine.search.getRevIncludeQuery
 import dev.ohs.fhir.engine.search.include
 import dev.ohs.fhir.engine.search.revInclude
+import dev.ohs.fhir.model.r4.FhirDate
 import dev.ohs.fhir.model.r4.Observation
 import dev.ohs.fhir.model.r4.Patient
+import dev.ohs.fhir.model.r4.SearchParameter.SearchComparator
 import dev.ohs.fhir.model.r4.terminologies.ResourceType
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -47,6 +52,7 @@ import kotlin.test.fail
 import kotlin.uuid.Uuid
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
+import kotlinx.datetime.LocalDate
 
 /**
  * Asserts which SQLite index each search shape actually uses, via `EXPLAIN QUERY PLAN`.
@@ -80,6 +86,41 @@ class SearchQueryPlanTest {
   }
 
   @AfterTest fun tearDown() = database.close()
+
+  @Test
+  fun `no search shape falls back to a full table scan`() = runTest {
+    for ((name, query) in allShapes()) {
+      val scans = planFor(query).filter { it.startsWith("SCAN ") && !it.contains("USING") }
+      assertTrue(scans.isEmpty(), "$name scans a table instead of using an index: $scans")
+    }
+  }
+
+  @Test
+  fun `reference search narrows on all three index columns`() = runTest {
+    assertIndexUsed(
+      planFor(referenceSearch()),
+      table = "ReferenceIndexEntity",
+      constraints = "resourceType=? AND index_name=? AND index_value=?",
+    )
+  }
+
+  @Test
+  fun `uri search narrows on all three index columns`() = runTest {
+    assertIndexUsed(
+      planFor(uriSearch()),
+      table = "UriIndexEntity",
+      constraints = "resourceType=? AND index_name=? AND index_value=?",
+    )
+  }
+
+  @Test
+  fun `number search uses the index for the value range`() = runTest {
+    assertIndexUsed(
+      planFor(numberSearch()),
+      table = "NumberIndexEntity",
+      constraints = "resourceType=? AND index_name=? AND index_value>? AND index_value<?",
+    )
+  }
 
   /**
    * A NOCASE column plus a whole bound pattern let SQLite rewrite `LIKE 'x%'` into a range scan,
@@ -196,6 +237,41 @@ class SearchQueryPlanTest {
     }
   }
 
+
+  /**
+   * Known shortfall: the index puts `resourceUuid` before the range columns, so no date range can
+   * use them. See "Known shortfalls" in docs/benchmark-results.md.
+   */
+  @Test
+  fun `date search above a bound cannot use the range columns`() = runTest {
+    assertIndexUsed(
+      planFor(dateSearch()),
+      table = "DateIndexEntity",
+      constraints = "resourceType=? AND index_name=?",
+      covering = true,
+    )
+  }
+
+  @Test
+  fun `date search below a bound cannot use the range columns`() = runTest {
+    assertIndexUsed(
+      planFor(dateBeforeSearch()),
+      table = "DateIndexEntity",
+      constraints = "resourceType=? AND index_name=?",
+      covering = true,
+    )
+  }
+
+  @Test
+  fun `sorted search sorts with a temporary b-tree rather than an index`() = runTest {
+    val plan = planFor(sortedSearch())
+
+    assertTrue(
+      plan.any { it.contains("USE TEMP B-TREE FOR ORDER BY") },
+      "expected a temporary b-tree sort, got: $plan",
+    )
+  }
+
   // ---------------------------------------------------------------------------------------------
   // Search shapes
   // ---------------------------------------------------------------------------------------------
@@ -209,6 +285,24 @@ class SearchQueryPlanTest {
     Search(ResourceType.Patient)
       .apply { revInclude<Observation>(ReferenceClientParam("subject")) }
       .getRevIncludeQuery(listOf("Patient/a", "Patient/b"))
+
+  private fun allShapes(): List<Pair<String, SearchQuery>> =
+    listOf(
+      "string" to stringSearch(),
+      "string exact" to exactStringSearch(),
+      "string contains" to containsStringSearch(),
+      "token" to tokenSearch(system = null),
+      "token with system" to tokenSearch(LOINC),
+      "reference" to referenceSearch(),
+      "quantity" to quantitySearch(),
+      "quantity with unit" to quantitySearchWithUnit(),
+      "date" to dateSearch(),
+      "date before" to dateBeforeSearch(),
+      "number" to numberSearch(),
+      "uri" to uriSearch(),
+      "sorted" to sortedSearch(),
+      "count" to countSearch(),
+    )
 
   private fun quantitySearch() =
     Search(ResourceType.Observation)
@@ -279,6 +373,47 @@ class SearchQueryPlanTest {
       }
       .getQuery()
 
+  private fun dateBeforeSearch() =
+    Search(ResourceType.Patient)
+      .apply {
+        filter(
+          DateClientParam("birthdate"),
+          {
+            value = of(FhirDate.Date(LocalDate(2000, 1, 1)))
+            prefix = SearchComparator.Lt
+          },
+        )
+      }
+      .getQuery()
+
+  private fun dateSearch() =
+    Search(ResourceType.Patient)
+      .apply {
+        filter(
+          DateClientParam("birthdate"),
+          {
+            value = of(FhirDate.Date(LocalDate(1970, 1, 1)))
+            prefix = SearchComparator.Gt
+          },
+        )
+      }
+      .getQuery()
+
+  private fun numberSearch() =
+    Search(ResourceType.RiskAssessment)
+      .apply { filter(NumberClientParam("probability"), { value = BigDecimal.parseString("0.5") }) }
+      .getQuery()
+
+  private fun sortedSearch() =
+    Search(ResourceType.Patient)
+      .apply { sort(StringClientParam("given"), Order.ASCENDING) }
+      .getQuery()
+
+  private fun countSearch() =
+    Search(ResourceType.Patient)
+      .apply { filter(StringClientParam("given"), { value = "Ja" }) }
+      .getQuery(isCount = true)
+
   // ---------------------------------------------------------------------------------------------
   // Plan helpers
   // ---------------------------------------------------------------------------------------------
@@ -317,17 +452,4 @@ class SearchQueryPlanTest {
         steps
       }
     }
-
-  /** Mirrors `DatabaseImpl.bindArgs`, which is private to that class. */
-  private fun bindArgs(statement: SQLiteStatement, args: List<Any>) {
-    args.forEachIndexed { i, arg ->
-      when (arg) {
-        is String -> statement.bindText(i + 1, arg)
-        is Long -> statement.bindLong(i + 1, arg)
-        is Double -> statement.bindDouble(i + 1, arg)
-        is Int -> statement.bindLong(i + 1, arg.toLong())
-        else -> statement.bindText(i + 1, arg.toString())
-      }
-    }
-  }
 }
