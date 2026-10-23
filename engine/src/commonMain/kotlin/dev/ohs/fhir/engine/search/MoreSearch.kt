@@ -58,7 +58,8 @@ private const val MIN_VALUE = "-9223372036854775808"
  * included/revIncluded resources grouped by search index.
  */
 internal suspend fun <R : Resource> Search.execute(database: Database): List<SearchResult<R>> {
-  val baseResources = database.search<R>(getQuery())
+  val baseResources =
+    getSortSegments()?.let { readInOrder<R>(database, it) } ?: database.search<R>(getQuery())
 
   val includedResources =
     if (forwardIncludes.isEmpty() || baseResources.isEmpty()) {
@@ -274,14 +275,7 @@ private fun Search.getSortOrder(
     Logger.e { "count not supported for [rev]include search." }
   }
   sort?.let { sort ->
-    val sortTableNames =
-      when (sort) {
-        is StringClientParam -> listOf(SortTableInfo.STRING_SORT_TABLE_INFO)
-        is NumberClientParam -> listOf(SortTableInfo.NUMBER_SORT_TABLE_INFO)
-        is DateClientParam ->
-          listOf(SortTableInfo.DATE_SORT_TABLE_INFO, SortTableInfo.DATE_TIME_SORT_TABLE_INFO)
-        else -> throw NotImplementedError("Unhandled sort parameter of type ${sort::class}: $sort")
-      }
+    val sortTableNames = sort.sortTables()
 
     sortJoinStatement =
       sortTableNames
@@ -368,7 +362,7 @@ private fun generateGroupAndOrderQuery(
  * Maps every filter criterion (string, quantity, number, reference, date/time, token, uri) to its
  * subquery.
  */
-private fun Search.getFilterQueries() =
+internal fun Search.getFilterQueries() =
   (stringFilterCriteria +
       quantityFilterCriteria +
       numberFilterCriteria +
@@ -702,12 +696,22 @@ data class ConditionParam<T>(val condition: String, val params: List<T>) {
 }
 
 /** Maps each sortable search-param type to the index table and column used to sort on it. */
-private enum class SortTableInfo(val tableName: String, val columnName: String) {
+internal enum class SortTableInfo(val tableName: String, val columnName: String) {
   STRING_SORT_TABLE_INFO("StringIndexEntity", "index_value"),
   NUMBER_SORT_TABLE_INFO("NumberIndexEntity", "index_value"),
   DATE_SORT_TABLE_INFO("DateIndexEntity", "index_from"),
   DATE_TIME_SORT_TABLE_INFO("DateTimeIndexEntity", "index_from"),
 }
+
+/** The index tables holding this sort parameter's values, in the order they sort. */
+internal fun ClientParam.sortTables(): List<SortTableInfo> =
+  when (this) {
+    is StringClientParam -> listOf(SortTableInfo.STRING_SORT_TABLE_INFO)
+    is NumberClientParam -> listOf(SortTableInfo.NUMBER_SORT_TABLE_INFO)
+    is DateClientParam ->
+      listOf(SortTableInfo.DATE_SORT_TABLE_INFO, SortTableInfo.DATE_TIME_SORT_TABLE_INFO)
+    else -> throw NotImplementedError("Unhandled sort parameter of type ${this::class}: $this")
+  }
 
 /**
  * Computes the matching range for the `ap` (approximate) date/dateTime prefix by widening

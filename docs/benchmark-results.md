@@ -112,10 +112,21 @@ once, by key, which makes them linear.
 | filtered to one name prefix, unsorted | 101 | 605 | 3,731 |
 | filtered to one name prefix, sorted | 102 | 638 | 3,921 |
 
-`count`/`from` does not bound the work on a sorted search. Rows do not arrive in order, so `LIMIT`
-cannot stop early, and a sorted first page orders the whole corpus: 795x an unsorted page at 50,000.
-Every page pays this. Sorting a filtered slice costs almost nothing. Avoid a sorted search with no
-filter or a weak one, such as all patients in alphabetical order.
+Before #109, `count`/`from` did not bound the work on a sorted search. Rows did not arrive in
+order, so `LIMIT` could not stop early, and a sorted first page ordered the whole corpus: 795x an
+unsorted page at 50,000. Sorting a filtered slice costs almost nothing.
+
+#109 runs an unfiltered sorted search as segments read in index order: resources with a value,
+walked through the sort index, then those without one. The limit stops the walk early. A filtered
+sort keeps the single query. In a separate local run, not CI:
+
+| `SortBenchmark`, µs | 1,000 | 10,000 | 50,000 |
+|---|---:|---:|---:|
+| `sortedFirstPage`, single query | 563 | 5,964 | 33,641 |
+| `walkedFirstPage`, as the engine now runs it | 60 | 73 | 84 |
+| `unsortedFirstPage` | 24 | 24 | 24 |
+
+A weak filter, one that matches most resources, still sorts every match.
 
 ## Known shortfalls
 
@@ -130,7 +141,11 @@ semantics of both.
 **String `:contains`** compiles to a pattern with a leading wildcard, which no index can seek
 whatever the collation.
 
-**Sorting** uses a temporary b-tree rather than an index; see [Sorting](#sorting).
+**Sorting**, filtered, sorts its matches in a temporary b-tree; see [Sorting](#sorting). Unfiltered,
+a page deep into the results still walks every value before it, and a page among the resources with
+no value first counts those that have one. In a prototype at 50,000 patients the last page took
+153 ms against the single query's 60 ms, and a page halfway through about the same as before.
+These costs are measured, not pinned.
 
 ## Fixed in #109
 
