@@ -260,12 +260,17 @@ jobs:
       # Fork pull requests leave workflow_run.pull_requests empty; the artifact carries the number.
       - name: Collect reports
         if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p reports/head reports/base
           cp -r engine/build/reports/benchmarks/. reports/head/ 2>/dev/null || true
           cp -r base/engine/build/reports/benchmarks/. reports/base/ 2>/dev/null || true
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "${{ github.event.number }}" > reports/pr-number.txt
+            echo "${{ github.event.pull_request.base.sha }}" > reports/base-sha.txt
+            gh pr diff "${{ github.event.number }}" --repo "$GITHUB_REPOSITORY" --name-only \
+              > reports/changed-files.txt || rm -f reports/changed-files.txt
           fi
 
       - name: Record the machine
@@ -284,12 +289,17 @@ jobs:
         if: always()
         run: |
           if [ -z "$(find reports/head -name '*.json' -print -quit)" ]; then exit 0; fi
-          BASE=""
+          ARGS=(--machine reports/machine.txt --repository "$GITHUB_REPOSITORY")
           if [ -n "$(find reports/base -name '*.json' -print -quit)" ]; then
-            BASE="--base reports/base"
+            ARGS+=(--base reports/base)
           fi
-          python3 .github/scripts/benchmark_table.py reports/head $BASE >> "$GITHUB_STEP_SUMMARY"
-          { echo; echo '```'; cat reports/machine.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          if [ -f reports/base-sha.txt ]; then
+            ARGS+=(--base-sha "$(head -n 1 reports/base-sha.txt)" --head-sha "${{ github.event.pull_request.head.sha }}")
+          fi
+          if [ -f reports/changed-files.txt ]; then
+            ARGS+=(--changed-files reports/changed-files.txt)
+          fi
+          python3 .github/scripts/benchmark_table.py reports/head "${ARGS[@]}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload benchmark reports
         uses: actions/upload-artifact@v4
