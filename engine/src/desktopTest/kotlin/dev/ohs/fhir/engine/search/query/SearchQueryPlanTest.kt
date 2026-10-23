@@ -29,6 +29,7 @@ import dev.ohs.fhir.engine.search.QuantityClientParam
 import dev.ohs.fhir.engine.search.ReferenceClientParam
 import dev.ohs.fhir.engine.search.Search
 import dev.ohs.fhir.engine.search.SearchQuery
+import dev.ohs.fhir.engine.search.SortSegment
 import dev.ohs.fhir.engine.search.StringClientParam
 import dev.ohs.fhir.engine.search.StringFilterModifier
 import dev.ohs.fhir.engine.search.TokenClientParam
@@ -37,6 +38,7 @@ import dev.ohs.fhir.engine.search.filter.TokenFilterValue
 import dev.ohs.fhir.engine.search.getIncludeQuery
 import dev.ohs.fhir.engine.search.getQuery
 import dev.ohs.fhir.engine.search.getRevIncludeQuery
+import dev.ohs.fhir.engine.search.getSortSegments
 import dev.ohs.fhir.engine.search.include
 import dev.ohs.fhir.engine.search.revInclude
 import dev.ohs.fhir.model.r4.FhirDate
@@ -276,25 +278,64 @@ class SearchQueryPlanTest {
   }
 
   /**
-   * The sort joins both date tables on `resourceUuid` without naming a type, so it is served by the
-   * index led by `resourceUuid`, not by the one the range searches use.
+   * A filtered sort joins both date tables on `resourceUuid` without naming a type, so it is served
+   * by the index led by `resourceUuid`, not by the one the range searches use.
    */
   @Test
-  fun `date sort finds each resource's dates by its uuid`() = runTest {
+  fun `filtered date sort finds each resource's dates by its uuid`() = runTest {
     val plan = planFor(dateSortedSearch())
 
     assertIndexUsed(plan, table = "b", constraints = "resourceUuid=? AND index_name=?")
     assertIndexUsed(plan, table = "c", constraints = "resourceUuid=? AND index_name=?")
   }
 
+  /** The filter leaves few rows, so sorting them costs little. */
   @Test
-  fun `sorted search sorts with a temporary b-tree rather than an index`() = runTest {
+  fun `filtered sort sorts its matches with a temporary b-tree`() = runTest {
     val plan = planFor(sortedSearch())
 
     assertTrue(
       plan.any { it.contains("USE TEMP B-TREE FOR ORDER BY") },
       "expected a temporary b-tree sort, got: $plan",
     )
+  }
+
+  /**
+   * Without a filter, sorting every resource before the limit applies is what made a sorted first
+   * page slow. Each segment reads an index in order instead, so the limit stops it early.
+   */
+  @Test
+  fun `unfiltered sort reads every segment in index order`() = runTest {
+    for ((name, segments) in unfilteredSorts()) {
+      for (segment in segments) {
+        val plan = planFor(segment.page(limit = 50, offset = 0))
+        assertTrue(plan.none { "TEMP B-TREE" in it }, "$name sorts rather than walking: $plan")
+      }
+    }
+  }
+
+  @Test
+  fun `unfiltered sort walks the sort index on its type and parameter`() = runTest {
+    for ((name, segments) in unfilteredSorts()) {
+      val plan = planFor(segments.first().page(limit = 50, offset = 0))
+      val line =
+        plan.firstOrNull { it.startsWith("SEARCH b USING") || it.startsWith("SCAN b USING") }
+      assertTrue(
+        line != null && "(resourceType=? AND index_name=?)" in line,
+        "$name should walk its sort index, got: $plan",
+      )
+    }
+  }
+
+  @Test
+  fun `filtered sort has no segments`() {
+    val search =
+      Search(ResourceType.Patient).apply {
+        filter(StringClientParam("family"), { value = "Jones" })
+        sort(StringClientParam("given"), Order.ASCENDING)
+      }
+
+    assertTrue(search.getSortSegments() == null)
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -329,6 +370,11 @@ class SearchQueryPlanTest {
       "number" to numberSearch(),
       "uri" to uriSearch(),
       "sorted" to sortedSearch(),
+      *unfilteredSorts()
+        .flatMap { (name, segments) ->
+          segments.mapIndexed { i, it -> "$name segment $i" to it.page(limit = 50, offset = 0) }
+        }
+        .toTypedArray(),
       "count" to countSearch(),
     )
 
@@ -429,7 +475,10 @@ class SearchQueryPlanTest {
 
   private fun dateSortedSearch() =
     Search(ResourceType.Patient)
-      .apply { sort(DateClientParam("birthdate"), Order.ASCENDING) }
+      .apply {
+        filter(StringClientParam("family"), { value = "Jones" })
+        sort(DateClientParam("birthdate"), Order.ASCENDING)
+      }
       .getQuery()
 
   private fun numberSearch() =
@@ -439,8 +488,32 @@ class SearchQueryPlanTest {
 
   private fun sortedSearch() =
     Search(ResourceType.Patient)
-      .apply { sort(StringClientParam("given"), Order.ASCENDING) }
+      .apply {
+        filter(StringClientParam("family"), { value = "Jones" })
+        sort(StringClientParam("given"), Order.ASCENDING)
+      }
       .getQuery()
+
+  private fun unfilteredSorts(): List<Pair<String, List<SortSegment>>> =
+    listOf(
+        "string ascending" to
+          Search(ResourceType.Patient).apply { sort(StringClientParam("given"), Order.ASCENDING) },
+        "string descending" to
+          Search(ResourceType.Patient).apply { sort(StringClientParam("given"), Order.DESCENDING) },
+        "number" to
+          Search(ResourceType.RiskAssessment).apply {
+            sort(NumberClientParam("probability"), Order.ASCENDING)
+          },
+        "date" to
+          Search(ResourceType.Patient).apply {
+            sort(DateClientParam("birthdate"), Order.ASCENDING)
+          },
+        "date descending" to
+          Search(ResourceType.Patient).apply {
+            sort(DateClientParam("birthdate"), Order.DESCENDING)
+          },
+      )
+      .map { (name, search) -> name to search.getSortSegments()!! }
 
   private fun countSearch() =
     Search(ResourceType.Patient)
