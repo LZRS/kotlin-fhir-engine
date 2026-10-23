@@ -62,7 +62,7 @@ class SyncDownloadConflictTest {
 
   @AfterTest
   fun tearDown() {
-    FhirEngineProvider.clearInstance()
+    FhirEngineProvider.resetForTesting()
   }
 
   @Test
