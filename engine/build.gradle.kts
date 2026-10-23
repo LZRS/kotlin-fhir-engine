@@ -210,7 +210,8 @@ benchmark {
       iterationTime = 1
       iterationTimeUnit = "s"
     }
-    // The pull-request tier, with each sweep at its smallest size.
+    // The pull-request tier, with each sweep at its smallest size. Three forks, because JIT
+    // decisions vary between forks more than a single fork's interval shows.
     register("pr") {
       exclude(noisyOnCi)
       // One invocation takes a second or more.
@@ -220,18 +221,20 @@ benchmark {
       param("rows", 1000)
       param("changeCount", 50)
       param("results", 100)
-      warmups = 5
-      iterations = 10
+      warmups = 3
+      iterations = 5
       iterationTime = 500
       iterationTimeUnit = "ms"
+      advanced("jvmForks", 3)
     }
     // The pull-request tier's slow benchmarks.
     register("prNoisy") {
       include(noisyOnCi)
       warmups = 5
-      iterations = 10
+      iterations = 5
       iterationTime = 1
       iterationTimeUnit = "s"
+      advanced("jvmForks", 3)
     }
     // The benchmarks with a @Param grid or a seeded corpus, at full size.
     register("index") {

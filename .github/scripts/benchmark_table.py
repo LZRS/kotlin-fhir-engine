@@ -15,6 +15,7 @@ import json
 import math
 import pathlib
 import re
+import statistics
 import sys
 
 # Lets the commenting workflow find and update its previous comment.
@@ -32,6 +33,10 @@ BENCHMARKED_PATHS = {
 }
 
 TIME_UNITS = ["ns", "us", "ms", "s"]
+
+# Two-sided 95% t-quantiles by degrees of freedom. A missing df rounds down to the next key.
+T_95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365, 8: 2.306,
+        9: 2.262, 10: 2.228, 12: 2.179, 15: 2.131, 20: 2.086, 30: 2.042}
 
 SHA = re.compile(r"^[0-9a-f]{40}$")
 
@@ -115,11 +120,36 @@ def display_unit(unit: str, magnitude: float) -> tuple[str, float]:
     return TIME_UNITS[index].replace("us", "µs"), factor
 
 
-def format_measurements(entries: list[dict], unit: str, factor: float) -> list[str]:
+def t_95(df: float) -> float:
+    eligible = [key for key in T_95 if key <= df]
+    return T_95[max(eligible)] if eligible else T_95[1]
+
+
+def fork_means(entry: dict) -> list[float]:
+    raw = entry.get("primaryMetric", {}).get("rawData") or []
+    return [statistics.fmean(fork) for fork in raw if fork]
+
+
+def across_forks(entries: list[dict]) -> bool:
+    """Whether every entry has several forks, so intervals can be taken across them."""
+    return bool(entries) and all(len(fork_means(entry)) >= 2 for entry in entries)
+
+
+def measurement(entry: dict, forks: bool) -> tuple[float, float]:
+    """The score and its interval: 95% across forks, or JMH's 99.9% over one fork's iterations."""
+    means = fork_means(entry)
+    if forks:
+        n = len(means)
+        return statistics.fmean(means), t_95(n - 1) * statistics.stdev(means) / math.sqrt(n)
+    metric = entry.get("primaryMetric", {})
+    return metric.get("score", 0.0), metric.get("scoreError", 0.0)
+
+
+def format_measurements(entries: list[dict], unit: str, factor: float, forks: bool) -> list[str]:
     """Each entry's score and error, all to the decimal places the widest error needs."""
-    metrics = [entry.get("primaryMetric", {}) for entry in entries]
-    scores = [metric.get("score", 0.0) * factor for metric in metrics]
-    errors = [metric.get("scoreError", 0.0) * factor for metric in metrics]
+    pairs = [measurement(entry, forks) for entry in entries]
+    scores = [score * factor for score, _ in pairs]
+    errors = [error * factor for _, error in pairs]
     places = decimals_for(max(errors), min(scores))
     return [f"{score:,.{places}f} ± {error:,.{places}f} {unit}" for score, error in zip(scores, errors)]
 
@@ -132,18 +162,43 @@ def format_change(relative: float, interval: float) -> str:
     return f"{change}% ± {interval * 100:.{places}f}%"
 
 
-def classify(base: dict, head: dict) -> tuple[str, float, float]:
-    """A verdict, the relative change of head against base, and the interval of that change.
+def change_interval(base: dict, head: dict, forks: bool) -> float:
+    """The half-width of the interval of head minus base.
 
-    The interval of the difference is the two errors combined in quadrature. Both sides run the same
+    With several forks a side, a pooled 95% t-interval over the fork means, because forks differ
+    more than iterations within a fork. Pooled, because both sides run the same benchmark on the same
+    machine. Otherwise the two 99.9% errors combined in quadrature; both sides run the same
     iteration count, so they share a t-quantile and this is exact.
     """
-    base_metric, head_metric = base["primaryMetric"], head["primaryMetric"]
-    base_score, head_score = base_metric["score"], head_metric["score"]
+    if forks:
+        base_means, head_means = fork_means(base), fork_means(head)
+        nb, nh = len(base_means), len(head_means)
+        df = nb + nh - 2
+        pooled = (
+            (nb - 1) * statistics.variance(base_means) + (nh - 1) * statistics.variance(head_means)
+        ) / df
+        return t_95(df) * math.sqrt(pooled * (1 / nb + 1 / nh))
+    return math.hypot(
+        base["primaryMetric"].get("scoreError", 0.0), head["primaryMetric"].get("scoreError", 0.0)
+    )
+
+
+def interval_note(entries: list[dict], forks: bool) -> str:
+    if forks:
+        counts = sorted({len(fork_means(entry)) for entry in entries})
+        count = f"{counts[0]}" if len(counts) == 1 else f"{counts[0]}–{counts[-1]}"
+        return f"`±` is a 95% interval across {count} forks."
+    return "`±` is the 99.9% confidence interval of one fork."
+
+
+def classify(base: dict, head: dict, forks: bool) -> tuple[str, float, float]:
+    """A verdict, the relative change of head against base, and the interval of that change."""
+    base_score, _ = measurement(base, forks)
+    head_score, _ = measurement(head, forks)
     if base_score <= 0:
         return "unchanged", 0.0, 0.0
     relative = (head_score - base_score) / base_score
-    combined_error = math.hypot(base_metric.get("scoreError", 0.0), head_metric.get("scoreError", 0.0))
+    combined_error = change_interval(base, head, forks)
     interval = combined_error / base_score
     separated = abs(head_score - base_score) > combined_error
     if separated and abs(relative) >= MIN_RELATIVE_CHANGE:
@@ -221,6 +276,7 @@ def render_single(entries: list[dict], marker: str, machine: str | None) -> str:
         )
 
     entries = sorted(entries, key=key_of)
+    forks = across_forks(entries)
     omit = constant_params([key_of(entry) for entry in entries])
     rows = []
     for entry in entries:
@@ -229,10 +285,10 @@ def render_single(entries: list[dict], marker: str, machine: str | None) -> str:
         label = f"`{method}` {format_params(params, omit)}".rstrip()
         metric = entry.get("primaryMetric", {})
         unit, factor = display_unit(metric.get("scoreUnit", ""), metric.get("score", 0.0))
-        rows.append((class_name, label, format_measurements([entry], unit, factor)))
+        rows.append((class_name, label, format_measurements([entry], unit, factor, forks)))
 
     lines = header(marker) + [
-        f"{len(rows)} benchmarks. Lower is better; `±` is the 99.9% confidence interval. "
+        f"{len(rows)} benchmarks. Lower is better; {interval_note(entries, forks)} "
         "No base to compare against, so these numbers only describe this runner.",
         "",
         *table(rows, ["Score"]),
@@ -255,6 +311,8 @@ def render_diff(
     base_by_key = {key_of(entry): entry for entry in base_entries}
     head_by_key = {key_of(entry): entry for entry in head_entries}
     omit = constant_params(list(base_by_key) + list(head_by_key))
+    # One fork on either side, as when the base predates the forks setting, falls back throughout.
+    forks = across_forks(base_entries + head_entries)
 
     groups: dict[str, list] = {"flagged": [], "unclear": [], "unchanged": [], "new": []}
     counts = {"slower": 0, "faster": 0, "unclear": 0, "unchanged": 0, "new": 0}
@@ -266,14 +324,14 @@ def render_diff(
         unit, factor = display_unit(reference.get("scoreUnit", ""), reference.get("score", 0.0))
         if base is None:
             counts["new"] += 1
-            groups["new"].append((class_name, label, format_measurements([head], unit, factor)))
+            groups["new"].append((class_name, label, format_measurements([head], unit, factor, forks)))
             continue
-        verdict, relative, interval = classify(base, head)
+        verdict, relative, interval = classify(base, head, forks)
         counts[verdict] += 1
         change = format_change(relative, interval)
         if verdict in ("slower", "faster"):
             change = ("⚠️ " if verdict == "slower" else "✅ ") + change
-        cells = [*format_measurements([base, head], unit, factor), change]
+        cells = [*format_measurements([base, head], unit, factor, forks), change]
         group = "flagged" if verdict in ("slower", "faster") else verdict
         groups[group].append((class_name, label, cells))
     removed = sorted(set(base_by_key) - set(head_by_key))
@@ -317,9 +375,9 @@ def render_diff(
 
     notes = [
         "- Base and head ran in the same job. Lower is better.",
-        "- `±` is the 99.9% confidence interval.",
+        f"- {interval_note(base_entries + head_entries, forks)}",
         f"- Flagged: the change is outside its interval and at least {MIN_RELATIVE_CHANGE:.0%}.",
-        "- Each side is one run, so expect the odd false flag.",
+        "- Expect the odd false flag.",
     ]
     if omit:
         notes += [f"- Every run uses {format_params(omit.items(), {})}."]
