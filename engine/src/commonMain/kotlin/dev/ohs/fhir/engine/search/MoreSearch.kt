@@ -51,7 +51,6 @@ private const val APPROXIMATION_COEFFICIENT = 0.1
  * [Storage Classes and Datatypes](https://www.sqlite.org/datatype3.html)
  */
 private const val MIN_VALUE = "-9223372036854775808"
-private const val MAX_VALUE = "9223372036854775808"
 
 /**
  * Executes this search against [database]: runs the base query, then any `_include` (forward) and
@@ -328,9 +327,9 @@ private fun Search.getSortOrder(
  * Without the `>= MIN_VALUE` check, NULL values are not included in the results if the default
  * is 0.
  *
- * The default values provided in GROUP BY stage are not carried forward during the ORDER BY, so we
- * provide [MAX_VALUE] and [MIN_VALUE] as default in ORDER BY respectively for ASCENDING and
- * DESCENDING to make sure that results with null index values are always at the bottom.
+ * The ORDER BY puts results with no index value at the bottom with an `IS NULL` term before each
+ * column. A sentinel default cannot: SQLite orders every number before every string, so a numeric
+ * default would put them at the top of an ascending string sort.
  */
 private fun generateGroupAndOrderQuery(
   sort: ClientParam,
@@ -355,19 +354,13 @@ private fun generateGroupAndOrderQuery(
 
     """
       .trimIndent()
-  val defaultValue = if (order == Order.ASCENDING) MAX_VALUE else MIN_VALUE
-  sortTableNames.forEachIndexed { index, sortTableName ->
-    val tableAlias = 'b' + index
-    sortOrderStatement +=
-      if (index == 0) {
-        """
-        ORDER BY IFNULL($tableAlias.${sortTableName.columnName}, $defaultValue) ${order.sqlString}
-        """
-          .trimIndent()
-      } else {
-        ", IFNULL($tableAlias.${SortTableInfo.DATE_TIME_SORT_TABLE_INFO.columnName}, $defaultValue) ${order.sqlString}"
+  sortOrderStatement +=
+    sortTableNames
+      .mapIndexed { index, sortTableName ->
+        val column = "${'b' + index}.${sortTableName.columnName}"
+        "$column IS NULL, $column ${order.sqlString}"
       }
-  }
+      .joinToString(prefix = "ORDER BY ")
   return sortOrderStatement
 }
 
