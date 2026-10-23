@@ -69,7 +69,7 @@ internal abstract class ResourceDatabase : RoomDatabase() {
   abstract fun localChangeDao(): LocalChangeDao
 
   companion object {
-    const val VERSION = 12
+    const val VERSION = 13
 
     val MIGRATION_1_2 =
       Migration(1, 2) { c -> c.executeSQL("DROP TABLE IF EXISTS SyncedResourceEntity") }
@@ -259,6 +259,22 @@ internal abstract class ResourceDatabase : RoomDatabase() {
         )
       }
 
+    /** Moves the date range columns ahead of resourceUuid; the rows are unchanged. */
+    val MIGRATION_12_13 =
+      Migration(12, 13) { c ->
+        for (table in listOf("DateIndexEntity", "DateTimeIndexEntity")) {
+          c.executeSQL(
+            "DROP INDEX IF EXISTS `index_${table}_resourceType_index_name_resourceUuid_index_from_index_to`",
+          )
+          c.executeSQL(
+            "CREATE INDEX IF NOT EXISTS `index_${table}_resourceType_index_name_index_from_index_to_resourceUuid` ON `$table` (`resourceType`, `index_name`, `index_from`, `index_to`, `resourceUuid`)",
+          )
+          c.executeSQL(
+            "CREATE INDEX IF NOT EXISTS `index_${table}_resourceType_index_name_index_to_resourceUuid` ON `$table` (`resourceType`, `index_name`, `index_to`, `resourceUuid`)",
+          )
+        }
+      }
+
     /** One migration per version step, the android-fhir engine's nine and then this engine's. */
     val STEPS =
       arrayOf(
@@ -273,6 +289,7 @@ internal abstract class ResourceDatabase : RoomDatabase() {
         MIGRATION_9_10,
         MIGRATION_10_11,
         MIGRATION_11_12,
+        MIGRATION_12_13,
       )
 
     /**

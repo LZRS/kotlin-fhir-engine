@@ -40,6 +40,7 @@ import dev.ohs.fhir.engine.search.getRevIncludeQuery
 import dev.ohs.fhir.engine.search.include
 import dev.ohs.fhir.engine.search.revInclude
 import dev.ohs.fhir.model.r4.FhirDate
+import dev.ohs.fhir.model.r4.FhirDateTime
 import dev.ohs.fhir.model.r4.Observation
 import dev.ohs.fhir.model.r4.Patient
 import dev.ohs.fhir.model.r4.SearchParameter.SearchComparator
@@ -237,29 +238,53 @@ class SearchQueryPlanTest {
     }
   }
 
-
   /**
-   * Known shortfall: the index puts `resourceUuid` before the range columns, so no date range can
-   * use them. See "Known shortfalls" in docs/benchmark-results.md.
+   * `>` and `>=` compare `index_to`, so they need an index with `index_to` straight after the
+   * equality prefix, and `resourceUuid` after it to stay covering.
    */
   @Test
-  fun `date search above a bound cannot use the range columns`() = runTest {
-    assertIndexUsed(
-      planFor(dateSearch()),
-      table = "DateIndexEntity",
-      constraints = "resourceType=? AND index_name=?",
-      covering = true,
-    )
+  fun `date and dateTime searches above a bound range on index_to`() = runTest {
+    for ((table, query) in
+      listOf(
+        "DateIndexEntity" to dateSearch(SearchComparator.Gt),
+        "DateTimeIndexEntity" to dateTimeSearch(SearchComparator.Gt),
+      )) {
+      assertIndexUsed(
+        planFor(query),
+        table = table,
+        constraints = "resourceType=? AND index_name=? AND index_to>?",
+        covering = true,
+      )
+    }
   }
 
+  /** `<` and `<=` compare `index_from`, so they need the index led by it instead. */
   @Test
-  fun `date search below a bound cannot use the range columns`() = runTest {
-    assertIndexUsed(
-      planFor(dateBeforeSearch()),
-      table = "DateIndexEntity",
-      constraints = "resourceType=? AND index_name=?",
-      covering = true,
-    )
+  fun `date and dateTime searches below a bound range on index_from`() = runTest {
+    for ((table, query) in
+      listOf(
+        "DateIndexEntity" to dateSearch(SearchComparator.Lt),
+        "DateTimeIndexEntity" to dateTimeSearch(SearchComparator.Lt),
+      )) {
+      assertIndexUsed(
+        planFor(query),
+        table = table,
+        constraints = "resourceType=? AND index_name=? AND index_from<?",
+        covering = true,
+      )
+    }
+  }
+
+  /**
+   * The sort joins both date tables on `resourceUuid` without naming a type, so it is served by the
+   * index led by `resourceUuid`, not by the one the range searches use.
+   */
+  @Test
+  fun `date sort finds each resource's dates by its uuid`() = runTest {
+    val plan = planFor(dateSortedSearch())
+
+    assertIndexUsed(plan, table = "b", constraints = "resourceUuid=? AND index_name=?")
+    assertIndexUsed(plan, table = "c", constraints = "resourceUuid=? AND index_name=?")
   }
 
   @Test
@@ -296,8 +321,11 @@ class SearchQueryPlanTest {
       "reference" to referenceSearch(),
       "quantity" to quantitySearch(),
       "quantity with unit" to quantitySearchWithUnit(),
-      "date" to dateSearch(),
-      "date before" to dateBeforeSearch(),
+      "date above" to dateSearch(SearchComparator.Gt),
+      "date below" to dateSearch(SearchComparator.Lt),
+      "dateTime above" to dateTimeSearch(SearchComparator.Gt),
+      "dateTime below" to dateTimeSearch(SearchComparator.Lt),
+      "date sorted" to dateSortedSearch(),
       "number" to numberSearch(),
       "uri" to uriSearch(),
       "sorted" to sortedSearch(),
@@ -373,30 +401,35 @@ class SearchQueryPlanTest {
       }
       .getQuery()
 
-  private fun dateBeforeSearch() =
-    Search(ResourceType.Patient)
-      .apply {
-        filter(
-          DateClientParam("birthdate"),
-          {
-            value = of(FhirDate.Date(LocalDate(2000, 1, 1)))
-            prefix = SearchComparator.Lt
-          },
-        )
-      }
-      .getQuery()
-
-  private fun dateSearch() =
+  private fun dateSearch(comparator: SearchComparator) =
     Search(ResourceType.Patient)
       .apply {
         filter(
           DateClientParam("birthdate"),
           {
             value = of(FhirDate.Date(LocalDate(1970, 1, 1)))
-            prefix = SearchComparator.Gt
+            prefix = comparator
           },
         )
       }
+      .getQuery()
+
+  private fun dateTimeSearch(comparator: SearchComparator) =
+    Search(ResourceType.Observation)
+      .apply {
+        filter(
+          DateClientParam("date"),
+          {
+            value = of(FhirDateTime.fromString("2013-03-14T10:00:00Z")!!)
+            prefix = comparator
+          },
+        )
+      }
+      .getQuery()
+
+  private fun dateSortedSearch() =
+    Search(ResourceType.Patient)
+      .apply { sort(DateClientParam("birthdate"), Order.ASCENDING) }
       .getQuery()
 
   private fun numberSearch() =
