@@ -188,7 +188,7 @@ jobs:
   benchmark:
     name: Micro benchmarks
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 120
     permissions:
       contents: read
       pull-requests: read
@@ -242,16 +242,25 @@ jobs:
             echo "tasks=:engine:prBenchmark :engine:prNoisyBenchmark" >> "$GITHUB_OUTPUT"
           fi
 
-      # The base may predate the benchmarks; the comment then shows the head alone.
-      - name: Run the benchmarks against the base
+      # Alternating rounds spread drift on the runner over both sides. Each round adds a
+      # timestamped report; the table compares the newest, and the artifact keeps them all.
+      - name: Run the benchmarks, alternating base and head
         if: github.event_name == 'pull_request'
-        continue-on-error: true
-        working-directory: base
-        run: ./gradlew ${{ steps.tier.outputs.tasks }} -Pbenchmark.tmpdir=/dev/shm/benchmarks "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
-
-      - name: Run the benchmarks against the head
-        if: github.event_name == 'pull_request'
-        run: ./gradlew ${{ steps.tier.outputs.tasks }} -Pbenchmark.tmpdir=/dev/shm/benchmarks "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
+        env:
+          TASKS: ${{ steps.tier.outputs.tasks }}
+        run: |
+          args=(-Pbenchmark.tmpdir=/dev/shm/benchmarks "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g")
+          base_runs=true
+          for round in 1 2 3; do
+            # The base may predate the benchmarks; the comment then shows the head alone.
+            if $base_runs; then
+              (cd base && ./gradlew $TASKS "${args[@]}") || {
+                echo "::warning::The base failed in round $round; skipping it from now on."
+                base_runs=false
+              }
+            fi
+            ./gradlew $TASKS "${args[@]}"
+          done
 
       - name: Run the full tier
         if: github.event_name != 'pull_request'

@@ -100,8 +100,11 @@ reports a confidence interval itself. For end-to-end comparisons run by hand:
 ## What CI measures
 
 **On a pull request**, the job runs `:engine:prBenchmark` and `:engine:prNoisyBenchmark` against
-the base branch and then the head, on the same runner, and comments with the difference. Scores
-from two different jobs are not comparable, because shared runners differ in machine class.
+the base branch and the head, on the same runner, and comments with the difference. Scores from
+two different jobs are not comparable, because shared runners differ in machine class.
+
+It runs three rounds, alternating base and head. The comment compares the last round; the
+artifact keeps every round.
 
 A row is flagged when the difference is outside its 99.9% confidence interval and is at least 5%.
 The interval of a difference combines the two errors in quadrature, and the comment shows it next
