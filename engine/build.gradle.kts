@@ -170,6 +170,8 @@ val benchmarkRuns = tasks.withType<JavaExec>().matching { it.name.endsWith("Benc
 benchmarkRuns.configureEach {
   // -Pbenchmark.tmpdir moves benchmark databases. JMH forks inherit these JVM arguments.
   providers.gradleProperty("benchmark.tmpdir").orNull?.let { jvmArgs("-Djava.io.tmpdir=$it") }
+  // Experiment only: extra JVM arguments for the forks.
+  providers.gradleProperty("benchmark.jvmargs").orNull?.let { jvmArgs(it.split(" ")) }
 
   // kotlinx-benchmark exits 0 and drops a benchmark from the report when it fails, with no setting
   // to change this. Fail the task on the failure markers in the runner's output instead.
@@ -201,6 +203,10 @@ val noisyOnCi =
   "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\." +
     "(BulkImport|DatabaseOpen|Engine(Create|Update|Delete)|ResourceRead)Benchmark"
 
+// Experiment only: the pull-request tiers' fork shape.
+fun experiment(name: String, default: Int) =
+  providers.gradleProperty("benchmark.$name").orNull?.toInt() ?: default
+
 benchmark {
   targets { register("desktopBenchmark") }
   configurations {
@@ -221,20 +227,20 @@ benchmark {
       param("rows", 1000)
       param("changeCount", 50)
       param("results", 100)
-      warmups = 3
-      iterations = 5
-      iterationTime = 500
+      warmups = experiment("warmups", 3)
+      iterations = experiment("iterations", 5)
+      iterationTime = experiment("iterationMs", 500).toLong()
       iterationTimeUnit = "ms"
-      advanced("jvmForks", 3)
+      advanced("jvmForks", experiment("forks", 3))
     }
     // The pull-request tier's slow benchmarks.
     register("prNoisy") {
       include(noisyOnCi)
-      warmups = 5
-      iterations = 5
+      warmups = experiment("noisyWarmups", 5)
+      iterations = experiment("noisyIterations", 5)
       iterationTime = 1
       iterationTimeUnit = "s"
-      advanced("jvmForks", 3)
+      advanced("jvmForks", experiment("forks", 3))
     }
     // The benchmarks with a @Param grid or a seeded corpus, at full size.
     register("index") {

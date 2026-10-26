@@ -186,9 +186,20 @@ jobs:
             engine/build/outputs/androidTest-results/
 
   benchmark:
-    name: Micro benchmarks
+    name: Micro benchmarks (${{ matrix.config }})
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 120
+    # Experiment: A/A, head against itself, one fork shape per job.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - config: forks3
+            props: ""
+          - config: forks6-short
+            props: "-Pbenchmark.forks=6 -Pbenchmark.warmups=3 -Pbenchmark.iterations=2 -Pbenchmark.iterationMs=250 -Pbenchmark.noisyWarmups=2 -Pbenchmark.noisyIterations=2"
+          - config: forks6-short-xbatch
+            props: "-Pbenchmark.forks=6 -Pbenchmark.warmups=3 -Pbenchmark.iterations=2 -Pbenchmark.iterationMs=250 -Pbenchmark.noisyWarmups=2 -Pbenchmark.noisyIterations=2 -Pbenchmark.jvmargs=-Xbatch"
     permissions:
       contents: read
       pull-requests: read
@@ -224,7 +235,7 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
           path: base
 
       # Read from the API so a re-run sees labels added after the event.
@@ -247,11 +258,11 @@ jobs:
         if: github.event_name == 'pull_request'
         continue-on-error: true
         working-directory: base
-        run: ./gradlew ${{ steps.tier.outputs.tasks }} -Pbenchmark.tmpdir=/dev/shm/benchmarks "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
+        run: ./gradlew ${{ steps.tier.outputs.tasks }} ${{ matrix.props }} -Pbenchmark.tmpdir=/dev/shm/benchmarks "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
 
       - name: Run the benchmarks against the head
         if: github.event_name == 'pull_request'
-        run: ./gradlew ${{ steps.tier.outputs.tasks }} -Pbenchmark.tmpdir=/dev/shm/benchmarks "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
+        run: ./gradlew ${{ steps.tier.outputs.tasks }} ${{ matrix.props }} -Pbenchmark.tmpdir=/dev/shm/benchmarks "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
 
       - name: Run the full tier
         if: github.event_name != 'pull_request'
@@ -305,5 +316,5 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: benchmark-reports
+          name: benchmark-reports-${{ matrix.config }}
           path: reports/
