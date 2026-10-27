@@ -15,6 +15,7 @@
  */
 package dev.ohs.fhir.engine
 
+import dev.ohs.fhir.engine.db.impl.isDatabaseEncryptionSupported
 import dev.ohs.fhir.model.r4.Patient
 import dev.ohs.fhir.model.r4.terminologies.ResourceType
 import kotlin.test.AfterTest
@@ -68,6 +69,17 @@ class FhirEngineProviderTest {
     engine.create(Patient(id = "in-memory"))
 
     assertEquals("in-memory", engine.get(ResourceType.Patient, "in-memory").id)
+  }
+
+  @Test
+  fun init_withEncryption_throwsWhereThePlatformCannotEncrypt() {
+    if (isDatabaseEncryptionSupported) return
+    assertFailsWith<UnsupportedOperationException> {
+      FhirEngineProvider.init(
+        FhirEngineConfiguration(enableEncryption = true, testMode = true),
+        testPlatformContext(),
+      )
+    }
   }
 
   @Test

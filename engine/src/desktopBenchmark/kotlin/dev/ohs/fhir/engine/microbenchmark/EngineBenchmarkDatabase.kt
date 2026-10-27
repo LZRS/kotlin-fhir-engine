@@ -63,7 +63,6 @@ internal class EngineBenchmarkDatabase(
       platformContext = Unit,
       resourceIndexer = ResourceIndexer(SearchParamDefinitionsProviderImpl()),
       storageDirectory = directory.absolutePath,
-      inMemory = false,
     )
 
   /** Writes [rows] patients as remote resources, so no local change is recorded. */
