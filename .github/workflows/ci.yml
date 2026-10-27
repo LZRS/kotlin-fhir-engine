@@ -238,7 +238,7 @@ jobs:
           path: reports/
 
   benchmark:
-    name: Micro benchmarks (shard ${{ matrix.shard }})
+    name: Micro benchmarks
     needs: benchmark-scope
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.benchmark-scope.outputs.tasks != '') }}
     runs-on: ubuntu-latest
