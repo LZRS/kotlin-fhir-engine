@@ -239,14 +239,18 @@ def describe_commits(base_sha: str | None, head_sha: str | None, repository: str
     return ", ".join(parts) + "." if parts else ""
 
 
+def count_changes(changed_files: list[str]) -> dict[str, int]:
+    return {
+        label: sum(1 for path in changed_files if path.startswith(prefixes))
+        for label, prefixes in BENCHMARKED_PATHS.items()
+    }
+
+
 def describe_changes(changed_files: list[str] | None) -> str:
     """Says how many changed files the benchmarks run. Never echoes a path, which is untrusted."""
     if changed_files is None:
         return ""
-    counts = {
-        label: sum(1 for path in changed_files if path.startswith(prefixes))
-        for label, prefixes in BENCHMARKED_PATHS.items()
-    }
+    counts = count_changes(changed_files)
     total = sum(counts.values())
     if total == 0:
         return "No benchmarked code changed; any flag is noise."
@@ -398,7 +402,7 @@ def read_optional(path: pathlib.Path | None) -> str | None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("head", type=pathlib.Path)
+    parser.add_argument("head", type=pathlib.Path, nargs="?")
     parser.add_argument("--base", type=pathlib.Path)
     parser.add_argument("--marker", default=DEFAULT_MARKER)
     parser.add_argument("--base-sha")
@@ -406,9 +410,29 @@ def main() -> int:
     parser.add_argument("--repository", help="owner/name, to link the commits")
     parser.add_argument("--changed-files", type=pathlib.Path, help="one changed path per line")
     parser.add_argument("--machine", type=pathlib.Path, help="a description of the runner")
+    parser.add_argument(
+        "--count-changes",
+        action="store_true",
+        help="print how many --changed-files the benchmarks compile, and exit",
+    )
     arguments = parser.parse_args()
 
-    if not arguments.head.exists():
+    changed = read_optional(arguments.changed_files)
+    changed_files = changed.splitlines() if changed is not None else None
+    benchmarked = sum(count_changes(changed_files).values()) if changed_files is not None else None
+    if arguments.count_changes:
+        if benchmarked is None:
+            parser.error("--count-changes needs --changed-files")
+        print(benchmarked)
+        return 0
+
+    commits = describe_commits(arguments.base_sha, arguments.head_sha, arguments.repository)
+    if arguments.head is None or not arguments.head.exists():
+        # CI skips the benchmarks, and uploads no report, when no benchmarked file changed.
+        if benchmarked == 0:
+            skipped = f"{commits} No benchmarked code changed; skipped.".lstrip()
+            print("\n".join(header(arguments.marker) + [skipped]))
+            return 0
         print(f"no report at {arguments.head}", file=sys.stderr)
         return 1
 
@@ -419,7 +443,6 @@ def main() -> int:
         else []
     )
     machine = read_optional(arguments.machine)
-    changed = read_optional(arguments.changed_files)
 
     # With no base entries, every row would show as new.
     if base_entries and head_entries:
@@ -428,8 +451,8 @@ def main() -> int:
                 base_entries,
                 head_entries,
                 arguments.marker,
-                describe_commits(arguments.base_sha, arguments.head_sha, arguments.repository),
-                describe_changes(changed.splitlines() if changed is not None else None),
+                commits,
+                describe_changes(changed_files),
                 machine,
             )
         )

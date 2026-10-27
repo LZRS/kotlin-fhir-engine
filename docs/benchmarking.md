@@ -117,7 +117,8 @@ If either side has one fork, as when the base predates the forks setting, the co
 JMH's 99.9% intervals combined in quadrature.
 
 The comment also counts the changed files the benchmarks compile: `commonMain`, `desktopMain`,
-`desktopBenchmark` and the build files. With none changed, a flag is noise.
+`desktopBenchmark` and the build files. With none changed, the benchmarks are skipped, and an
+earlier comment says so. A `benchmark:full` pull request always runs.
 
 On a pull request the databases live on tmpfs (`-Pbenchmark.tmpdir=/dev/shm/benchmarks`), because
 the runner's disk speed varies within a job. SQL, indexing and cascades still run.

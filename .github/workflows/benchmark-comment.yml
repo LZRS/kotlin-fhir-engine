@@ -70,6 +70,8 @@ jobs:
           if [ -f reports/machine.txt ]; then
             ARGS+=(--machine reports/machine.txt)
           fi
+          # CI uploads no report when it skipped the benchmarks.
+          if [ ! -d reports/head ]; then echo "skipped=true" >> "$GITHUB_OUTPUT"; fi
           {
             echo 'body<<BENCHMARK_TABLE_EOF'
             python3 .github/scripts/benchmark_table.py reports/head "${ARGS[@]}"
@@ -105,6 +107,10 @@ jobs:
             });
             const existing = comments.find((comment) => comment.body.includes(marker));
 
+            // A skip only replaces an earlier table; it never starts a thread.
+            if (!existing && process.env.SKIPPED === 'true') {
+              return;
+            }
             if (existing) {
               await github.rest.issues.updateComment({
                 owner, repo, comment_id: existing.id, body,
@@ -116,3 +122,4 @@ jobs:
           BODY: ${{ steps.table.outputs.body }}
           ISSUE_NUMBER: ${{ steps.pr.outputs.number }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SKIPPED: ${{ steps.table.outputs.skipped }}

@@ -185,8 +185,62 @@ jobs:
             engine/build/reports/
             engine/build/outputs/androidTest-results/
 
+  # Skips the benchmarks when the pull request changes nothing they compile.
+  benchmark-scope:
+    name: Benchmark scope
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      tasks: ${{ steps.tier.outputs.tasks }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Read from the API so a re-run sees labels added after the event.
+      - name: Choose the tier
+        id: tier
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.number }}
+        run: |
+          mkdir -p reports
+          if gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json labels --jq '.labels[].name' \
+              | grep -qx 'benchmark:full'; then
+            tasks=":engine:benchmark"
+          elif gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only > reports/changed-files.txt \
+              && [ "$(python3 .github/scripts/benchmark_table.py --changed-files reports/changed-files.txt --count-changes)" = 0 ]; then
+            tasks=""
+          else
+            tasks=":engine:prBenchmark :engine:prNoisyBenchmark"
+          fi
+          echo "tasks=$tasks" >> "$GITHUB_OUTPUT"
+
+      # The comment workflow replaces any earlier table with this note.
+      - name: Record the skip
+        if: steps.tier.outputs.tasks == ''
+        run: |
+          echo "${{ github.event.number }}" > reports/pr-number.txt
+          echo "${{ github.event.pull_request.base.sha }}" > reports/base-sha.txt
+          python3 .github/scripts/benchmark_table.py --changed-files reports/changed-files.txt \
+            --base-sha "${{ github.event.pull_request.base.sha }}" \
+            --head-sha "${{ github.event.pull_request.head.sha }}" \
+            --repository "$GITHUB_REPOSITORY" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the skip
+        if: steps.tier.outputs.tasks == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-reports
+          path: reports/
+
   benchmark:
     name: Micro benchmarks
+    needs: benchmark-scope
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.benchmark-scope.outputs.tasks != '') }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     permissions:
@@ -227,31 +281,16 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           path: base
 
-      # Read from the API so a re-run sees labels added after the event.
-      - name: Choose the tier
-        id: tier
-        if: github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.number }}
-        run: |
-          if gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json labels --jq '.labels[].name' \
-              | grep -qx 'benchmark:full'; then
-            echo "tasks=:engine:benchmark" >> "$GITHUB_OUTPUT"
-          else
-            echo "tasks=:engine:prBenchmark :engine:prNoisyBenchmark" >> "$GITHUB_OUTPUT"
-          fi
-
       # The base may predate the benchmarks; the comment then shows the head alone.
       - name: Run the benchmarks against the base
         if: github.event_name == 'pull_request'
         continue-on-error: true
         working-directory: base
-        run: ./gradlew ${{ steps.tier.outputs.tasks }} -Pbenchmark.tmpdir=/dev/shm/benchmarks "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
+        run: ./gradlew ${{ needs.benchmark-scope.outputs.tasks }} -Pbenchmark.tmpdir=/dev/shm/benchmarks "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
 
       - name: Run the benchmarks against the head
         if: github.event_name == 'pull_request'
-        run: ./gradlew ${{ steps.tier.outputs.tasks }} -Pbenchmark.tmpdir=/dev/shm/benchmarks "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
+        run: ./gradlew ${{ needs.benchmark-scope.outputs.tasks }} -Pbenchmark.tmpdir=/dev/shm/benchmarks "-Pkotlin.daemon.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g"
 
       - name: Run the full tier
         if: github.event_name != 'pull_request'
