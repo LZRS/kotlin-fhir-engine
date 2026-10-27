@@ -56,7 +56,7 @@ From `SearchQueryPlanTest`, on the current schema. Unlike the timings, this tabl
 | quantity, no unit       | all three, range on the value      | no       |
 | quantity with a unit    | all four: the unit, then the range on the value | no |
 | string prefix           | all three, range on the value      | no       |
-| **string `:exact`**     | **two — it compares BINARY against a NOCASE index** | no |
+| string `:exact`         | all three: seeks NOCASE, then keeps the exact case | no |
 | string `:contains`      | two — a leading wildcard cannot seek | no     |
 | date, dateTime          | all three, range on `index_from` or `index_to` | yes |
 | `_revinclude`           | all three, then the resource by uuid | no     |
@@ -132,12 +132,6 @@ A weak filter, one that matches most resources, still sorts every match.
 
 Each is pinned by a test in `SearchQueryPlanTest`.
 
-**String `:exact`** compares `COLLATE BINARY` against `index_value`, which #109 declared NOCASE so
-that a prefix search could use the index. SQLite uses an index only when its collation matches the
-comparison's, so `:exact` now narrows on `(resourceType, index_name)` only. Keeping both needs a
-second column that mirrors `index_value` in BINARY. `StringSearchMatchingTest` pins the matching
-semantics of both.
-
 **String `:contains`** compiles to a pattern with a leading wildcard, which no index can seek
 whatever the collation.
 
@@ -156,8 +150,8 @@ fix, in the same run. Times are µs per search at 1,000 / 10,000 / 50,000 rows.
 **Prefix string search** compiled to `index_value LIKE ? || '%' COLLATE NOCASE` and narrowed on
 `(resourceType, index_name)` only. SQLite applies its LIKE optimisation only to a literal or plain
 parameter pattern, and uses an index only when its collation matches the comparison's. #109 binds
-the pattern whole and declares the column NOCASE, so the search ranges on `index_value`. The cost
-is `:exact`'s index; see [Known shortfalls](#known-shortfalls).
+the pattern whole and declares the column NOCASE, so the search ranges on `index_value`. `:exact`
+keeps its index: it seeks with a NOCASE comparison and keeps the exact case with a BINARY one.
 
 | `StringIndexCollationBenchmark` | 1,000 | 10,000 | 50,000 |
 |---|---:|---:|---:|
