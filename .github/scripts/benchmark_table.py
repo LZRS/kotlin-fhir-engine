@@ -39,6 +39,8 @@ T_95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365, 8
         9: 2.262, 10: 2.228, 12: 2.179, 15: 2.131, 20: 2.086, 30: 2.042}
 
 SHA = re.compile(r"^[0-9a-f]{40}$")
+# A CI shard's reports, as the merge job lays them out.
+SHARD = re.compile(r"^benchmark-shard-\d+$")
 
 Key = tuple[str, tuple[tuple[str, str], ...]]
 
@@ -71,6 +73,27 @@ def load_entries(paths: list[pathlib.Path]) -> list[dict]:
         if isinstance(content, list):
             entries.extend(content)
     return entries
+
+
+def load_by_shard(root: pathlib.Path) -> dict[str, list[dict]]:
+    """Entries by the CI shard that ran them; one group when the run was not sharded."""
+    children = root.iterdir() if root.is_dir() else []
+    shards = [child for child in children if child.is_dir() and SHARD.match(child.name)]
+    if not shards:
+        return {"": load_entries(find_reports(root))}
+    return {shard.name: load_entries(find_reports(shard)) for shard in shards}
+
+
+def same_shard(base: dict[str, list[dict]], head: dict[str, list[dict]]) -> list[dict]:
+    """Base entries from the shard that ran each head row, so no row spans two runners."""
+    head_keys = {shard: {key_of(entry) for entry in entries} for shard, entries in head.items()}
+    every = set().union(*head_keys.values())
+    return [
+        entry
+        for shard, entries in base.items()
+        for entry in entries
+        if key_of(entry) in head_keys.get(shard, set()) or key_of(entry) not in every
+    ]
 
 
 def key_of(entry: dict) -> Key:
@@ -436,9 +459,10 @@ def main() -> int:
         print(f"no report at {arguments.head}", file=sys.stderr)
         return 1
 
-    head_entries = load_entries(find_reports(arguments.head))
+    head = load_by_shard(arguments.head)
+    head_entries = [entry for entries in head.values() for entry in entries]
     base_entries = (
-        load_entries(find_reports(arguments.base))
+        same_shard(load_by_shard(arguments.base), head)
         if arguments.base is not None and arguments.base.exists()
         else []
     )
