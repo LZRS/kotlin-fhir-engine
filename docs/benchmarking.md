@@ -11,7 +11,7 @@ The micro benchmarks in `:engine` measure pure-CPU functions and SQLite. What th
 ./gradlew :engine:benchmark        # everything at full size; CI on main or a `benchmark:full` PR
 ```
 
-Run nothing else on the machine while they run.
+Run nothing else on the machine while the benchmarks run.
 
 Sources are in `engine/src/desktopBenchmark/kotlin/` and can use the engine's `internal`
 declarations. They run on the desktop JVM only, under JMH.
