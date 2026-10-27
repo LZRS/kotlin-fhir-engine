@@ -201,6 +201,14 @@ val noisyOnCi =
   "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\." +
     "(BulkImport|DatabaseOpen|Engine(Create|Update|Delete)|ResourceRead)Benchmark"
 
+/**
+ * Shard 1 of a CI run; shard 2 runs everything else. Split by run time. Each shard needs a
+ * [noisyOnCi] class, or its prNoisy run matches nothing and fails.
+ */
+val firstShard =
+  "dev\\.ohs\\.fhir\\.engine\\.microbenchmark\\." +
+    "(SearchExecution|SearchResultSize|Sort|LocalChangeRead|DatabaseOpen|ResourceRead)Benchmark\\."
+
 benchmark {
   targets { register("desktopBenchmark") }
   configurations {
@@ -253,6 +261,13 @@ benchmark {
       iterationTime = 500
       iterationTimeUnit = "ms"
     }
+  }
+  // -Pbenchmark.shard splits every configuration across CI jobs.
+  when (val shard = providers.gradleProperty("benchmark.shard").orNull) {
+    null -> {}
+    "1" -> configurations.configureEach { exclude("^(?!$firstShard)") }
+    "2" -> configurations.configureEach { exclude(firstShard) }
+    else -> throw GradleException("Unknown benchmark.shard: $shard")
   }
 }
 

@@ -105,6 +105,10 @@ reports a confidence interval itself. For end-to-end comparisons run by hand:
 the base branch and then the head, on the same runner, and comments with the difference. Scores
 from two different jobs are not comparable, because shared runners differ in machine class.
 
+The benchmarks are split across two jobs (`-Pbenchmark.shard=1` or `2`; `firstShard` in
+`engine/build.gradle.kts`). Each job runs base and head for its share, so a row is compared on one
+runner. A final job merges the reports.
+
 A row is flagged when the difference is outside its 95% interval and is at least 7.5%. The interval
 is a pooled t-interval over the fork means: JIT decisions vary between forks more than one fork's
 own interval shows. On identical code, one fork per side flagged 3–21 of 75 rows; three forks
