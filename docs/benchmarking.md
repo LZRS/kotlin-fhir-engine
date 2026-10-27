@@ -104,12 +104,12 @@ reports a confidence interval itself. For end-to-end comparisons run by hand:
 the base branch and then the head, on the same runner, and comments with the difference. Scores
 from two different jobs are not comparable, because shared runners differ in machine class.
 
-A row is flagged when the difference is outside its 95% interval and is at least 5%. The interval
+A row is flagged when the difference is outside its 95% interval and is at least 7.5%. The interval
 is a pooled t-interval over the fork means: JIT decisions vary between forks more than one fork's
 own interval shows. On identical code, one fork per side flagged 3–21 of 75 rows; three forks
-flagged one. The comment shows the interval next to the change.
+flagged one at 5% and none at 7.5%. The comment shows the interval next to the change.
 
-A row whose interval is wider than 5% is **too noisy**. Otherwise an unflagged row is
+A row whose interval is wider than 7.5% is **too noisy**. Otherwise an unflagged row is
 **unchanged**. The comment shows flagged rows and collapses the rest.
 
 If either side has one fork, as when the base predates the forks setting, the comment falls back to

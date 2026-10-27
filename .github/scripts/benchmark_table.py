@@ -22,7 +22,7 @@ import sys
 DEFAULT_MARKER = "<!-- micro-benchmarks -->"
 
 # A smaller change is not flagged, even when it is statistically distinct.
-MIN_RELATIVE_CHANGE = 0.05
+MIN_RELATIVE_CHANGE = 0.075
 
 # Paths compiled into, or used to build, the desktop benchmark runner. Keyed by the label shown.
 BENCHMARKED_PATHS = {
@@ -356,12 +356,12 @@ def render_diff(
 
     if groups["unchanged"]:
         lines += collapsed(
-            f"{counts['unchanged']} unchanged: no change of 5% or more",
+            f"{counts['unchanged']} unchanged: no change of {MIN_RELATIVE_CHANGE:.1%} or more",
             table(groups["unchanged"], columns),
         )
     if groups["unclear"]:
         lines += collapsed(
-            f"{counts['unclear']} too noisy to tell: interval wider than 5%",
+            f"{counts['unclear']} too noisy to tell: interval wider than {MIN_RELATIVE_CHANGE:.1%}",
             table(groups["unclear"], columns),
         )
     if groups["new"]:
@@ -376,7 +376,7 @@ def render_diff(
     notes = [
         "- Base and head ran in the same job. Lower is better.",
         f"- {interval_note(base_entries + head_entries, forks)}",
-        f"- Flagged: the change is outside its interval and at least {MIN_RELATIVE_CHANGE:.0%}.",
+        f"- Flagged: the change is outside its interval and at least {MIN_RELATIVE_CHANGE:.1%}.",
         "- Expect the odd false flag.",
     ]
     if omit:
