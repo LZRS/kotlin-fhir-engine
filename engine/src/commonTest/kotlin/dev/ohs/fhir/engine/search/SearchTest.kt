@@ -152,14 +152,14 @@ class SearchTest {
       FROM ResourceEntity a
       WHERE a.resourceUuid IN (
       SELECT resourceUuid FROM StringIndexEntity
-      WHERE resourceType = ? AND index_name = ? AND index_value = ? COLLATE BINARY
+      WHERE resourceType = ? AND index_name = ? AND (index_value = ? AND index_value = ? COLLATE BINARY)
       )
       """
         .trimIndent(),
       query.query,
     )
     assertEquals(
-      listOf(ResourceType.Patient.name, "address", "someValue"),
+      listOf(ResourceType.Patient.name, "address", "someValue", "someValue"),
       query.args,
     )
   }
@@ -1643,13 +1643,13 @@ class SearchTest {
       FROM ResourceEntity a
       WHERE a.resourceUuid IN (
       SELECT resourceUuid FROM StringIndexEntity
-      WHERE resourceType = ? AND index_name = ? AND (index_value = ? COLLATE BINARY OR index_value = ? COLLATE BINARY)
+      WHERE resourceType = ? AND index_name = ? AND ((index_value = ? AND index_value = ? COLLATE BINARY) OR (index_value = ? AND index_value = ? COLLATE BINARY))
       )
       """
         .trimIndent(),
       query.query,
     )
-    assertEquals(listOf("Patient", "given", "John", "Jane"), query.args)
+    assertEquals(listOf("Patient", "given", "John", "John", "Jane", "Jane"), query.args)
   }
 
   @Test
@@ -1682,17 +1682,20 @@ class SearchTest {
       FROM ResourceEntity a
       WHERE a.resourceUuid IN (
       SELECT resourceUuid FROM StringIndexEntity
-      WHERE resourceType = ? AND index_name = ? AND index_value = ? COLLATE BINARY
+      WHERE resourceType = ? AND index_name = ? AND (index_value = ? AND index_value = ? COLLATE BINARY)
       )
       OR a.resourceUuid IN (
       SELECT resourceUuid FROM StringIndexEntity
-      WHERE resourceType = ? AND index_name = ? AND index_value = ? COLLATE BINARY
+      WHERE resourceType = ? AND index_name = ? AND (index_value = ? AND index_value = ? COLLATE BINARY)
       )
       """
         .trimIndent(),
       query.query,
     )
-    assertEquals(listOf("Patient", "given", "John", "Patient", "given", "Jane"), query.args)
+    assertEquals(
+      listOf("Patient", "given", "John", "John", "Patient", "given", "Jane", "Jane"),
+      query.args,
+    )
   }
 
   // Test for https://github.com/google/android-fhir/issues/903
@@ -1819,7 +1822,7 @@ class SearchTest {
       FROM ResourceEntity a
       WHERE a.resourceUuid IN (
       SELECT resourceUuid FROM StringIndexEntity
-      WHERE resourceType = ? AND index_name = ? AND index_value = ? COLLATE BINARY
+      WHERE resourceType = ? AND index_name = ? AND (index_value = ? AND index_value = ? COLLATE BINARY)
       )
       AND a.resourceUuid IN (
       SELECT resourceUuid
@@ -1845,6 +1848,7 @@ class SearchTest {
       listOf(
         ResourceType.Patient.name,
         "address-country",
+        "IN",
         "IN",
         ResourceType.Patient.name,
         "patient",

@@ -140,16 +140,13 @@ class SearchQueryPlanTest {
       )
     }
 
-  /**
-   * The deliberate cost of the above, pinned so it stays visible. `:exact` compares BINARY against
-   * a NOCASE index, which SQLite will not use. Indexing both needs a second column.
-   */
+  /** `:exact` seeks with a NOCASE comparison, then keeps the exact case with a BINARY one. */
   @Test
-  fun `exact string search cannot use index_value because it compares COLLATE BINARY`() = runTest {
+  fun `exact string search narrows on index_value`() = runTest {
     assertIndexUsed(
       planFor(exactStringSearch()),
       table = "StringIndexEntity",
-      constraints = "resourceType=? AND index_name=?",
+      constraints = "resourceType=? AND index_name=? AND index_value=?",
     )
   }
 
