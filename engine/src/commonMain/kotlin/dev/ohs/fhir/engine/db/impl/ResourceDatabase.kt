@@ -69,7 +69,7 @@ internal abstract class ResourceDatabase : RoomDatabase() {
   abstract fun localChangeDao(): LocalChangeDao
 
   companion object {
-    const val VERSION = 13
+    const val VERSION = 12
 
     val MIGRATION_1_2 =
       Migration(1, 2) { c -> c.executeSQL("DROP TABLE IF EXISTS SyncedResourceEntity") }
@@ -257,11 +257,7 @@ internal abstract class ResourceDatabase : RoomDatabase() {
         c.executeSQL(
           "CREATE INDEX IF NOT EXISTS `index_QuantityIndexEntity_resourceType_index_name_index_code_index_value` ON `QuantityIndexEntity` (`resourceType`, `index_name`, `index_code`, `index_value`)",
         )
-      }
-
-    /** Moves the date range columns ahead of resourceUuid; the rows are unchanged. */
-    val MIGRATION_12_13 =
-      Migration(12, 13) { c ->
+        // The date range columns move ahead of resourceUuid; the rows are unchanged.
         for (table in listOf("DateIndexEntity", "DateTimeIndexEntity")) {
           c.executeSQL(
             "DROP INDEX IF EXISTS `index_${table}_resourceType_index_name_resourceUuid_index_from_index_to`",
@@ -289,7 +285,6 @@ internal abstract class ResourceDatabase : RoomDatabase() {
         MIGRATION_9_10,
         MIGRATION_10_11,
         MIGRATION_11_12,
-        MIGRATION_12_13,
       )
 
     /**

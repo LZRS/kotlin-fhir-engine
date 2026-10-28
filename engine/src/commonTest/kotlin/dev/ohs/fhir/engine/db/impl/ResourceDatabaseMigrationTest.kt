@@ -230,9 +230,9 @@ class ResourceDatabaseMigrationTest {
   }
 
   @Test
-  fun migrate12To13_keepsDateIndexRows() = runTest {
+  fun migrate11To12_keepsDateIndexRows() = runTest {
     val uuid = "x'${PATIENT_UUID.toHexString()}'"
-    tester.createDatabase(12).use {
+    tester.createDatabase(11).use {
       it.insertPatient()
       it.insert(
         "DateIndexEntity",
@@ -245,7 +245,7 @@ class ResourceDatabaseMigrationTest {
         "$uuid, 'Patient', '_lastUpdated', 'Patient.meta.lastUpdated', 1700000000000, 1700000000000",
       )
     }
-    tester.runMigrationsAndValidate(13, listOf(ResourceDatabase.MIGRATION_12_13)).use {
+    tester.runMigrationsAndValidate(12, listOf(ResourceDatabase.MIGRATION_11_12)).use {
       assertEquals(listOf(19000L), it.longs("SELECT index_from FROM DateIndexEntity"))
       assertEquals(listOf(1700000000000L), it.longs("SELECT index_to FROM DateTimeIndexEntity"))
     }

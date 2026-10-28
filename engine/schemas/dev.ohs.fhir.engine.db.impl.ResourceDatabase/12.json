@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 12,
-    "identityHash": "11960fa3d67cc42f61de91f1231cf9d4",
+    "identityHash": "4d857e5507e58fe149fa8b8af3cad47f",
     "entities": [
       {
         "tableName": "ResourceEntity",
@@ -588,17 +588,29 @@
         },
         "indices": [
           {
-            "name": "index_DateIndexEntity_resourceType_index_name_resourceUuid_index_from_index_to",
+            "name": "index_DateIndexEntity_resourceType_index_name_index_from_index_to_resourceUuid",
             "unique": false,
             "columnNames": [
               "resourceType",
               "index_name",
-              "resourceUuid",
               "index_from",
-              "index_to"
+              "index_to",
+              "resourceUuid"
             ],
             "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_DateIndexEntity_resourceType_index_name_resourceUuid_index_from_index_to` ON `${TABLE_NAME}` (`resourceType`, `index_name`, `resourceUuid`, `index_from`, `index_to`)"
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_DateIndexEntity_resourceType_index_name_index_from_index_to_resourceUuid` ON `${TABLE_NAME}` (`resourceType`, `index_name`, `index_from`, `index_to`, `resourceUuid`)"
+          },
+          {
+            "name": "index_DateIndexEntity_resourceType_index_name_index_to_resourceUuid",
+            "unique": false,
+            "columnNames": [
+              "resourceType",
+              "index_name",
+              "index_to",
+              "resourceUuid"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_DateIndexEntity_resourceType_index_name_index_to_resourceUuid` ON `${TABLE_NAME}` (`resourceType`, `index_name`, `index_to`, `resourceUuid`)"
           },
           {
             "name": "index_DateIndexEntity_resourceUuid_index_name_index_from",
@@ -681,17 +693,29 @@
         },
         "indices": [
           {
-            "name": "index_DateTimeIndexEntity_resourceType_index_name_resourceUuid_index_from_index_to",
+            "name": "index_DateTimeIndexEntity_resourceType_index_name_index_from_index_to_resourceUuid",
             "unique": false,
             "columnNames": [
               "resourceType",
               "index_name",
-              "resourceUuid",
               "index_from",
-              "index_to"
+              "index_to",
+              "resourceUuid"
             ],
             "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_DateTimeIndexEntity_resourceType_index_name_resourceUuid_index_from_index_to` ON `${TABLE_NAME}` (`resourceType`, `index_name`, `resourceUuid`, `index_from`, `index_to`)"
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_DateTimeIndexEntity_resourceType_index_name_index_from_index_to_resourceUuid` ON `${TABLE_NAME}` (`resourceType`, `index_name`, `index_from`, `index_to`, `resourceUuid`)"
+          },
+          {
+            "name": "index_DateTimeIndexEntity_resourceType_index_name_index_to_resourceUuid",
+            "unique": false,
+            "columnNames": [
+              "resourceType",
+              "index_name",
+              "index_to",
+              "resourceUuid"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_DateTimeIndexEntity_resourceType_index_name_index_to_resourceUuid` ON `${TABLE_NAME}` (`resourceType`, `index_name`, `index_to`, `resourceUuid`)"
           },
           {
             "name": "index_DateTimeIndexEntity_resourceUuid_index_name_index_from",
@@ -1032,7 +1056,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '11960fa3d67cc42f61de91f1231cf9d4')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '4d857e5507e58fe149fa8b8af3cad47f')"
     ]
   }
 }
