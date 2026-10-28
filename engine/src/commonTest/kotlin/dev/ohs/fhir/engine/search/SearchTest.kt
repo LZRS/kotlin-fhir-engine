@@ -185,14 +185,14 @@ class SearchTest {
       FROM ResourceEntity a
       WHERE a.resourceUuid IN (
       SELECT resourceUuid FROM StringIndexEntity
-      WHERE resourceType = ? AND index_name = ? AND index_value LIKE ?
+      WHERE resourceType = ? AND index_name = ? AND index_value LIKE '%' || ? || '%' COLLATE NOCASE
       )
       """
         .trimIndent(),
       query.query,
     )
     assertEquals(
-      listOf(ResourceType.Patient.name, "address", "%someValue%"),
+      listOf(ResourceType.Patient.name, "address", "someValue"),
       query.args,
     )
   }
