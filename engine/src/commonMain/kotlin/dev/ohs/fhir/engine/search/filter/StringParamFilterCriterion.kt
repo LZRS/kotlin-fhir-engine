@@ -42,7 +42,10 @@ data class StringParamFilterCriterion(
         // only the exact case.
         StringFilterModifier.MATCHES_EXACTLY ->
           ConditionParam("index_value = ? AND index_value = ? COLLATE BINARY", value!!, value!!)
-        StringFilterModifier.CONTAINS -> ConditionParam("index_value LIKE ?", "%${value!!}%")
+        // A leading wildcard can never use the LIKE optimisation, and a plain parameter makes
+        // SQLite reconsider it on every run.
+        StringFilterModifier.CONTAINS ->
+          ConditionParam("index_value LIKE '%' || ? || '%' COLLATE NOCASE", value!!)
       },
     )
   }
