@@ -107,7 +107,7 @@ from two different jobs are not comparable, because shared runners differ in mac
 
 The benchmarks are split across two jobs (`-Pbenchmark.shard=1` or `2`; `firstShard` in
 `engine/build.gradle.kts`). Each job runs base and head for its share, so a row is compared on one
-runner. A final job merges the reports.
+runner. The comment workflow merges the reports.
 
 A row is flagged when the difference is outside its 95% interval and is at least 7.5%. The interval
 is a pooled t-interval over the fork means: JIT decisions vary between forks more than one fork's

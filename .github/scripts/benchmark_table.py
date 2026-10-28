@@ -450,17 +450,17 @@ def main() -> int:
         return 0
 
     commits = describe_commits(arguments.base_sha, arguments.head_sha, arguments.repository)
-    if arguments.head is None or not arguments.head.exists():
-        # CI skips the benchmarks, and uploads no report, when no benchmarked file changed.
-        if benchmarked == 0:
-            skipped = f"{commits} No benchmarked code changed; skipped.".lstrip()
-            print("\n".join(header(arguments.marker) + [skipped]))
-            return 0
+    found = arguments.head is not None and arguments.head.exists()
+    head = load_by_shard(arguments.head) if found else {}
+    head_entries = [entry for entries in head.values() for entry in entries]
+    # CI skips the benchmarks, and reports nothing, when no benchmarked file changed.
+    if not head_entries and benchmarked == 0:
+        skipped = f"{commits} No benchmarked code changed; skipped.".lstrip()
+        print("\n".join(header(arguments.marker) + [skipped]))
+        return 0
+    if not found:
         print(f"no report at {arguments.head}", file=sys.stderr)
         return 1
-
-    head = load_by_shard(arguments.head)
-    head_entries = [entry for entries in head.values() for entry in entries]
     base_entries = (
         same_shard(load_by_shard(arguments.base), head)
         if arguments.base is not None and arguments.base.exists()

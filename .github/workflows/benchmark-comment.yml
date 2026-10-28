@@ -31,12 +31,30 @@ jobs:
       - name: Download benchmark reports
         uses: actions/download-artifact@v4
         with:
-          name: benchmark-reports
-          path: reports
+          pattern: benchmark-shard-*
+          path: shards
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
         # A failed benchmark job uploads whatever it had, and a cancelled one may upload nothing.
         continue-on-error: true
+
+      # Each shard ran on its own runner; the script compares rows within a shard.
+      - name: Merge the shards
+        run: |
+          mkdir -p reports/head reports/base
+          for shard in shards/*/; do
+            [ -d "$shard" ] || continue
+            name=$(basename "$shard")
+            mkdir -p "reports/head/$name" "reports/base/$name"
+            cp -r "$shard/head/." "reports/head/$name/" 2>/dev/null || true
+            cp -r "$shard/base/." "reports/base/$name/" 2>/dev/null || true
+            if [ -f "$shard/machine.txt" ]; then
+              { echo "$name:"; cat "$shard/machine.txt"; echo; } >> reports/machine.txt
+            fi
+            for file in pr-number.txt base-sha.txt changed-files.txt; do
+              if [ -f "$shard/$file" ] && [ ! -f "reports/$file" ]; then cp "$shard/$file" reports/; fi
+            done
+          done
 
       - name: Resolve the pull request
         id: pr
@@ -70,8 +88,10 @@ jobs:
           if [ -f reports/machine.txt ]; then
             ARGS+=(--machine reports/machine.txt)
           fi
-          # CI uploads no report when it skipped the benchmarks.
-          if [ ! -d reports/head ]; then echo "skipped=true" >> "$GITHUB_OUTPUT"; fi
+          # CI reports nothing when it skipped the benchmarks.
+          if [ -z "$(find reports/head -name '*.json' -print -quit)" ]; then
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+          fi
           {
             echo 'body<<BENCHMARK_TABLE_EOF'
             python3 .github/scripts/benchmark_table.py reports/head "${ARGS[@]}"
