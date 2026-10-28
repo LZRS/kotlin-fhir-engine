@@ -185,14 +185,14 @@ class SearchTest {
       FROM ResourceEntity a
       WHERE a.resourceUuid IN (
       SELECT resourceUuid FROM StringIndexEntity
-      WHERE resourceType = ? AND index_name = ? AND index_value LIKE ?
+      WHERE resourceType = ? AND index_name = ? AND index_value LIKE '%' || ? || '%' COLLATE NOCASE
       )
       """
         .trimIndent(),
       query.query,
     )
     assertEquals(
-      listOf(ResourceType.Patient.name, "address", "%someValue%"),
+      listOf(ResourceType.Patient.name, "address", "someValue"),
       query.args,
     )
   }
@@ -660,7 +660,7 @@ class SearchTest {
       WHERE a.resourceType = ?
       GROUP BY a.resourceUuid
       HAVING MIN(IFNULL(b.index_value,0)) >= -9223372036854775808
-      ORDER BY b.index_value IS NULL, b.index_value ASC
+      ORDER BY IFNULL(b.index_value, x'') ASC
       """
         .trimIndent(),
       query.query,
@@ -684,7 +684,7 @@ class SearchTest {
       WHERE a.resourceType = ?
       GROUP BY a.resourceUuid
       HAVING MAX(IFNULL(b.index_value,0)) >= -9223372036854775808
-      ORDER BY b.index_value IS NULL, b.index_value DESC
+      ORDER BY IFNULL(b.index_value, -9223372036854775808) DESC
       """
         .trimIndent(),
       query.query,
@@ -1517,7 +1517,7 @@ class SearchTest {
       WHERE a.resourceType = ?
       GROUP BY a.resourceUuid
       HAVING MIN(IFNULL(b.index_value,0)) >= -9223372036854775808
-      ORDER BY b.index_value IS NULL, b.index_value ASC
+      ORDER BY IFNULL(b.index_value, 9223372036854775808) ASC
       """
         .trimIndent(),
       query.query,
@@ -1548,7 +1548,7 @@ class SearchTest {
       )
       GROUP BY a.resourceUuid
       HAVING MIN(IFNULL(b.index_value,0)) >= -9223372036854775808
-      ORDER BY b.index_value IS NULL, b.index_value ASC
+      ORDER BY IFNULL(b.index_value, x'') ASC
       LIMIT ? OFFSET ?
       """
         .trimIndent(),
@@ -1585,7 +1585,7 @@ class SearchTest {
       WHERE a.resourceType = ?
       GROUP BY a.resourceUuid
       HAVING MIN(IFNULL(b.index_from,0) + IFNULL(c.index_from,0)) >= -9223372036854775808
-      ORDER BY b.index_from IS NULL, b.index_from ASC, c.index_from IS NULL, c.index_from ASC
+      ORDER BY IFNULL(b.index_from, 9223372036854775808) ASC, IFNULL(c.index_from, 9223372036854775808) ASC
       """
         .trimIndent(),
       query.query,
@@ -1610,7 +1610,7 @@ class SearchTest {
       WHERE a.resourceType = ?
       GROUP BY a.resourceUuid
       HAVING MAX(IFNULL(b.index_from,0) + IFNULL(c.index_from,0)) >= -9223372036854775808
-      ORDER BY b.index_from IS NULL, b.index_from DESC, c.index_from IS NULL, c.index_from DESC
+      ORDER BY IFNULL(b.index_from, -9223372036854775808) DESC, IFNULL(c.index_from, -9223372036854775808) DESC
       """
         .trimIndent(),
       query.query,
@@ -2058,7 +2058,7 @@ class SearchTest {
       )
       GROUP BY re.resourceUuid , rie.index_value
       HAVING MAX(IFNULL(b.index_from,0) + IFNULL(c.index_from,0)) >= -9223372036854775808
-      ORDER BY b.index_from IS NULL, b.index_from DESC, c.index_from IS NULL, c.index_from DESC
+      ORDER BY IFNULL(b.index_from, -9223372036854775808) DESC, IFNULL(c.index_from, -9223372036854775808) DESC
       )
       """
         .trimIndent(),
@@ -2130,7 +2130,7 @@ class SearchTest {
       )
       GROUP BY re.resourceUuid , rie.index_value
       HAVING MAX(IFNULL(b.index_from,0) + IFNULL(c.index_from,0)) >= -9223372036854775808
-      ORDER BY b.index_from IS NULL, b.index_from DESC, c.index_from IS NULL, c.index_from DESC
+      ORDER BY IFNULL(b.index_from, -9223372036854775808) DESC, IFNULL(c.index_from, -9223372036854775808) DESC
       )
       UNION ALL
       SELECT * FROM (
@@ -2149,7 +2149,7 @@ class SearchTest {
       )
       GROUP BY re.resourceUuid , rie.index_value
       HAVING MAX(IFNULL(b.index_from,0) + IFNULL(c.index_from,0)) >= -9223372036854775808
-      ORDER BY b.index_from IS NULL, b.index_from DESC, c.index_from IS NULL, c.index_from DESC
+      ORDER BY IFNULL(b.index_from, -9223372036854775808) DESC, IFNULL(c.index_from, -9223372036854775808) DESC
       )
       """
         .trimIndent(),
@@ -2299,7 +2299,7 @@ class SearchTest {
       )
       GROUP BY re.resourceUuid , rie.resourceUuid
       HAVING MAX(IFNULL(b.index_value,0)) >= -9223372036854775808
-      ORDER BY b.index_value IS NULL, b.index_value DESC
+      ORDER BY IFNULL(b.index_value, -9223372036854775808) DESC
       )
       """
         .trimIndent(),
@@ -2360,7 +2360,7 @@ class SearchTest {
       )
       GROUP BY re.resourceUuid , rie.resourceUuid
       HAVING MAX(IFNULL(b.index_value,0)) >= -9223372036854775808
-      ORDER BY b.index_value IS NULL, b.index_value DESC
+      ORDER BY IFNULL(b.index_value, -9223372036854775808) DESC
       )
       UNION ALL
       SELECT * FROM (
@@ -2378,7 +2378,7 @@ class SearchTest {
       )
       GROUP BY re.resourceUuid , rie.resourceUuid
       HAVING MAX(IFNULL(b.index_value,0)) >= -9223372036854775808
-      ORDER BY b.index_value IS NULL, b.index_value DESC
+      ORDER BY IFNULL(b.index_value, -9223372036854775808) DESC
       )
       """
         .trimIndent(),
