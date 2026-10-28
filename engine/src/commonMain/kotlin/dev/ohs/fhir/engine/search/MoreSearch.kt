@@ -51,6 +51,7 @@ private const val APPROXIMATION_COEFFICIENT = 0.1
  * [Storage Classes and Datatypes](https://www.sqlite.org/datatype3.html)
  */
 private const val MIN_VALUE = "-9223372036854775808"
+private const val MAX_VALUE = "9223372036854775808"
 
 /**
  * Executes this search against [database]: runs the base query, then any `_include` (forward) and
@@ -321,9 +322,9 @@ private fun Search.getSortOrder(
  * Without the `>= MIN_VALUE` check, NULL values are not included in the results if the default
  * is 0.
  *
- * The ORDER BY puts results with no index value at the bottom with an `IS NULL` term before each
- * column. A sentinel default cannot: SQLite orders every number before every string, so a numeric
- * default would put them at the top of an ascending string sort.
+ * The ORDER BY puts results with no index value at the bottom with a default that sorts beyond
+ * every value: [MAX_VALUE] or [MIN_VALUE] for numbers and dates, and a BLOB, which SQLite orders
+ * after every string, for an ascending string sort. One sort key costs less than an `IS NULL` term.
  */
 private fun generateGroupAndOrderQuery(
   sort: ClientParam,
@@ -352,7 +353,13 @@ private fun generateGroupAndOrderQuery(
     sortTableNames
       .mapIndexed { index, sortTableName ->
         val column = "${'b' + index}.${sortTableName.columnName}"
-        "$column IS NULL, $column ${order.sqlString}"
+        val missing =
+          when {
+            order == Order.DESCENDING -> MIN_VALUE
+            sortTableName == SortTableInfo.STRING_SORT_TABLE_INFO -> "x''"
+            else -> MAX_VALUE
+          }
+        "IFNULL($column, $missing) ${order.sqlString}"
       }
       .joinToString(prefix = "ORDER BY ")
   return sortOrderStatement
