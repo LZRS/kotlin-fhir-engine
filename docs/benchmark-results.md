@@ -144,8 +144,8 @@ These costs are measured, not pinned.
 ## Fixed in #109
 
 The timings above were measured before these changes. Each table comes from the benchmark that
-found the problem and compares the shape shipped then, named `current` in the benchmark, with the
-fix, in the same run. Times are µs per search at 1,000 / 10,000 / 50,000 rows.
+found the problem and compares the shape shipped before #109 with the fix, in the same run. The
+benchmarks now call the fix `current`. Times are µs per search at 1,000 / 10,000 / 50,000 rows.
 
 **Prefix string search** compiled to `index_value LIKE ? || '%' COLLATE NOCASE` and narrowed on
 `(resourceType, index_name)` only. SQLite applies its LIKE optimisation only to a literal or plain
@@ -167,53 +167,53 @@ search includes many base resources. `IncludeSearchMatchingTest` checks the rows
 
 **Quantity with a unit**: the index was `(resourceType, index_name, index_value, index_code)`. The
 range on `index_value` comes before `index_code`, so the unit was not used. Putting the unit first
-helps a search with a unit and hurts one without, so #109 keeps both orders (`both` below) and
+helps a search with a unit and hurts one without, so #109 keeps both orders (`current` below) and
 SQLite picks per query.
 
 | `QuantityIndexShapeBenchmark` | 1,000 | 10,000 | 50,000 |
 |---|---:|---:|---:|
-| with a unit, `current` | 50 | 161 | 773 |
+| with a unit, `valueFirst` (before #109) | 50 | 161 | 773 |
 | with a unit, `codeFirst` | 44 | 105 | 506 |
-| with a unit, `both` | 44 | 105 | 508 |
-| without a unit, `current` | 70 | 434 | 2,305 |
+| with a unit, `current` | 44 | 105 | 508 |
+| without a unit, `valueFirst` (before #109) | 70 | 434 | 2,305 |
 | without a unit, `codeFirst` | 136 | 1,222 | 7,653 |
-| without a unit, `both` | 71 | 444 | 2,299 |
+| without a unit, `current` | 71 | 444 | 2,299 |
 
 **Reference and uri lookups** were not covering. Every filter subquery selects only `resourceUuid`,
-and the reference and uri indices did not end in it. #109 adds it (`covering` below). Reference
+and the reference and uri indices did not end in it. #109 adds it (`current` below). Reference
 lookups also carry chained, `_has` and `_revinclude` searches.
 
 | `LookupIndexCoveringBenchmark` | 1,000 | 10,000 | 50,000 |
 |---|---:|---:|---:|
-| reference, `current` | 46 | 133 | 2,611 |
-| reference, `covering` | 43 | 106 | 1,624 |
-| uri, `current` | 45 | 134 | 2,617 |
-| uri, `covering` | 44 | 108 | 1,682 |
+| reference, `notCovering` (before #109) | 46 | 133 | 2,611 |
+| reference, `current` | 43 | 106 | 1,624 |
+| uri, `notCovering` (before #109) | 45 | 134 | 2,617 |
+| uri, `current` | 44 | 108 | 1,682 |
 
 **Token search with a system** adds `IFNULL(index_system,'') = ?`, and the token index did not
-carry `index_system`, so each match cost a row fetch. #109 adds the column (`withSystem` below),
+carry `index_system`, so each match cost a row fetch. #109 adds the column (`current` below),
 which is 37% faster at 50,000 rows and leaves a code-only search unchanged.
 
 | `TokenIndexShapeBenchmark` | 1,000 | 10,000 | 50,000 |
 |---|---:|---:|---:|
-| code only, `current` | 44 | 106 | 1,746 |
-| code only, `withSystem` | 43 | 108 | 1,770 |
-| system and code, `current` | 46 | 134 | 2,701 |
-| system and code, `withSystem` | 45 | 116 | 1,694 |
+| code only, `noSystem` (before #109) | 44 | 106 | 1,746 |
+| code only, `current` | 43 | 108 | 1,770 |
+| system and code, `noSystem` (before #109) | 46 | 134 | 2,701 |
+| system and code, `current` | 45 | 116 | 1,694 |
 
 **Date and dateTime** indices were `(resourceType, index_name, resourceUuid, index_from, index_to)`.
 `resourceUuid` sat between the equality prefix and the range columns, so no range could use the
-index. #109 moves it last and adds a second index led by `index_to` (`rangeLast` below), since `<`,
+index. #109 moves it last and adds a second index led by `index_to` (`current` below), since `<`,
 `<=` and `sa` range over `index_from` and `>`, `>=` and `eb` over `index_to`. The date sort is
 unaffected: it looks dates up by `resourceUuid` through a separate index. The narrow window matches
 about 4% of rows and the wide one about 40%.
 
 | `DateIndexShapeBenchmark` | 1,000 | 10,000 | 50,000 |
 |---|---:|---:|---:|
-| narrow, `current` | 336 | 3,386 | 19,800 |
-| narrow, `rangeLast` | 276 | 2,949 | 17,280 |
-| wide, `current` | 455 | 4,806 | 28,560 |
-| wide, `rangeLast` | 429 | 4,485 | 27,030 |
+| narrow, `uuidFirst` (before #109) | 336 | 3,386 | 19,800 |
+| narrow, `current` | 276 | 2,949 | 17,280 |
+| wide, `uuidFirst` (before #109) | 455 | 4,806 | 28,560 |
+| wide, `current` | 429 | 4,485 | 27,030 |
 
 `_include` and `_revinclude` result grouping and sync conflict detection were also fixed in #109;
 see [Result size](#result-size) and [Writes and sync](#writes-and-sync).
