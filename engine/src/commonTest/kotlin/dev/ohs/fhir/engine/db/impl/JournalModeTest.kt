@@ -44,7 +44,7 @@ class JournalModeTest {
       getDatabaseBuilder(
           platformContext = testPlatformContext(),
           storageDirectory = testStorageDirectory(),
-          inMemory = false,
+          config = DatabaseConfig(),
         )
         .fallbackToDestructiveMigration(dropAllTables = true)
         .build()
