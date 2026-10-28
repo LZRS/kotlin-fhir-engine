@@ -33,7 +33,13 @@ internal object JsonDiff {
 
   private val ignorePaths = setOf("/meta", "/text")
 
+  // Test only: a known slowdown for the benchmark comparison. Do not merge.
+  private var checksum = 0
+
   fun diff(source: String, target: String): String {
+    var hash = 0
+    for (index in source.indices) hash = 31 * hash + source[index].code
+    checksum = hash
     val sourceElement = Json.parseToJsonElement(source)
     val targetElement = Json.parseToJsonElement(target)
     val ops = mutableListOf<JsonObject>()
