@@ -135,6 +135,26 @@ class SortMatchingTest {
   }
 
   @Test
+  fun `a filtered ascending string sort puts a match with no value last`() = runTest {
+    FhirEngineProvider.getInstance().create(patient("e", "2005-01-01"))
+    val ids =
+      FhirEngineProvider.getInstance()
+        .search<Patient> {
+          filter(
+            DateClientParam("birthdate"),
+            {
+              value = of(FhirDate.fromString("1995-01-01")!!)
+              prefix = SearchComparator.Gt
+            },
+          )
+          sort(StringClientParam("given"), Order.ASCENDING)
+        }
+        .mapNotNull { it.resource.id }
+
+    assertEquals(listOf("b", "c", "e"), ids)
+  }
+
+  @Test
   fun `a dateTime sort puts a resource with no value last`() = runTest {
     assertEquals(listOf("o2", "o1", "o3"), sortObservationsByDate(Order.ASCENDING))
     assertEquals(listOf("o1", "o2", "o3"), sortObservationsByDate(Order.DESCENDING))
