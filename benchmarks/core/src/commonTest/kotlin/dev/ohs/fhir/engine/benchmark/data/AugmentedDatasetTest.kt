@@ -29,7 +29,7 @@ import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 
-/** A corpus of bare patients, which is what Synthea's pregnancy module actually yields. */
+/** Patients with no clinical data, like the packaged Synthea corpus. */
 private class PatientsOnly(private val count: Int) : Dataset {
   private val all: List<Resource> = (0 until count).map { Patient(id = "p$it") }
 
@@ -54,12 +54,7 @@ private class PatientsOnly(private val count: Int) : Dataset {
     )
 }
 
-/**
- * The packaged corpus carries patients and almost no clinical data, so the workloads querying
- * observations and conditions had nothing to match. These are generated against the corpus's real
- * patient ids instead of being exported from Synthea, which would multiply the corpus roughly
- * fortyfold for resources no query reads.
- */
+/** Generates observations and conditions for the corpus's patient ids. */
 class AugmentedDatasetTest {
 
   private val mix = ClinicalMix(observations = 8, conditions = 2)
@@ -74,8 +69,7 @@ class AugmentedDatasetTest {
 
   @Test
   fun `parses off as no generation at all`() {
-    // Comparing against a harness that ran the corpus alone needs the same database, so the mix
-    // has to be able to say "add nothing".
+    // `off` leaves the corpus as packaged.
     assertEquals(ClinicalMix(observations = 0, conditions = 0), ClinicalMix.parse("off"))
     assertEquals(0, ClinicalMix.parse("off").perPatient)
   }
@@ -143,7 +137,7 @@ class AugmentedDatasetTest {
         it.code.coding.firstOrNull()?.code?.value
       }
 
-    // The token query is built from this; a code nothing carries would measure an empty index.
+    // The token search workloads query this code.
     assertTrue(dataset.sampleObservationCode in codes, dataset.sampleObservationCode)
   }
 
@@ -154,7 +148,7 @@ class AugmentedDatasetTest {
     assertEquals(3, manifest.resourceCounts["Patient"])
     assertEquals(24, manifest.resourceCounts["Observation"])
     assertEquals(6, manifest.resourceCounts["Condition"])
-    // The fingerprint has to move: the same corpus with generated data is not the same dataset.
+    // Generated data makes it a different dataset.
     assertTrue(manifest.fingerprint != "corpusfp", manifest.fingerprint)
   }
 

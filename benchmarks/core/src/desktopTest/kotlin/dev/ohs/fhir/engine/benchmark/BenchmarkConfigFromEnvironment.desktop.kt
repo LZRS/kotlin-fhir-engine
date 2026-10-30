@@ -33,8 +33,7 @@ internal actual suspend fun benchmarkConfigFromEnvironment(): BenchmarkConfig =
     coldCache = System.getProperty("benchmark.coldcache").toBoolean(),
     population = System.getProperty("benchmark.population")?.toIntOrNull(),
     clinicalMix = System.getProperty("benchmark.mix")?.takeIf { it.isNotBlank() } ?: "8x2",
-    // Named workloads beat groups, so a run can measure exactly the two it cares about instead of
-    // paying for a whole group. `search.patient_revinclude_observation` alone is ~13s an iteration.
+    // Named workloads take precedence over groups.
     workloadIds =
       System.getProperty("benchmark.workloads")
         ?.split(",")

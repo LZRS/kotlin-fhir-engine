@@ -11,11 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for the pure logic in android_benchmark_sweep.
-
-The device path cannot be tested here. Everything that decides what to run, and
-what a run meant, can be.
-"""
+"""Unit tests for the pure logic in android_benchmark_sweep."""
 
 import argparse
 import tempfile
@@ -134,8 +130,6 @@ class SelectionTest(unittest.TestCase):
 
 
 class DeviceRecordTest(unittest.TestCase):
-    """What identifies a run in a report someone else reads."""
-
     PROPS = {
         "ro.product.model": "SM-X135G",
         "ro.product.manufacturer": "samsung",
@@ -156,8 +150,6 @@ class DeviceRecordTest(unittest.TestCase):
         self.assertEqual("512m", record["heapSizeLimit"])
 
     def test_omits_the_serial_number(self):
-        # A serial identifies the physical unit and has no bearing on the numbers, so it stays
-        # out of the artifact that gets shared.
         self.assertNotIn("serial", sweep.device_record(self.PROPS))
 
     def test_survives_a_property_the_device_does_not_expose(self):
@@ -168,8 +160,6 @@ class DeviceRecordTest(unittest.TestCase):
 
 
 class GradleCommandTest(unittest.TestCase):
-    """The server URL has to reach the instrumentation, or the device runs without one."""
-
     def args(self, **overrides):
         defaults = dict(
             population=50,
@@ -186,8 +176,7 @@ class GradleCommandTest(unittest.TestCase):
         self.assertFalse([c for c in command if ".server=" in c])
 
     def test_leaves_the_driver_installed_between_workloads(self):
-        # Without this AGP uninstalls the driver after every workload, and the seeded database
-        # goes with it -- so each of the 31 workloads re-inserts the whole corpus.
+        # Otherwise AGP uninstalls the driver and its seeded database after every workload.
         command = sweep.gradle_command("search.patient_by_family", self.args(), 1, 60)
 
         self.assertIn(
@@ -195,8 +184,6 @@ class GradleCommandTest(unittest.TestCase):
         )
 
     def test_forwards_the_clinical_mix_when_given(self):
-        # Comparing against a corpus-only harness needs mix=off to reach the driver, or the run
-        # silently measures a database four times the size of the one being compared to.
         command = sweep.gradle_command("search.patient_by_family", self.args(mix="off"), 1, 60)
 
         self.assertIn("-Pandroid.testInstrumentationRunnerArguments.mix=off", command)
@@ -214,8 +201,6 @@ class GradleCommandTest(unittest.TestCase):
 
 
 class LocalPortTest(unittest.TestCase):
-    """Which port `adb reverse` has to forward, so the device can reach a host server."""
-
     def test_a_localhost_url_names_its_port(self):
         self.assertEqual(8080, sweep.local_port("http://localhost:8080/fhir"))
 
@@ -269,8 +254,6 @@ class ClassifyTest(unittest.TestCase):
         self.assertEqual("no-metric", outcome.status)
 
     def test_an_out_of_memory_kill_outranks_the_timeout_it_causes(self):
-        # The app dies, the status view never settles, and the wait runs to the clock. Reporting
-        # that as a timeout would hide the reason.
         outcome = sweep.classify(
             returncode=1,
             timed_out=True,
@@ -291,9 +274,7 @@ class ClassifyTest(unittest.TestCase):
         self.assertEqual("oom", outcome.status)
 
     def test_a_kill_of_the_test_process_counts_as_out_of_memory(self):
-        # A long measured section produces a Perfetto trace big enough that reading it back kills
-        # the instrumentation process, not the driver. Reporting that as a plain failure hides
-        # that the cause was memory.
+        # Reading back a large Perfetto trace can get the instrumentation process killed.
         logcat = (
             "I lmkd    : Reclaim 'dev.ohs.fhir.engine.benchmark.macro' (29177), uid 10292, "
             "oom_score_adj 0, state 19 to free 142432kB rss; reason: min watermark is breached"
@@ -332,8 +313,6 @@ class ClassifyTest(unittest.TestCase):
 
 
 class DatasetSummaryTest(unittest.TestCase):
-    """The driver's log line is the only proof of which dataset a number came from."""
-
     def test_reads_a_plain_corpus_line(self):
         logcat = "I BenchmarkDriver: dataset=synthea population=500 fingerprint=76df0a368ccf69c5"
 
@@ -343,9 +322,7 @@ class DatasetSummaryTest(unittest.TestCase):
         )
 
     def test_keeps_the_whole_fingerprint_of_a_generated_dataset(self):
-        # AugmentedDataset appends the clinical mix, so the fingerprint carries a hyphen. Cutting
-        # it off makes two runs with different mixes over one corpus look like the same dataset,
-        # which is the exact confusion the fingerprint exists to prevent.
+        # AugmentedDataset appends the clinical mix after a hyphen.
         logcat = (
             "I BenchmarkDriver: dataset=synthea+generated population=500 "
             "fingerprint=76df0a368ccf69c5-g8x2s20260819"
@@ -378,7 +355,7 @@ class CorpusNoteTest(unittest.TestCase):
     COUNTS = {"Patient": 50000, "Encounter": 41770, "Organization": 37699}
 
     def test_flags_a_workload_whose_resource_type_is_absent_from_the_corpus(self):
-        # Procedure rather than Observation: nothing generates it, so its absence is real.
+        # Procedure, because nothing generates it.
         self.assertEqual(
             "corpus has no Procedure",
             sweep.corpus_note("search.procedure_by_code", self.COUNTS),
@@ -391,9 +368,7 @@ class CorpusNoteTest(unittest.TestCase):
         )
 
     def test_says_nothing_about_a_type_the_run_generates(self):
-        # AugmentedDataset builds observations and conditions against the corpus's patients, so
-        # they are absent from the corpus manifest but present in the database the query ran
-        # against. Warning here marks a real measurement as an empty one.
+        # Generated types are in the database but not in the corpus manifest.
         self.assertIsNone(
             sweep.corpus_note(
                 "search.observation_by_code", {"Patient": 1000}, generated=("Observation",)

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 #
-# Stops and removes the benchmark FHIR server. The next start begins from an empty database, which
-# is what upload numbers need.
+# Stops and removes the benchmark FHIR server, so the next start has an empty database.
 set -euo pipefail
 
 CONTAINER_NAME="${CONTAINER_NAME:-fhir-benchmark-server}"

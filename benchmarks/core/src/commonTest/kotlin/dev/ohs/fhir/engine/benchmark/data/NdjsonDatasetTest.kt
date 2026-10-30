@@ -32,7 +32,7 @@ private fun observation(id: String, code: String) =
   """{"resourceType":"Observation","id":"$id","status":"final",""" +
     """"code":{"coding":[{"code":"$code"}]}}"""
 
-/** A stand-in for the platform reader: one flow per file, nothing held whole. */
+/** Fake platform reader: one flow per file. */
 private class FakeLines(private val files: Map<String, List<String>>) {
   val requested = mutableListOf<String>()
 
@@ -147,8 +147,7 @@ class NdjsonDatasetTest {
 
   @Test
   fun `adds up a type split across several files`() = runTest {
-    // A 50,000-patient Observation file runs to gigabytes, so packaging splits the big types.
-    // Counting per file rather than per type would report only the last chunk.
+    // Packaging splits large types across numbered files.
     val lines =
       FakeLines(
         mapOf(
@@ -172,8 +171,7 @@ class NdjsonDatasetTest {
 
   @Test
   fun `re-reads the corpus instead of holding it`() = runTest {
-    // The whole point at benchmark populations: 50,000 patients parse to more than a phone's
-    // entire heap, so the dataset keeps counts and ids and goes back to the files for the rest.
+    // The parsed corpus does not fit in a phone's heap; only counts and ids are held.
     val lines = FakeLines(mapOf("Patient.ndjson" to listOf(patient("p1"), patient("p2"))))
     val dataset =
       NdjsonDataset.load(
@@ -231,8 +229,6 @@ class NdjsonDatasetTest {
     val before = dataset.manifest()
     dataset.resources().toList()
 
-    // A fingerprint that changed after a read would make two reports of one corpus look like
-    // reports of two different ones.
     assertEquals(before, dataset.manifest())
     assertEquals(mapOf("Patient" to 1, "Organization" to 1), before.resourceCounts)
   }
@@ -259,11 +255,7 @@ private class FakeCache(private val entries: MutableMap<String, String> = mutabl
   }
 }
 
-/**
- * Parsing 206 MB to learn 50,000 patient ids costs about four minutes on the benchmark tablet, and
- * macrobenchmark restarts the process for every iteration. The scan is cached so only the first one
- * pays it.
- */
+/** Macrobenchmark restarts the process every iteration, so the corpus scan is cached. */
 class NdjsonDatasetCacheTest {
 
   private val corpus =
@@ -299,7 +291,6 @@ class NdjsonDatasetCacheTest {
     val lines = FakeLines(corpus)
     load(lines, cache)
 
-    // The whole point: the second process reads a few kilobytes instead of the corpus.
     assertEquals(emptyList(), lines.requested)
   }
 

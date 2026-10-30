@@ -22,21 +22,16 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Upload and download against a real FHIR server. The only group that needs one, and the only way
- * upload is measured at all: `syncUpload` drives patch generation and bundling through `internal`
- * types, so nothing in-process can stand in for a server.
+ * Upload and download against a real FHIR server. Results include the server and the network.
  *
- * These numbers include the server and the network. A phone reaching a server on the host also
- * needs the port forwarded — `adb reverse tcp:8080 tcp:8080` — or `localhost` resolves to the phone
- * itself.
+ * A server on the host needs `adb reverse tcp:8080 tcp:8080` for the device to reach `localhost`.
  */
 @RunWith(AndroidJUnit4::class)
 class FhirEngineServerMacrobenchmark : FhirEngineMacrobenchmark() {
 
   @Test
   fun server() {
-    // Skipped rather than failed: a sweep that runs every class should not report the server
-    // group as broken when the run simply did not ask for a server.
+    // Skipped, not failed, when no server is configured.
     assumeTrue(
       "No -Pbenchmark.server, so there is nothing to sync against.",
       SERVER.isNotBlank(),

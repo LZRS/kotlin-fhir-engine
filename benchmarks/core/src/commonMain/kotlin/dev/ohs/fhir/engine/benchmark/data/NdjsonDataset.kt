@@ -25,15 +25,10 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 
 /**
- * Synthea bulk data: one `.ndjson` per resource type, one resource per line.
+ * Synthea bulk data: one `.ndjson` per resource type, one resource per line. Built by [load].
  *
- * Built by [load] rather than a constructor, because the corpus is far larger than the parsed
- * resources it yields: `Patient.ndjson` alone runs to hundreds of megabytes at benchmark
- * populations, and holding a file as a string before parsing it costs more than the dataset does.
- *
- * Parsed leniently. Synthea emits US Core profiles and extensions the model does not carry, and a
- * strict parse would reject most of the corpus; unknown keys are dropped instead. [parseFailures]
- * records the lines that still failed so a half-loaded dataset is visible rather than silent.
+ * Parsed with unknown keys ignored, since Synthea emits extensions the model does not carry.
+ * [parseFailures] lists the lines that still failed.
  */
 class NdjsonDataset
 private constructor(
@@ -55,11 +50,8 @@ private constructor(
   override val resourceCount: Int = counts.values.sum()
 
   /**
-   * Re-parses the corpus on every call.
-   *
-   * Deliberate: holding it is what a phone cannot afford, and the files are on local storage, so a
-   * second pass costs time rather than the run. Referenced types come first, in the same order
-   * [load] walked, so the fingerprint taken there describes exactly this sequence.
+   * Re-parses the corpus on every call, in the order [load] fingerprinted. Lines that fail to parse
+   * are skipped.
    */
   override fun resources(): Flow<Resource> = flow {
     for (name in orderedFiles) {
@@ -93,12 +85,10 @@ private constructor(
     }
 
     /**
-     * Reads the corpus once to learn what is in it, keeping counts, ids and a fingerprint but none
-     * of the resources.
+     * Scans the corpus once for counts, ids, samples and a fingerprint, without keeping resources.
+     * Reuses the scan from [cache] under [cacheKey] when present.
      *
-     * [lines] hands back one line per NDJSON record, which is the whole point of the format: peak
-     * memory here is a single parsed resource, not the corpus. Passing it in rather than calling
-     * the platform reader keeps this package free of platform code.
+     * @param lines streams the lines of a named file.
      */
     suspend fun load(
       fileNames: List<String>,
@@ -119,7 +109,7 @@ private constructor(
           sampleFamilyName = metadata.sampleFamilyName,
           sampleGivenName = metadata.sampleGivenName,
           sampleOrganizationId = metadata.sampleOrganizationId,
-          // A cached scan found no failures worth replaying; the run that wrote it reported them.
+          // Failures are reported by the run that wrote the cache.
           parseFailures = emptyList(),
           seed = seed,
           fingerprint = metadata.fingerprint,
@@ -152,8 +142,7 @@ private constructor(
           when (resource) {
             is Patient -> {
               resource.id?.let { patientIds += it }
-              // Synthea surnames are varied enough that one whole name is a selective search; the
-              // first patient's is as good as any, and costs nothing extra to capture here.
+              // Synthea names are varied enough that any one is a selective search.
               if (familyName.isEmpty()) {
                 resource.name.firstOrNull()?.let { name ->
                   familyName = name.family?.value.orEmpty()
@@ -169,16 +158,14 @@ private constructor(
             else -> Unit
           }
         }
-        // Accumulated, not assigned: packaging splits the big types across numbered files, so
-        // one type arrives as several.
+        // A type can be split across several numbered files.
         counts[type] = (counts[type] ?: 0) + count
       }
 
       hash = hash * 31 + requestedPopulation
       hash = hash * 31 + seed
       val fingerprint = hash.toULong().toString(16).padStart(16, '0')
-      // Synthea's mix varies with the seed, hence discovering the commonest code rather than
-      // hard-coding one that might match no row at all.
+      // Synthea's observation codes vary with the seed, so the commonest is discovered.
       val code = observationCodes.maxByOrNull { it.value }?.key ?: "8867-4"
       if (cache != null && cacheKey != null) {
         cache.write(
@@ -211,12 +198,7 @@ private constructor(
       )
     }
 
-    /**
-     * A previous scan, or null to scan again.
-     *
-     * An unreadable entry is treated as a miss rather than a failure: a stale or truncated cache
-     * must never be the reason a benchmark run stops.
-     */
+    /** A previous scan, or null to scan again. An unreadable entry counts as a miss. */
     private suspend fun cached(cache: DatasetCache?, key: String?): DatasetMetadata? {
       if (cache == null || key == null) return null
       val stored = cache.read(key) ?: return null
@@ -239,10 +221,7 @@ private constructor(
     private fun observationCode(observation: Observation): String? =
       observation.code.coding.firstOrNull()?.code?.value
 
-    /**
-     * The types the workloads touch. Synthea also emits Claim, ExplanationOfBenefit and
-     * DocumentReference, which together dwarf everything else and none of the queries look at.
-     */
+    /** The types the workloads touch; Synthea's larger billing and document types are skipped. */
     val INCLUDED_TYPES =
       setOf(
         "Organization",

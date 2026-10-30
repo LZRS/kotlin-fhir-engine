@@ -53,17 +53,9 @@ data class BenchmarkConfig(
   val workloadIds: List<String> = emptyList(),
   /** Clinical resources generated per patient, `<observations>x<conditions>` or `off`. */
   val clinicalMix: String = "8x2",
-  /**
-   * Reopen the database between iterations of read-only workloads, so they measure a cold page
-   * cache. Off by default: it makes every iteration pay a reopen, and warm reads are the case an
-   * app actually hits once it has been running.
-   */
+  /** Reopen the database between iterations of read-only workloads to measure a cold page cache. */
   val coldCache: Boolean = false,
-  /**
-   * Patients to generate, overriding whatever [profile] implies. Lets a run walk a scaling curve —
-   * 1000, 10000, 50000 — without inventing a profile per point. Synthetic datasets only; a Synthea
-   * corpus is whatever was packaged.
-   */
+  /** Patients to generate, overriding [profile]. Synthetic datasets only. */
   val population: Int? = null,
 ) {
   companion object {
@@ -87,9 +79,7 @@ data class BenchmarkConfig(
         warmupIterations = warmupIterations,
         measuredIterations = measuredIterations,
         groups = groups,
-        // Ktor resolves a request path against the base URL, so a base without a trailing slash
-        // loses its last segment: `.../fhir` + `Patient?...` requests `.../Patient` and 404s.
-        // Uploads hide it, because a transaction bundle posts to the base itself.
+        // Ktor drops the last path segment of a base URL without a trailing slash.
         serverUrl = serverUrl?.trim()?.takeIf { it.isNotEmpty() }?.removeSuffix("/")?.plus("/"),
         workloadIds = workloadIds,
         clinicalMix = clinicalMix,
@@ -100,7 +90,7 @@ data class BenchmarkConfig(
     const val DEFAULT_SEED = 20260819
   }
 
-  /** How many patients this run actually wants: the override if given, else the profile's. */
+  /** [population] if set, else the profile's. */
   val effectivePopulation: Int
     get() = population ?: Profile.fromString(profile).population
 }

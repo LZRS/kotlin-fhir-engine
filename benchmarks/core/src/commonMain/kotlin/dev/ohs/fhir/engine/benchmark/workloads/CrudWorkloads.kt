@@ -26,10 +26,7 @@ import dev.ohs.fhir.model.r4.String as FhirString
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.toList
 
-/**
- * CRUD workloads, porting android-fhir's `CrudApiViewModel`. Each performs hundreds of operations
- * per iteration to clear Android's trace noise floor.
- */
+/** CRUD workloads, porting android-fhir's `CrudApiViewModel`. */
 object CrudWorkloads {
 
   fun all(): List<Workload> =
@@ -54,14 +51,13 @@ object CrudWorkloads {
     }
 
     override suspend fun run(env: BenchmarkEnv) {
-      // Gathered rather than streamed: one batch call is the thing being measured. At a large
-      // corpus this is the workload most likely to exhaust the heap, which is a finding.
+      // Gathered rather than streamed: one batch call is what is measured.
       val patients = env.dataset.resources().filterIsInstance<Patient>().toList()
       env.engine.create(*patients.toTypedArray())
     }
   }
 
-  /** Every resource in the dataset, one call each. The bulk-import path an app actually hits. */
+  /** Every resource in the dataset, one call each. */
   private object CreateStreamingAll : Workload {
     override val id = "crud.create_streaming_all"
     override val group = "crud"
@@ -113,8 +109,7 @@ object CrudWorkloads {
       opsPerIteration = targets.size
     }
 
-    // The engine skips updates matching the stored copy, so a toggled boolean leaves this
-    // measuring a mix of real updates and no-ops. A monotonic revision guarantees a diff.
+    // The engine skips updates matching the stored copy; a monotonic revision guarantees a diff.
     private var revision = 0
 
     override suspend fun beforeEach(env: BenchmarkEnv) {
@@ -151,7 +146,6 @@ object CrudWorkloads {
       opsPerIteration = targets.size
     }
 
-    // Deleting empties the tables, so every iteration has to put them back. Untimed.
     override suspend fun beforeEach(env: BenchmarkEnv) {
       env.seedDataset()
     }
@@ -181,6 +175,5 @@ object CrudWorkloads {
     }
   }
 
-  /** Clear of the trace noise floor without dominating a run. */
   private const val OPERATION_COUNT = 500
 }

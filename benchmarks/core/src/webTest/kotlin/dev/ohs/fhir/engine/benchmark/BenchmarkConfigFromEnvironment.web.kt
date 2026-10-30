@@ -18,11 +18,9 @@ package dev.ohs.fhir.engine.benchmark
 import kotlinx.serialization.json.Json
 
 /**
- * Fetched from the test server, which Gradle writes the `-Pbenchmark.*` values into; see
- * `karma.config.d/benchmark-config.js`.
- *
- * The fallback is deliberately the smoke profile and a low iteration count: browsers over OPFS are
- * the slowest target by a wide margin.
+ * Fetches the `-Pbenchmark.*` values from the test server; see
+ * `karma.config.d/benchmark-config.js`. Falls back to small defaults because browsers over OPFS are
+ * the slowest target.
  */
 internal actual suspend fun benchmarkConfigFromEnvironment(): BenchmarkConfig {
   val json = httpGet("/benchmark-config") ?: return browserDefaults()

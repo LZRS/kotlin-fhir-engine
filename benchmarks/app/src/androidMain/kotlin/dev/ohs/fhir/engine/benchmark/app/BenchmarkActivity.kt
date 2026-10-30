@@ -41,47 +41,36 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * The driver's only screen, launched by intent extras rather than UI taps, which break whenever the
- * UI moves.
+ * The driver's only screen, configured by intent extras.
  *
- * Two very different displays. A single-workload launch is macrobenchmark's, and keeps a bare
- * [TextView] whose resource id UI Automator selects on — no Compose is initialised on that path. A
- * group launch runs for hours and gets the Compose progress screen instead; nothing waits on its
- * status, so it is free to render whatever is useful.
+ * A single-workload launch shows a bare [TextView] that UI Automator selects, with no Compose. A
+ * group launch shows the Compose progress screen.
  */
 class BenchmarkActivity : ComponentActivity() {
 
-  /**
-   * Off the main thread: a long workload there triggers an ANR dialog, which contaminates the
-   * measurement and hides the status view from UI Automator.
-   */
+  /** Off the main thread: an ANR dialog would hide the status view from UI Automator. */
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-  /**
-   * Kept so a relaunch can cancel it. Otherwise two runs race and whichever finishes last writes
-   * the status, letting a stale [STATUS_DONE] overwrite a newer failure.
-   */
+  /** Cancelled on relaunch so a stale run cannot write the status. */
   private var runJob: Job? = null
   private var tickerJob: Job? = null
 
   /**
-   * Bumped per launch. Cancellation is cooperative, so a superseded run keeps executing until its
-   * next suspension point; everything it does after that — progress events, stopping the clock,
-   * writing a status — belongs to a display it no longer owns and has to be dropped.
+   * Bumped per launch. A cancelled run executes until its next suspension point; its display
+   * updates are dropped when its epoch is stale.
    */
   @Volatile private var runEpoch = 0
 
   private val runState = MutableStateFlow(RunState())
   private val elapsedSeconds = MutableStateFlow(0L)
 
-  /** Only inflated on the single-workload path. Null in group mode. */
+  /** Null in group mode. */
   private var statusView: TextView? = null
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
 
-    // A long workload outlasts the screen timeout, and a sleeping device draws no frames, so
-    // macrobenchmark's startActivityAndWait never sees the launch complete.
+    // A sleeping device draws no frames, so startActivityAndWait never sees the launch complete.
     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     setShowWhenLocked(true)
     setTurnScreenOn(true)
@@ -91,10 +80,7 @@ class BenchmarkActivity : ComponentActivity() {
     start(intent)
   }
 
-  /**
-   * The activity is `singleTop`, so a relaunch reuses this instance. Resetting the display here
-   * stops a harness reading the previous run's [STATUS_DONE].
-   */
+  /** `singleTop` relaunches reuse this instance; the display is reset for the new run. */
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     setIntent(intent)
@@ -122,8 +108,7 @@ class BenchmarkActivity : ComponentActivity() {
     tickerJob?.cancel()
     val epoch = ++runEpoch
 
-    // Chosen here rather than in execute(): setContent and setContentView must run on the main
-    // thread, and onCreate/onNewIntent are already on it.
+    // setContent and setContentView must run on the main thread.
     if (request.workloadId != null) showStatusView() else showProgressScreen()
 
     runJob = scope.launch { execute(request, epoch) }
@@ -136,7 +121,7 @@ class BenchmarkActivity : ComponentActivity() {
     if (isCurrent(epoch)) tickerJob?.cancel()
   }
 
-  /** Macrobenchmark's path. The resource id is what `By.res(pkg, "benchmark_status")` selects. */
+  /** Selected by `By.res(pkg, "benchmark_status")`. */
   private fun showStatusView() {
     val view =
       statusView
@@ -160,9 +145,7 @@ class BenchmarkActivity : ComponentActivity() {
       val elapsed by elapsedSeconds.collectAsState()
       ProgressScreen(state, elapsed)
     }
-    // Ticks through measured spans. Accepted: group mode is the secondary Android stream —
-    // macrobenchmark is authoritative — and a frozen clock during a long iteration looks like the
-    // hang this screen exists to rule out.
+    // Ticks through measured spans so a long iteration does not look hung.
     tickerJob =
       scope.launch {
         val start = TimeSource.Monotonic.markNow()
@@ -176,10 +159,9 @@ class BenchmarkActivity : ComponentActivity() {
   private suspend fun execute(request: BenchmarkRequest, epoch: Int) {
     try {
       if (request.workloadId != null) {
-        // STATUS_READY marks the end of untimed setup, before any measured work.
+        // STATUS_READY marks the end of untimed setup.
         val run = BenchmarkDriver.prepareSingle(request)
-        // Logged because this path writes no report, so nothing else records which corpus the
-        // measured iteration ran against.
+        // This path writes no report, so the log is the only record of the corpus.
         run.datasetManifest.let {
           Log.i(TAG, "dataset=${it.kind} population=${it.population} fingerprint=${it.fingerprint}")
         }
@@ -194,7 +176,7 @@ class BenchmarkActivity : ComponentActivity() {
           BenchmarkDriver.runAll(request) { event ->
             if (!isCurrent(epoch)) return@runAll
             runState.update { it.fold(event) }
-            // Completions only. Logging every iteration floods logcat on a 26-workload run.
+            // Completions only, to keep logcat readable.
             if (event is BenchmarkProgress.WorkloadFinished) {
               Log.i(
                 TAG,
@@ -211,7 +193,7 @@ class BenchmarkActivity : ComponentActivity() {
       // A newer launch owns the display now; a failure here would overwrite it.
       throw e
     } catch (e: Throwable) {
-      // In the view as well as the log, or a harness waiting on STATUS_DONE just times out.
+      // Shown in the view so a waiting harness sees the failure.
       Log.e(TAG, "benchmark failed", e)
       if (!isCurrent(epoch)) return
       val message = "${e::class.simpleName}: ${e.message}"
@@ -221,9 +203,7 @@ class BenchmarkActivity : ComponentActivity() {
     }
   }
 
-  /**
-   * No-ops in group mode, where there is no status view. Never touches the view off the UI thread.
-   */
+  /** No-op in group mode. */
   private fun setStatus(status: String) {
     val view = statusView ?: return
     runOnUiThread { view.text = status }

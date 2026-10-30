@@ -17,14 +17,9 @@
     benchmarks/tools/start-benchmark-server.sh
     scripts/populate_benchmark_server.py --base-url http://localhost:8080/fhir
 
-Sent as transaction bundles rather than one request per resource. At a 50,000-patient corpus that
-is the difference between roughly 840 requests and 167,000, which is hours.
-
-Bundling is only safe because of how the corpus is exported: `--exporter.fhir.bulk_data=true`
-resolves every reference to a literal `Type/id`, so entries carry no `urn:uuid` placeholders and
-need no rewriting. Entries are `PUT` at those ids, which keeps the corpus's identifiers — a `POST`
-would mint new ones and leave every reference in the corpus pointing at nothing — and makes a
-repeated load an update rather than a duplicate.
+Sent as transaction bundles. The corpus is exported with `--exporter.fhir.bulk_data=true`, so
+references are literal `Type/id` and need no `urn:uuid` rewriting. Entries are `PUT` at their ids,
+which keeps references valid and makes a repeated load idempotent.
 """
 
 from __future__ import annotations
@@ -41,12 +36,10 @@ import urllib.request
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "benchmarks/core/build/benchmark-data/synthea"
 
-# Referenced types first, so a resource's targets already exist when it lands. Mirrors
-# NdjsonDataset.LOAD_ORDER.
+# Referenced types first. Mirrors NdjsonDataset.LOAD_ORDER.
 LOAD_ORDER = ["Organization", "Practitioner", "Patient", "Encounter"]
 
-# Big enough that per-request overhead stops mattering, small enough that one atomic transaction
-# stays inside the server's heap. HAPI slows sharply on much larger bundles.
+# HAPI slows sharply on much larger bundles.
 DEFAULT_BUNDLE_SIZE = 200
 
 
@@ -55,7 +48,7 @@ class PopulateError(Exception):
 
 
 def chunked(source, size):
-    """Fixed-size lists from an iterator, so a 200 MB corpus is never held whole."""
+    """Fixed-size lists from an iterator, without holding the whole source."""
     while True:
         chunk = list(itertools.islice(source, size))
         if not chunk:
@@ -66,9 +59,8 @@ def chunked(source, size):
 def unique_by_id(resources):
     """Drops repeats of a `Type/id` already seen.
 
-    Synthea's bulk export re-emits an organization or practitioner once per resource referencing
-    it — about two thirds of those two files are repeats — and a transaction bundle carrying one
-    id twice is rejected outright (HAPI-0535). Only the ids are retained, not the resources.
+    Synthea's bulk export repeats organizations and practitioners, and a transaction bundle
+    with a duplicate id is rejected (HAPI-0535). Only the ids are retained.
     """
     seen = set()
     for resource in resources:
@@ -101,11 +93,7 @@ def transaction_bundle(resources):
 
 
 def outcome(response):
-    """How many entries the server took, and the statuses of any it refused.
-
-    A transaction is atomic, so a refusal means the whole chunk landed nowhere; reporting it beats
-    a count that reads like a successful load.
-    """
+    """How many entries the server took, and the statuses of any it refused."""
     accepted = 0
     failures = []
     for entry in response.get("entry", []):

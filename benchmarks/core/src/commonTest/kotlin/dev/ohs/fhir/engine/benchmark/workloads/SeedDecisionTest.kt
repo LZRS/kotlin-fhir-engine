@@ -18,11 +18,7 @@ package dev.ohs.fhir.engine.benchmark.workloads
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/**
- * Seeding 667,000 resources takes over an hour, and a run killed part way through leaves a database
- * that is populated but incomplete. Treating "not empty" as "ready" would have every later workload
- * query a fraction of the corpus and report it as a fast result.
- */
+/** A partially seeded database is reseeded, not treated as ready. */
 class SeedDecisionTest {
 
   @Test
@@ -42,7 +38,6 @@ class SeedDecisionTest {
 
   @Test
   fun `starts over when the database holds more than the corpus`() {
-    // A leftover database from a larger corpus is just as wrong as a partial one.
     assertEquals(SeedDecision.RESEED, seedDecision(present = 60_000, expected = 50_000))
   }
 

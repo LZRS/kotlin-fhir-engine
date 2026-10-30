@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
 #
-# Uploads the packaged Synthea data to the benchmark server, so `server.download` has something to
-# download. Skip it if you only care about the upload workloads.
+# Uploads the packaged Synthea data to the benchmark server for the `server.download` workloads.
 #
 #   ./gradlew :benchmarks:core:packageBenchmarkData
 #   benchmarks/tools/populate-benchmark-server.sh
 #
-# Sent as transaction bundles rather than one request per resource: at 50,000 patients that is the
-# difference between roughly 840 requests and 167,000. The implementation and its tests live in
-# scripts/populate_benchmark_server.py; this wrapper is the documented entry point.
+# Implemented in scripts/populate_benchmark_server.py.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

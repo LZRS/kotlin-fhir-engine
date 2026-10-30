@@ -44,12 +44,11 @@ import kotlinx.coroutines.flow.asFlow
 import kotlinx.datetime.LocalDate
 
 /**
- * Deterministic fallback dataset, so the harness runs on a fresh clone with no Java tooling.
- * Synthea remains the dataset for quotable numbers; reports record which kind ran so the two are
- * never compared.
+ * Deterministic in-memory dataset that needs no Synthea corpus. Its reports are not comparable with
+ * Synthea ones.
  *
- * Per patient: one Encounter, three Observations, one Condition, plus shared Organizations and
- * Practitioners, so include, revInclude and has queries have something to traverse.
+ * Per patient: one Encounter, [OBSERVATIONS_PER_PATIENT] Observations and one Condition, plus
+ * shared Organizations and Practitioners for include, revInclude and has queries to traverse.
  */
 class SyntheticDataset(
   override val population: Int,
@@ -97,14 +96,12 @@ class SyntheticDataset(
     conditions = patients.mapIndexed { index, patient -> buildCondition(index, patient) }
   }
 
-  // Referenced resources first: organizations and practitioners before the patients pointing at
-  // them, patients before the clinical resources pointing at patients.
+  // Referenced resources first.
   private val all: List<Resource> =
     organizations + practitioners + patients + encounters + observations + conditions
 
   override val resourceCount: Int = all.size
 
-  /** Generated in memory and small by construction, so the flow just replays the list. */
   override fun resources(): Flow<Resource> = all.asFlow()
 
   override val patientIds: List<String> = patients.map { it.id!! }
@@ -113,7 +110,7 @@ class SyntheticDataset(
 
   override val sampleOrganizationId: String = organizationId(0)
 
-  // Patient 0's own names, so a search for either matches roughly population/676 patients.
+  // Patient 0's names.
   override val sampleFamilyName: String = composedName(0)
 
   override val sampleGivenName: String = composedName(NAME_COMBINATIONS / 2)
@@ -135,7 +132,6 @@ class SyntheticDataset(
       fingerprint = fingerprint(),
     )
 
-  /** Reports with differing fingerprints did not measure the same thing and cannot be compared. */
   private fun fingerprint(): String {
     var hash = 17L
     for (resource in all) {
@@ -155,8 +151,7 @@ class SyntheticDataset(
         listOf(
           HumanName(
             family = FhirString(value = composedName(index)),
-            // Offset so a patient's given and family names differ, and so a search for one cannot
-            // accidentally match the other.
+            // Offset so a search for the given name cannot match the family name.
             given = listOf(FhirString(value = composedName(index + NAME_COMBINATIONS / 2))),
           ),
         ),
@@ -246,19 +241,14 @@ class SyntheticDataset(
     const val UCUM_SYSTEM = "http://unitsofmeasure.org"
     const val ENCOUNTER_CLASS_SYSTEM = "http://terminology.hl7.org/CodeSystem/v3-ActCode"
 
-    /** Real LOINC codes so the shape of the token index matches production data. */
+    /** Real LOINC codes, so the token index has a production-like shape. */
     val OBSERVATION_CODES = listOf("8867-4", "8480-6", "8462-4", "29463-7", "39156-5")
 
     val CONDITION_CODES = listOf("44054006", "195967001", "59621000", "271737000")
 
     /**
-     * Names are composed rather than listed, because the count matters more than the realism.
-     *
-     * With a short list every prefix search matches a large share of the corpus — eight surnames
-     * meant `family = "Smith"` matched one patient in eight — and at that selectivity no index can
-     * help, so the search benchmarks could not tell a good index from a missing one. Composing two
-     * syllable tables gives 676 distinct surnames and 676 given names, so searching one whole name
-     * matches roughly one patient in 676, which is the order a real name search sees.
+     * Name syllables, composed by [composedName] so name searches are selective enough for an index
+     * to matter.
      */
     private val STEMS =
       listOf(
@@ -320,7 +310,7 @@ class SyntheticDataset(
         "ansa",
       )
 
-    /** 676 distinct values; index `n` is stable for a given `n`. */
+    /** One of [NAME_COMBINATIONS] distinct names, stable for a given [index]. */
     fun composedName(index: Int): String =
       STEMS[(index / TAILS.size) % STEMS.size] + TAILS[index % TAILS.size]
 

@@ -17,7 +17,7 @@ package dev.ohs.fhir.engine.benchmark.app
 
 import kotlinx.coroutines.runBlocking
 
-/** Desktop entry point: `--workload=…`, `--profile=…`, `--groups=…`. Same driver as Android. */
+/** Desktop entry point: `--workload=…`, `--profile=…`, `--groups=…`. */
 fun main(args: Array<String>) {
   val values =
     args

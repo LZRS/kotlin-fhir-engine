@@ -40,10 +40,8 @@ data class ClinicalMix(val observations: Int = 8, val conditions: Int = 2) {
 
   companion object {
     /**
-     * Reads the compact `<observations>x<conditions>` form, e.g. `8x2`. `off` means generate
-     * nothing, which is how a run stays comparable to a harness that measured the corpus alone.
-     * Malformed input fails rather than guessing: a typo silently becoming the default would change
-     * what a whole run measured.
+     * Parses `<observations>x<conditions>` (e.g. `8x2`) or `off` for none; blank gives the default.
+     * Malformed input throws so a typo cannot silently change what a run measures.
      */
     fun parse(value: String?): ClinicalMix {
       val trimmed = value?.trim().orEmpty()
@@ -61,15 +59,10 @@ data class ClinicalMix(val observations: Int = 8, val conditions: Int = 2) {
 }
 
 /**
- * A Synthea corpus plus the clinical resources it does not carry.
+ * A Synthea corpus plus generated observations and conditions for each of its patients.
  *
- * Synthea only emits observations and conditions when its full module set runs, and that multiplies
- * the corpus by roughly forty — 50,000 patients would export around 5 GB and take over half a day
- * to insert on a benchmark tablet. Generating instead keeps the corpus at its packaged size and
- * makes the per-patient volume a number this class is given rather than one Synthea decides.
- *
- * The patients are real: every generated resource references an id that came out of the corpus, so
- * the joins and reverse-includes the search workloads measure resolve against real rows.
+ * Every generated resource references a corpus patient id, so joins and reverse-includes resolve
+ * against real rows.
  */
 class AugmentedDataset(
   private val base: Dataset,
@@ -85,13 +78,9 @@ class AugmentedDataset(
 
   override val sampleOrganizationId: String = base.sampleOrganizationId
 
-  /**
-   * The code the generator uses most. The corpus's own answer is meaningless here: it has no
-   * observations, so the token query would be built from a code nothing carries.
-   */
+  /** A generated code; the base corpus carries no observations. */
   override val sampleObservationCode: String = OBSERVATION_CODES.first()
 
-  /** Names come from the corpus; this wrapper adds observations and conditions, not patients. */
   override val sampleFamilyName: String = base.sampleFamilyName
 
   override val sampleGivenName: String = base.sampleGivenName
@@ -99,8 +88,7 @@ class AugmentedDataset(
   /** Corpus first, so patients exist before anything references them. */
   override fun resources(): Flow<Resource> = flow {
     base.resources().collect { emit(it) }
-    // Generated per patient and emitted immediately: the point of streaming is that no more than
-    // one resource is resident, and a 50,000-patient mix would otherwise be half a million objects.
+    // Emitted as generated so at most one resource is resident.
     for ((index, patientId) in base.patientIds.withIndex()) {
       val random = Random(seed * 31 + index)
       repeat(mix.observations) { slot -> emit(observation(patientId, index, slot, random)) }
@@ -118,8 +106,7 @@ class AugmentedDataset(
       .copy(
         kind = "${base.manifest().kind}+generated",
         resourceCounts = counts,
-        // Distinct from the corpus's own: the same files with a different mix are a different
-        // dataset, and two reports carrying one fingerprint must have measured one thing.
+        // The same corpus with a different mix or seed is a different dataset.
         fingerprint = "${base.manifest().fingerprint}-g${mix.observations}x${mix.conditions}s$seed",
       )
   }
@@ -139,8 +126,7 @@ class AugmentedDataset(
             ),
         ),
       subject = Reference(reference = FhirString(value = "Patient/$patientId")),
-      // A spread of values, so the quantity range query matches a share of rows rather than all
-      // of them or none.
+      // Spread so the quantity range query matches some rows, not all or none.
       value =
         Observation.Value.Quantity(
           Quantity(

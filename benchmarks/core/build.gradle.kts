@@ -11,8 +11,7 @@ plugins {
 kotlin {
   jvmToolchain(21)
 
-  // Mirrors :engine's target set: a benchmark that skips a target cannot answer whether that target
-  // got slower.
+  // Mirrors :engine's target set.
   androidLibrary {
     namespace = "dev.ohs.fhir.engine.benchmark.core"
     compileSdk = 36
@@ -24,7 +23,7 @@ kotlin {
 
   jvm("desktop")
 
-  // iosX64 omitted for the same reason as :engine — Room 3 publishes no iosX64 artifacts.
+  // No iosX64: Room 3 publishes no iosX64 artifacts.
   iosArm64()
   iosSimulatorArm64()
 
@@ -75,8 +74,7 @@ kotlin {
   }
 }
 
-// Forward -P controls to the desktop harness. Registered as inputs so changing a profile re-runs
-// rather than serving the previous profile's result.
+// Forwards -P controls to the desktop harness. Registered as inputs so a changed value re-runs.
 tasks.named<Test>("desktopTest") {
   listOf(
       "benchmark.profile",
@@ -103,7 +101,7 @@ tasks.named<Test>("desktopTest") {
     }
   // Real datasets are held in memory while they are inserted.
   maxHeapSize = "4g"
-  // A benchmark run is never up to date; the point is to measure again.
+  // A benchmark run is never up to date.
   outputs.upToDateWhen { false }
   testLogging { showStandardStreams = true }
 }
@@ -120,7 +118,7 @@ val syntheaSha256 = providers.gradleProperty("synthea.sha256").get()
 val benchmarkPopulation = providers.gradleProperty("benchmark.population").getOrElse("100").toInt()
 val benchmarkSeed = providers.gradleProperty("benchmark.seed").getOrElse("20260819")
 
-// Outside the project tree so a 200 MB jar survives `clean` and is shared between checkouts.
+// Outside the project tree so the jar survives `clean` and is shared between checkouts.
 val syntheaJar =
   File(gradle.gradleUserHomeDir, "caches/synthea/$syntheaRelease/synthea-with-dependencies.jar")
 
@@ -136,12 +134,9 @@ val downloadSynthea by
 val syntheaRawOutput = layout.buildDirectory.dir("benchmark-data/raw")
 
 /**
- * Stops a run from quietly replacing a corpus with one of a different size.
+ * Fails when generating would replace a packaged corpus of a different population.
  *
- * `generateSyntheaData` deletes its output before running, and the population it uses comes from a
- * property that defaults to 10. A command that forgets `-Pbenchmark.population` therefore destroys
- * a 50,000-patient corpus that took half an hour to build, and the run that follows reports the
- * wrong dataset rather than failing.
+ * `generateSyntheaData` deletes its output first, and `benchmark.population` has a default.
  */
 val guardBenchmarkCorpus by
   tasks.registering {
@@ -183,10 +178,8 @@ val generateSyntheaData by
     argumentProviders.add(
       CommandLineArgumentProvider {
         listOf(
-          // One module, and Patient-only export below. The full module set multiplies the corpus
-          // by roughly forty — 50,000 patients export around 5 GB and take over half a day to
-          // insert on the benchmark tablet. The clinical resources the workloads query are
-          // generated instead; see AugmentedDataset.
+          // One module and Patient-only export keep the corpus small. Clinical resources come
+          // from AugmentedDataset.
           "-m",
           "pregnancy",
           "-p",
@@ -198,10 +191,8 @@ val generateSyntheaData by
           "--exporter.fhir.included_resources=Patient",
           "--exporter.fhir.transaction_bundle=false",
           "--exporter.fhir.use_us_core_ig=false",
-          // Enough history for the clinical types to accumulate; at 1 year most patients carry
-          // no conditions or observations worth querying.
           "--exporter.years_of_history=1",
-          // One ndjson per resource type, which is the layout android-fhir's benchmarks use.
+          // One ndjson per resource type, the layout android-fhir's benchmarks use.
           "--exporter.fhir.bulk_data=true",
           "--exporter.baseDirectory=${syntheaRawOutput.get().asFile.absolutePath}",
         )
@@ -226,7 +217,7 @@ val packageBenchmarkData by
   }
 
 tasks.named<Test>("desktopTest") {
-  // Only build the dataset when a run actually asks for it: generating it takes minutes.
+  // Only build the dataset when a run asks for it.
   if (
     providers.gradleProperty("benchmark.dataset").orNull.equals("synthea", ignoreCase = true) &&
       providers.gradleProperty("benchmark.data.dir").orNull == null
@@ -243,8 +234,8 @@ tasks.named<Test>("desktopTest") {
 // ./gradlew :benchmarks:core:jsBrowserTest -Pbenchmark.profile=smoke
 // ---------------------------------------------------------------------------------------------
 
-// A browser reads neither -P properties nor the filesystem, so the run config is written where the
-// Karma middleware can serve it; see karma.config.d/benchmark-server.js.
+// A browser reads neither -P properties nor the filesystem, so the run config is served by
+// karma.config.d/benchmark-server.js.
 val webBenchmarkProperties =
   listOf(
       "benchmark.profile",
@@ -279,8 +270,7 @@ val writeWebBenchmarkConfig by
         } else {
           "synthetic"
         }
-      // Defaults are the browser's own rather than desktop's: an unflagged browser run stays small
-      // because a browser over OPFS is the slowest target by a wide margin.
+      // Browser defaults are smaller than desktop's; OPFS is the slowest target.
       file.writeText(
         """
         {
@@ -314,13 +304,12 @@ listOf("jsBrowserTest", "wasmJsBrowserTest").forEach { name ->
 // ./gradlew :benchmarks:core:iosSimulatorArm64Test -Pbenchmark.dataset=synthea
 // ---------------------------------------------------------------------------------------------
 
-// A simulator shares the host filesystem, so the report and the dataset are ordinary host paths;
-// the harness reads them from the environment. A real device would need them bundled instead.
+// A simulator shares the host filesystem, so report and dataset paths are passed as host paths
+// through the environment. A real device would need them bundled.
 tasks
   .withType<org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest>()
   .configureEach {
-    // simctl only forwards variables prefixed SIMCTL_CHILD_ into the simulated process; without the
-    // prefix the harness never sees them and silently writes its report inside the simulator.
+    // simctl only forwards variables prefixed SIMCTL_CHILD_ into the simulated process.
     fun forSimulator(name: String, value: String) {
       environment(name, value)
       environment("SIMCTL_CHILD_$name", value)

@@ -43,13 +43,10 @@ import dev.ohs.fhir.engine.benchmark.FinishedWorkload
 import dev.ohs.fhir.engine.benchmark.RunState
 
 /**
- * The group-run screen. A Synthea run takes hours, and without this a working run and a hung one
- * look identical.
+ * The group-run progress screen.
  *
- * Nothing here may animate. Recomposition during a measured span perturbs the number being taken,
- * so the progress bar is determinate and the list scrolls instantly. The one exception is
- * [elapsedSeconds], which the caller ticks once a second — a frozen clock during a 100-second
- * iteration reads as the very hang this screen exists to rule out.
+ * Nothing here animates, since recomposition during a measured span perturbs it. The exception is
+ * [elapsedSeconds], which the caller ticks once a second.
  */
 @Composable
 fun ProgressScreen(state: RunState, elapsedSeconds: Long) {
@@ -98,7 +95,7 @@ private fun Header(state: RunState, elapsedSeconds: Long) {
       Text(formatElapsed(elapsedSeconds), fontSize = 14.sp, fontFamily = FontFamily.Monospace)
     }
     Spacer(Modifier.height(6.dp))
-    // Determinate: the indeterminate overload animates forever, including during a measured span.
+    // Determinate: the indeterminate overload animates.
     LinearProgressIndicator(
       progress = {
         if (state.totalWorkloads == 0) {
@@ -129,8 +126,7 @@ private fun CurrentRow(current: CurrentWorkload) {
 private fun FinishedList(state: RunState) {
   val listState = rememberLazyListState()
   LaunchedEffect(state.finished.size) {
-    // scrollToItem, not animateScrollToItem: an animation keeps drawing frames after the next
-    // span has already opened.
+    // Not animated: an animation draws frames into the next measured span.
     if (state.finished.isNotEmpty()) listState.scrollToItem(state.finished.size - 1)
   }
   LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
@@ -164,14 +160,14 @@ private fun FinishedRow(workload: FinishedWorkload) {
   }
 }
 
-/** `mm:ss`. Runs long enough that hours are possible, so minutes are not capped at 60. */
+/** `mm:ss`, with minutes not capped at 60. */
 private fun formatElapsed(totalSeconds: Long): String {
   val minutes = totalSeconds / 60
   val seconds = totalSeconds % 60
   return "${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}"
 }
 
-/** Common Kotlin has no `String.format`, and the spread here runs from 0.5 ms to minutes. */
+/** Milliseconds below one second, seconds above; common Kotlin has no `String.format`. */
 private fun formatMillis(value: Double): String =
   if (value >= 1000.0) "${oneDecimal(value / 1000.0)} s" else "${oneDecimal(value)} ms"
 

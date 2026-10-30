@@ -6,8 +6,7 @@
 #   ./gradlew :benchmarks:core:desktopTest -Pbenchmark.groups=server \
 #     -Pbenchmark.server=http://localhost:8080/fhir
 #
-# Needs a working `docker` CLI. These numbers include the server and the loopback network, so they
-# are only comparable to another run against the same server on the same machine.
+# Needs `docker`. Results are comparable only against the same server on the same machine.
 set -euo pipefail
 
 CONTAINER_NAME="${CONTAINER_NAME:-fhir-benchmark-server}"

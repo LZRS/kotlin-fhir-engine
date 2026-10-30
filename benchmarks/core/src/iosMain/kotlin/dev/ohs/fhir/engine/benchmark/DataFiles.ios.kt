@@ -31,8 +31,8 @@ import platform.posix.getenv
 import platform.posix.memcpy
 
 /**
- * Read straight off the host filesystem: a simulator shares it, so the packaged Synthea directory
- * needs no bundling. Set by the Gradle test task; a device would need the data in its own bundle.
+ * A host directory set by the Gradle test task; readable because the simulator shares the host
+ * filesystem.
  */
 @OptIn(ExperimentalForeignApi::class)
 private fun dataDirectory(): String? =
@@ -48,17 +48,13 @@ internal actual suspend fun listDataFiles(): List<String> {
   return names.orEmpty().sorted()
 }
 
-/** 64 KiB: large enough that a multi-hundred-megabyte file is not read in millions of syscalls. */
 private const val CHUNK_BYTES = 64 * 1024
 
 private const val NEWLINE = '\n'.code.toByte()
 
 /**
- * Read in chunks and split on newlines, rather than through `stringWithContentsOfFile`, which would
- * hold a whole Synthea file in memory to hand back one string.
- *
- * Split on bytes rather than on decoded text: a chunk boundary lands mid-character often enough at
- * this size, and decoding each chunk separately would corrupt those characters.
+ * Read in chunks so a whole file is never resident. Split on bytes before decoding, since a chunk
+ * boundary can fall mid-character.
  */
 @OptIn(ExperimentalForeignApi::class)
 internal actual fun dataFileLines(relativePath: String): Flow<String> = flow {

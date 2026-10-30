@@ -20,9 +20,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * The upload ids decide what the server sees. Macrobenchmark restarts the process between
- * iterations, so an id built from in-process state alone repeats, and a PUT of a resource the
- * server already holds measures an update while claiming to measure a create.
+ * Macrobenchmark restarts the process between iterations, so upload ids must differ across
+ * processes; a repeated id turns the measured create into an update.
  */
 class ServerWorkloadsTest {
 
@@ -52,8 +51,7 @@ class ServerWorkloadsTest {
 
   @Test
   fun `ids are legal fhir ids`() {
-    // A run token is a timestamp, and `:` and `+` are not in the FHIR id grammar; a server
-    // rejects the whole bundle rather than the one id, so this fails the workload outright.
+    // The run token is a timestamp; `:` and `+` are not valid in FHIR ids.
     val ids = ServerWorkloads.uploadIds(PREFIX, "2026-08-29T10:00:00.000+03:00", 0, COUNT)
 
     val legal = Regex("[A-Za-z0-9.-]{1,64}")

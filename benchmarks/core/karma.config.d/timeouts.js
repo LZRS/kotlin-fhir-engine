@@ -1,6 +1,4 @@
-// A benchmark is one test that runs for minutes, so every Karma default written for short tests has
-// to be raised. Mocha's 2s per-test timeout fails the run outright; the activity and ping timeouts
-// kill the session from the server side while a workload is still mid-flight.
+// A benchmark is one test that runs for minutes; Karma and Mocha defaults would end it early.
 config.set({
   client: {
     ...(config.client || {}),

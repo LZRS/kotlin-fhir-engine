@@ -9,8 +9,8 @@ plugins {
   alias(libs.plugins.kotlin.compose)
 }
 
-// Only Android has a Compose UI. A group run takes hours and needs a real progress screen; desktop
-// and web print to a console. Compose never initialises on the single-workload macrobenchmark path.
+// Only Android has a Compose UI; desktop and web print to a console. Compose does not initialise
+// on the single-workload macrobenchmark path.
 android {
   namespace = "dev.ohs.fhir.engine.benchmark.app"
   compileSdk = 36
@@ -26,7 +26,7 @@ android {
   buildTypes {
     release {
       isMinifyEnabled = false
-      // Macrobenchmark measures the release build, which is otherwise unsigned and uninstallable.
+      // Macrobenchmark measures the release build, which must be signed to install.
       signingConfig = signingConfigs.getByName("debug")
     }
   }
@@ -70,14 +70,13 @@ kotlin {
     commonMain.dependencies {
       implementation(project(":benchmarks:core"))
       implementation(libs.kotlinx.coroutines.core)
-      // The Compose compiler plugin applies to every compilation and fails one whose class path
-      // has no runtime, even a source set with no Compose code. Only Android gets the UI.
+      // The Compose compiler plugin fails any compilation without the runtime on its class path.
       implementation(compose.runtime)
     }
     commonTest.dependencies { implementation(libs.kotlin.test) }
     androidMain.dependencies {
       implementation(libs.kotlinx.coroutines.android)
-      // Macrobenchmark drives profile compilation through this; it must be 1.4.0+ for API 34+.
+      // Macrobenchmark drives profile compilation through this; API 34+ needs 1.4.0+.
       implementation(libs.androidx.profileinstaller)
       implementation(libs.androidx.activity.compose)
       implementation(compose.foundation)
@@ -88,10 +87,7 @@ kotlin {
   }
 }
 
-/**
- * Copies benchmark reports off the device. The app writes to external files because `adb pull` can
- * read it without root. Macrobenchmark's own trace-derived JSON is separate and also kept.
- */
+/** Copies benchmark reports off the device; the app writes them where `adb pull` needs no root. */
 val pullBenchmarkReports by
   tasks.registering {
     group = "verification"
@@ -144,13 +140,10 @@ val pullBenchmarkReports by
 //
 // ./gradlew :benchmarks:app:installRelease -Pbenchmark.dataset=synthea
 //
-// Android cannot read the host filesystem, and /data/local/tmp is unreadable to an app from API 30,
-// so the corpus has to travel inside the APK.
+// The corpus ships inside the APK: an app cannot read /data/local/tmp from API 30.
 // ---------------------------------------------------------------------------------------------
 
-// Mirrors NdjsonDataset.INCLUDED_TYPES: the types a workload actually queries. Claim,
-// ExplanationOfBenefit and DocumentReference dwarf everything else and no query touches them, so
-// staging them would bloat the APK for nothing. Adding a workload type means updating both lists.
+// The types a workload queries. Keep in sync with NdjsonDataset.INCLUDED_TYPES.
 val benchmarkAssetTypes =
   listOf(
     "AllergyIntolerance",
@@ -169,14 +162,13 @@ val benchmarkAssetTypes =
 /**
  * Copies the packaged corpus into one variant's assets.
  *
- * A plain `Sync` wired through `android.sourceSets` is not enough: AGP 8.13 resolves whatever
- * `assets.srcDir` is handed down to a bare path, so the asset merge, lint and packaging never learn
- * they have to wait for the copy. Registering the output through the variant API tells all three.
+ * Registered through the variant API so asset merge, lint and packaging depend on it; AGP 8.13
+ * drops the task dependency of a `Sync` wired through `assets.srcDir`.
  */
 abstract class StageBenchmarkAssets @Inject constructor(private val fs: FileSystemOperations) :
   DefaultTask() {
 
-  /** A file collection rather than a directory, so an absent corpus is empty and not a failure. */
+  /** A file collection so an absent corpus is empty rather than a failure. */
   @get:InputFiles
   @get:PathSensitive(PathSensitivity.RELATIVE)
   abstract val syntheaData: ConfigurableFileCollection
@@ -216,7 +208,7 @@ androidComponents {
           project(":benchmarks:core").layout.buildDirectory.dir("benchmark-data/synthea"),
         )
         types.set(benchmarkAssetTypes)
-        // Only build the corpus when a run asks for it: generating it takes minutes.
+        // Only build the corpus when a run asks for it.
         if (useSynthea) dependsOn(":benchmarks:core:packageBenchmarkData")
       }
     variant.sources.assets?.addGeneratedSourceDirectory(

@@ -16,11 +16,8 @@
 package dev.ohs.fhir.engine.benchmark
 
 /**
- * No Gradle system properties reach an Android device test, so the run uses fixed defaults.
- *
- * Deliberately the smoke profile and a low iteration count: Android numbers come from
- * macrobenchmark against the driver app; this path exists only so the shared test source set
- * compiles.
+ * Fixed smoke defaults: no Gradle properties reach a device test, and Android numbers come from
+ * macrobenchmark. Exists so the shared test source set compiles.
  */
 internal actual suspend fun benchmarkConfigFromEnvironment(): BenchmarkConfig =
   BenchmarkConfig.of(

@@ -15,8 +15,7 @@
  */
 package dev.ohs.fhir.engine.benchmark
 
-// Reached through `dynamic` because kotlinx-browser's Performance type predates the User Timing
-// API and carries neither mark nor measure.
+// `dynamic` because kotlinx-browser's Performance type lacks mark and measure.
 private val performance: dynamic
   get() = js("performance")
 

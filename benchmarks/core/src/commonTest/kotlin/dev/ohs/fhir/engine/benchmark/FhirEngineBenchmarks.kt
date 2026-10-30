@@ -23,19 +23,17 @@ import kotlinx.coroutines.test.runTest
 /**
  * In-process benchmark entry point for desktop, iOS and web.
  *
- * Shaped as a test only because that is the runner every Kotlin target already has; nothing here
- * asserts correctness beyond "the workloads ran". Android does not come through here — it goes via
- * macrobenchmark against the driver app, executing the same
- * [dev.ohs.fhir.engine.benchmark.Workload] objects.
+ * A test because every Kotlin target has a test runner; it asserts only that the workloads ran.
+ * Android runs the same workloads through macrobenchmark instead.
  *
- * Setup lives inside the `runTest` body rather than `@BeforeTest` because on Kotlin/Wasm `runTest`
- * returns a Promise the framework does not await for `@BeforeTest`.
+ * Setup is inside `runTest`, not `@BeforeTest`: on Kotlin/Wasm the framework does not await the
+ * `runTest` Promise for `@BeforeTest`.
  */
 class FhirEngineBenchmarks {
 
   @Test
   fun runBenchmarks() =
-    // The default 60s timeout kills any real run. Populations above `smoke` take minutes.
+    // Runs above `smoke` exceed the default 60 s timeout.
     runTest(timeout = 60.minutes) {
       val config = benchmarkConfigFromEnvironment()
       val report = BenchmarkHarness.run(config)
@@ -49,12 +47,7 @@ class FhirEngineBenchmarks {
       )
     }
 
-  /**
-   * A compact table on stdout, so a run is readable without opening the JSON.
-   *
-   * Read the spread across the search rows first. If those medians are all but identical, the page
-   * cache was never disturbed and the search numbers mean nothing.
-   */
+  /** Formats the report as a table for stdout. */
   private fun summarise(report: BenchmarkReport): String = buildString {
     appendLine()
     appendLine("Benchmark report - ${report.platform.target} (${report.platform.os})")
@@ -84,7 +77,7 @@ class FhirEngineBenchmarks {
     }
   }
 
-  /** Absent below `Statistics.MIN_SAMPLES_FOR_P90`, where a p90 would only relabel the maximum. */
+  /** `-` when p90 is absent (fewer than `Statistics.MIN_SAMPLES_FOR_P90` samples). */
   private fun formatOrAbsent(value: Double?): String = value?.let(::format) ?: "-"
 
   private fun format(value: Double): String {

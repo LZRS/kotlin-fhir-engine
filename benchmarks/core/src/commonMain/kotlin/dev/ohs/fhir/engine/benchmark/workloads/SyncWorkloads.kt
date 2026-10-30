@@ -29,13 +29,10 @@ import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.flow.toList
 
-/**
- * Server-free sync workloads. Only download is reachable in-process: `syncUpload` expects response
- * mapping types that are `internal`, so an external caller can only ever report failure.
- */
+/** Server-free sync workloads. Upload is excluded: `syncUpload` needs `internal` response types. */
 object SyncWorkloads {
 
-  /** Page size for the simulated download. Matches what a server would realistically return. */
+  /** Page size for the simulated download. */
   private const val DOWNLOAD_CHUNK = 500
 
   fun all(): List<Workload> = listOf(DownloadBatch, DownloadWithConflicts, LocalChangeChurn)
@@ -52,18 +49,13 @@ object SyncWorkloads {
     }
 
     override suspend fun run(env: BenchmarkEnv) {
-      // Chunked from the stream rather than one list: a real download arrives in pages anyway,
-      // and the whole corpus does not fit in memory at benchmark populations.
       env.engine.syncDownload(AcceptRemoteConflictResolver) {
         env.dataset.resources().chunked(DOWNLOAD_CHUNK)
       }
     }
   }
 
-  /**
-   * Half the batch present locally and edited, so the resolver runs. The cost of interest is the
-   * lookup of existing rows and their local changes, which a download into an empty database skips.
-   */
+  /** Half the batch present locally with local changes, so conflict resolution runs. */
   private object DownloadWithConflicts : Workload {
     override val id = "sync.download_with_conflicts"
     override val group = "sync"
@@ -78,9 +70,7 @@ object SyncWorkloads {
     }
 
     override suspend fun beforeEach(env: BenchmarkEnv) {
-      // Created and edited one at a time rather than gathered first: half a 50,000-patient corpus
-      // held as objects is already past the heap. Each patient still ends with a local change,
-      // which is all the resolver needs.
+      // One at a time so the corpus is never held in memory.
       revision++
       var seeded = 0
       env.dataset
@@ -90,8 +80,7 @@ object SyncWorkloads {
         .collect { patient ->
           seeded++
           env.engine.create(patient)
-          // Without a real diff the engine drops the update, leaving nothing to conflict with and
-          // quietly turning this into a plain download.
+          // A real diff, or the engine drops the update and nothing conflicts.
           env.engine.update(
             env.engine
               .get<Patient>(patient.id!!)
@@ -117,7 +106,7 @@ object SyncWorkloads {
     }
   }
 
-  /** Local-change accumulation: the table upload has to walk later. */
+  /** Accumulates local changes, the table upload later walks. */
   private object LocalChangeChurn : Workload {
     override val id = "sync.local_change_churn"
     override val group = "sync"

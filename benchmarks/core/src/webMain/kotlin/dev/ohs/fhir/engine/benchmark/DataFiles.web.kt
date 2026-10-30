@@ -23,11 +23,7 @@ import kotlinx.serialization.json.jsonObject
 /** Served by the middleware in `karma.config.d/benchmark-data.js`. */
 private const val DATA_ROOT = "/benchmark-data"
 
-/**
- * Derived from the manifest rather than a directory listing, because HTTP has none.
- *
- * Empty when the dataset was never packaged, which fails a run that asked for Synthea.
- */
+/** Derived from the served manifest; empty when no dataset was packaged. */
 internal actual suspend fun listDataFiles(): List<String> {
   val manifest = httpGet("$DATA_ROOT/manifest.json") ?: return emptyList()
   val counts =
@@ -37,12 +33,7 @@ internal actual suspend fun listDataFiles(): List<String> {
   return counts.keys.map { "$it.ndjson" }.sorted()
 }
 
-/**
- * Line-shaped rather than streamed: `XMLHttpRequest` hands back a body that is already complete,
- * and reading it incrementally would mean `fetch` and a `ReadableStream` reader written twice, once
- * per web target. Web runs the smoke profile, whose corpus is small enough that the whole body
- * fits.
- */
+/** Reads the whole body before splitting; web runs only use small corpora. */
 internal actual fun dataFileLines(relativePath: String): Flow<String> = flow {
   val contents = httpGet("$DATA_ROOT/$relativePath") ?: return@flow
   contents.lineSequence().forEach { emit(it) }

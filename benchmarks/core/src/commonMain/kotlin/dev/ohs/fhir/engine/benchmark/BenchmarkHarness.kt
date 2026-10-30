@@ -74,10 +74,7 @@ object BenchmarkHarness {
     return report
   }
 
-  /**
-   * Prepares one workload for iteration-at-a-time measurement. Android needs this because
-   * macrobenchmark owns iteration control and setup must happen with its timer stopped.
-   */
+  /** Prepares one workload for externally driven iterations, as macrobenchmark requires. */
   suspend fun setUpSingle(
     workloadId: String,
     config: BenchmarkConfig = BenchmarkConfig.of(),
@@ -86,9 +83,7 @@ object BenchmarkHarness {
     val workload = Workloads.byId(workloadId)
     val resolved = dataset ?: loadDataset(config)
     val platformContext = benchmarkPlatformContext()
-    // Read-only workloads keep whatever the previous iteration left. Macrobenchmark restarts the
-    // process per iteration, so deleting here would re-seed the whole corpus every time —
-    // 50,000 patients inserted five times over to measure five queries.
+    // Read-only workloads keep the database across processes so the corpus is seeded once.
     val engine =
       openEngine(
         platformContext,
@@ -118,10 +113,7 @@ object BenchmarkHarness {
   /** A prepared workload. [measureOnce] is the only part that should be timed. */
   class SingleRun internal constructor(val workload: Workload, private val env: BenchmarkEnv) {
 
-    /**
-     * What loaded. The macrobenchmark path writes no report, so logging this is the only record of
-     * which dataset a single-workload run measured.
-     */
+    /** The loaded dataset; the macrobenchmark path writes no report, so log this. */
     val datasetManifest: DatasetManifest
       get() = env.dataset.manifest()
 
@@ -135,15 +127,10 @@ object BenchmarkHarness {
     suspend fun afterEach() = workload.afterEach(env)
   }
 
-  /**
-   * The dataset the config asks for. Synthea is never substituted: a run that asked for it and
-   * cannot have it fails here rather than measuring synthetic data under a Synthea request. The
-   * report records which kind ran.
-   */
+  /** The dataset the config asks for. Fails rather than substituting synthetic data for Synthea. */
   suspend fun loadDataset(config: BenchmarkConfig): Dataset {
     if (config.datasetKind != DatasetKind.SYNTHEA.name.lowercase()) return syntheticDataset(config)
-    // Filter before reading: Synthea's Claim and ExplanationOfBenefit files dwarf everything the
-    // workloads touch, and loading them just to discard them exhausts the heap.
+    // Filter before reading: unused Synthea types are large enough to exhaust the heap.
     val names =
       listDataFiles().filter {
         it.endsWith(".ndjson") && it.substringBefore(".") in NdjsonDataset.INCLUDED_TYPES
@@ -159,8 +146,7 @@ object BenchmarkHarness {
         requestedPopulation = config.effectivePopulation,
         lines = ::dataFileLines,
         cache = ScratchFileCache,
-        // v2: the scan now also records sample names. An older cache holds none, and a
-        // workload searching for an empty string would match nothing.
+        // Bump the version when the cached scan's shape changes.
         cacheKey = "dataset-v2-$corpus.json",
       )
     if (dataset.parseFailures.isNotEmpty()) {
@@ -172,19 +158,13 @@ object BenchmarkHarness {
     if (dataset.patientIds.isEmpty()) {
       missingSyntheaData("${names.size} file(s) read, but none of them yielded a Patient")
     }
-    // The packaged corpus is patients and their encounters; the observations and conditions the
-    // search workloads query are built on top of it rather than exported from Synthea. `off`
-    // skips the wrap entirely, for runs that must match a corpus-only database.
+    // Observations and conditions are generated on top of the corpus; `off` skips them.
     val mix = ClinicalMix.parse(config.clinicalMix)
     if (mix.perPatient == 0) return dataset
     return AugmentedDataset(dataset, mix, seed = config.seed)
   }
 
-  /**
-   * Identifies the corpus from the manifest packaging wrote beside it — population, seed,
-   * fingerprint and per-type counts. Cheap to read, and it changes whenever the corpus does, so a
-   * regenerated corpus can never be described by an older scan.
-   */
+  /** A hash of the packaged corpus manifest, which changes whenever the corpus does. */
   private suspend fun corpusKey(): String {
     val manifest = dataFileLines("manifest.json").toList().joinToString("\n")
     if (manifest.isBlank()) return "unknown"
@@ -193,17 +173,14 @@ object BenchmarkHarness {
     return hash.toULong().toString(16).padStart(16, '0')
   }
 
-  /** Backed by whatever survives a reinstall on this platform, or by nothing at all. */
+  /** Backed by [readScratchFile] and [writeScratchFile]. */
   private object ScratchFileCache : DatasetCache {
     override suspend fun read(key: String): String? = readScratchFile(key)
 
     override suspend fun write(key: String, contents: String) = writeScratchFile(key, contents)
   }
 
-  /**
-   * Ends a run that asked for Synthea and cannot have it. The alternative is a report that reads
-   * like a Synthea run everywhere except its manifest, which is how a fallback goes unnoticed.
-   */
+  /** Ends a run that asked for Synthea and cannot have it. */
   private fun missingSyntheaData(detail: String): Nothing =
     error(
       "benchmark.dataset=synthea, but the Synthea data is not readable here: $detail. " +
@@ -219,13 +196,8 @@ object BenchmarkHarness {
       seed = config.seed,
     )
 
-  /**
-   * The `server` group needs a server and every other group is slowed down by one, so it is only
-   * run when `-Pbenchmark.server` names one. Silently returning nothing would look like a pass.
-   */
+  /** [BenchmarkConfig.workloadIds] win over groups; `server` workloads need a server URL. */
   private fun selectWorkloads(config: BenchmarkConfig): List<Workload> {
-    // Named workloads win over groups: the ones too slow for a trace are spread across groups,
-    // and naming them is the only way to measure exactly those in one in-process run.
     val selected =
       if (config.workloadIds.isNotEmpty()) {
         config.workloadIds.map { Workloads.byId(it) }
@@ -246,13 +218,8 @@ object BenchmarkHarness {
   private var storageDirectory: String? = null
 
   /**
-   * A fresh storage directory per call, so [Isolation.FRESH_DATABASE] gets a cold file — unless
-   * [reuseStorage], which reopens over the database already there.
-   *
-   * [reuseStorage] is what [Isolation.COLD_CACHE] needs, and skipping the delete is not enough on
-   * its own: [benchmarkStorageDirectory] hands out a new directory every call, so a reopen without
-   * it lands on an empty database. That reads as a very fast search rather than as a failure, which
-   * is exactly the sort of number this harness should never produce.
+   * A fresh storage directory per call, so [Isolation.FRESH_DATABASE] gets a cold file, unless
+   * [reuseStorage] reopens over the current one, as [Isolation.COLD_CACHE] requires.
    */
   private suspend fun openEngine(
     platformContext: Any,

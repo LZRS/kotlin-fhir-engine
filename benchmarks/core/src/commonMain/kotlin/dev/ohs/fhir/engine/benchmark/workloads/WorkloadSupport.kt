@@ -26,22 +26,13 @@ import dev.ohs.fhir.model.r4.Resource
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
-/**
- * Disturbs SQLite's page cache by reading untouched tables; a port of android-fhir's
- * `triggerChangeInSqlitePageCache`. If the search medians show no spread, suspect this first.
- */
+/** Disturbs SQLite's page cache by reading untouched tables; ports android-fhir's equivalent. */
 internal suspend fun FhirEngine.evictPageCache() {
   search<Organization> { count = 1 }
   search<Practitioner> { count = 1 }
 }
 
-/**
- * Inserts the whole dataset a chunk at a time. Untimed setup for workloads that need populated
- * tables.
- *
- * Chunked because the corpus is streamed: at 50,000 patients the parsed resources do not fit in a
- * phone's heap, so they are inserted and released rather than gathered into one call.
- */
+/** Inserts the whole dataset in chunks, since the full corpus may not fit in the heap. */
 internal suspend fun BenchmarkEnv.seedDataset() {
   val chunk = ArrayList<Resource>(SEED_CHUNK)
   dataset.resources().collect { resource ->
@@ -54,15 +45,9 @@ internal suspend fun BenchmarkEnv.seedDataset() {
   if (chunk.isNotEmpty()) engine.create(*chunk.toTypedArray())
 }
 
-/** Large enough that per-call overhead is amortised, small enough to stay well inside the heap. */
 internal const val SEED_CHUNK = 500
 
-/**
- * Batches a stream into fixed-size lists.
- *
- * The download half of sync takes `Flow<List<Resource>>`; without this the only way to feed it the
- * corpus is to materialise the corpus, which is what the streaming dataset exists to avoid.
- */
+/** Batches a stream into fixed-size lists without materialising it. */
 internal fun Flow<Resource>.chunked(size: Int): Flow<List<Resource>> = flow {
   val chunk = ArrayList<Resource>(size)
   collect { resource ->
@@ -87,14 +72,7 @@ internal enum class SeedDecision {
   RESEED,
 }
 
-/**
- * Whether the database already holds the corpus, judged on the patient count.
- *
- * Anything other than the exact count means the database is not this corpus: a seed cut short
- * leaves it partially filled, and a run against a different population leaves it overfull. Both
- * would otherwise be read as "already seeded" and every later workload would query a corpus that is
- * not the one the report names.
- */
+/** Whether the database already holds the corpus; any patient count but the exact one reseeds. */
 internal fun seedDecision(present: Long, expected: Int): SeedDecision =
   when {
     present == expected.toLong() -> SeedDecision.SKIP
@@ -103,12 +81,8 @@ internal fun seedDecision(present: Long, expected: Int): SeedDecision =
   }
 
 /**
- * Seeds unless the corpus is already there in full.
- *
- * The read-only workloads run at [dev.ohs.fhir.engine.benchmark.Isolation.NONE] and share one
- * database, so the first of them populates it for all the rest. Seeding unconditionally in every
- * prepare() re-inserts the whole corpus once per workload, which is invisible at synthetic sizes
- * and takes over an hour on a 50,000-patient one.
+ * Seeds unless the corpus is already there in full, so read-only workloads at
+ * [dev.ohs.fhir.engine.benchmark.Isolation.NONE] share one seeded database.
  */
 internal suspend fun BenchmarkEnv.seedDatasetIfEmpty() {
   when (seedDecision(engine.count<Patient> {}, dataset.population)) {

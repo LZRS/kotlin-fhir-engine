@@ -25,12 +25,7 @@ import dev.ohs.fhir.engine.benchmark.Workload
 import java.util.regex.Pattern
 import org.junit.Rule
 
-/**
- * Shared driving logic. Subclasses only choose which workload group to run.
- *
- * Workloads come from `:benchmarks:core`, the same catalogue the in-process harnesses use, so a
- * query is never defined twice.
- */
+/** Drives one workload group from the `:benchmarks:core` catalogue through the driver app. */
 abstract class FhirEngineMacrobenchmark {
 
   @get:Rule val benchmarkRule = MacrobenchmarkRule()
@@ -38,20 +33,17 @@ abstract class FhirEngineMacrobenchmark {
   protected fun measure(workload: Workload) {
     benchmarkRule.measureRepeated(
       packageName = TARGET_PACKAGE,
-      // Sum, not per-occurrence: one launch emits the section once, and Sum fails loudly at zero
-      // rather than quietly reporting nothing.
+      // One launch emits the section once; Sum fails when it is missing.
       metrics = listOf(TraceSectionMetric(workload.id, mode = TraceSectionMetric.Mode.Sum)),
       iterations = ITERATIONS,
-      // Kills the process between iterations, which also discards the engine's in-memory state.
+      // Kills the process, and the engine's in-memory state, between iterations.
       startupMode = StartupMode.COLD,
       setupBlock = {
-        // The screen times out during a long workload, and a sleeping device renders no frames, so
-        // the next iteration's launch cannot be confirmed.
+        // A sleeping device renders no frames, so the launch cannot be confirmed.
         device.wakeUp()
         device.executeShellCommand("wm dismiss-keyguard")
         if (workload.isolation == Isolation.FRESH_DATABASE) {
-          // Android ignores the engine's storageDirectory, so a cold database means clearing the
-          // app's data outright.
+          // Android ignores the engine's storageDirectory, so clear the app's data.
           Runtime.getRuntime().exec(arrayOf("pm", "clear", TARGET_PACKAGE)).waitFor()
         }
       },
@@ -68,9 +60,7 @@ abstract class FhirEngineMacrobenchmark {
         },
       )
 
-      // Wait on the driver's own status rather than a sleep: the measured section has not closed
-      // until the workload says it is done. Failure ends the wait too, so a run that cannot start
-      // at all — Synthea asked for but not staged, say — reports in seconds, not at the timeout.
+      // The measured section closes when the driver reports done; a failure also ends the wait.
       val settled =
         device.wait(
           Until.hasObject(
@@ -105,7 +95,7 @@ abstract class FhirEngineMacrobenchmark {
     const val STATUS_DONE = "done"
     const val STATUS_FAILED = "failed"
 
-    /** Either terminal status, so the wait ends on a failure instead of running to the timeout. */
+    /** Either terminal status. */
     val SETTLED_STATUS: Pattern = Pattern.compile("$STATUS_DONE|$STATUS_FAILED.*", Pattern.DOTALL)
 
     /** Overridable with `-Pandroid.testInstrumentationRunnerArguments.profile=…`. */
@@ -113,18 +103,12 @@ abstract class FhirEngineMacrobenchmark {
       androidx.test.platform.app.InstrumentationRegistry.getArguments()
         .getString("profile", "standard")
 
-    /**
-     * `synthea` needs the app built with the data staged into its assets. Without them the driver
-     * fails the run rather than measuring the synthetic dataset in its place.
-     */
+    /** `synthea` needs the app built with the data staged into its assets. */
     val DATASET: String =
       androidx.test.platform.app.InstrumentationRegistry.getArguments()
         .getString("dataset", "synthetic")
 
-    /**
-     * Base URL for the `server` group, from `-Pbenchmark.server`. Empty rather than absent when
-     * unset, which the driver reads as no server; every other group ignores it.
-     */
+    /** Base URL for the `server` group, from `-Pbenchmark.server`; empty when unset. */
     val SERVER: String =
       androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("server", "")
 
@@ -137,7 +121,6 @@ abstract class FhirEngineMacrobenchmark {
         .getString("iterations", "5")
         .toInt()
 
-    /** Overridable so a broken selector surfaces in seconds instead of ten minutes. */
     val TIMEOUT_MILLIS: Long =
       androidx.test.platform.app.InstrumentationRegistry.getArguments()
         .getString("timeoutMillis", "600000")

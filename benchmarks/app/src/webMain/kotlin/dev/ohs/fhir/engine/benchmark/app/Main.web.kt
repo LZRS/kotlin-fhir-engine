@@ -22,8 +22,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * Browser entry point: `?workload=…` or `?groups=search&profile=smoke`. Reloading the page is the
- * only cold-engine isolation available: the SQLite Web Worker cannot be reopened within one page.
+ * Browser entry point: `?workload=…` or `?groups=search&profile=smoke`. A cold engine needs a page
+ * reload: the SQLite Web Worker cannot be reopened within one page.
  */
 fun main() {
   val values =
@@ -58,7 +58,7 @@ fun main() {
   }
 }
 
-/** Written into the document so a browser-driving harness can read completion off the page. */
+/** Written into the document so a browser-driving harness can read it. */
 private fun setStatus(status: String) {
   document.body?.setAttribute("data-benchmark-status", status)
   println("BENCHMARK_STATUS $status")

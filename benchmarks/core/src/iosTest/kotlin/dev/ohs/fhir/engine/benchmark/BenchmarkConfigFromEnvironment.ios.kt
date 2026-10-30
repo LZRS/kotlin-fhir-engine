@@ -19,16 +19,12 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.toKString
 import platform.posix.getenv
 
-/**
- * Read from the environment, which the Gradle test task fills from the `-Pbenchmark.*` properties.
- *
- * The defaults are deliberately small: a simulator harness is a check that the engine works on the
- * platform, not a source of headline numbers.
- */
+/** Reads a variable the Gradle test task sets from a `-Pbenchmark.*` property. */
 @OptIn(ExperimentalForeignApi::class)
 private fun env(name: String): String? =
   getenv(name)?.toKString()?.trim()?.takeIf { it.isNotEmpty() }
 
+/** Small defaults: a simulator run checks the engine works, it is not a measurement. */
 internal actual suspend fun benchmarkConfigFromEnvironment(): BenchmarkConfig =
   BenchmarkConfig.of(
     profile = Profile.fromString(env("BENCHMARK_PROFILE") ?: Profile.SMOKE.name),

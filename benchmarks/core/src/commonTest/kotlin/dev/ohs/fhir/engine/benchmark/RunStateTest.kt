@@ -118,8 +118,7 @@ class RunStateTest {
 
   @Test
   fun finishingAWorkloadMidRunGoesBackToPreparing() {
-    // The runner prepares the next workload straight away, so leaving the phase on MEASURING
-    // would claim a measurement is in flight when none is.
+    // The runner prepares the next workload immediately; no measurement is in flight.
     val state =
       fold(
         BenchmarkProgress.Iterating("crud.create", "crud", 0, 2, 0, 1, 2),
@@ -130,8 +129,7 @@ class RunStateTest {
 
   @Test
   fun finishingTheLastWorkloadShowsReporting() {
-    // Serialising and writing the report takes long enough to look like a hang, and it is the one
-    // stretch with no current workload to name.
+    // Writing the report is slow and has no current workload to show.
     val state =
       fold(
         BenchmarkProgress.Iterating("search.by_code", "search", 1, 2, 0, 1, 2),
@@ -181,8 +179,7 @@ class RunStateTest {
 
   @Test
   fun aRealRunEmitsEventsInAnOrderThatFoldsToACompleteState() {
-    // Mirrors the emission order in BenchmarkRunner: RunStarted, then Preparing/Iterating per
-    // workload, then WorkloadFinished, then RunFinished. Guards against an emission moving.
+    // Same emission order as BenchmarkRunner.
     val report =
       BenchmarkReport(
         timestamp = "2026-08-26T00:00:00Z",

@@ -21,11 +21,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
 /**
- * Read from the driver app's assets, which is where `stageBenchmarkAssets` puts the packaged
- * Synthea data. Android cannot read the host filesystem and `/data/local/tmp` is unreadable to an
- * app from API 30, so the corpus has to travel inside the APK.
- *
- * Empty when the app was built without the data, which fails a run that asked for Synthea.
+ * Asset directory where `stageBenchmarkAssets` puts the Synthea data; an app cannot read the host
+ * filesystem or, from API 30, `/data/local/tmp`.
  */
 private const val ASSET_DIRECTORY = "bulk_data"
 
@@ -41,10 +38,8 @@ internal actual suspend fun listDataFiles(): List<String> {
 }
 
 /**
- * Streamed off the asset, not read whole: an uncompressed `Patient.ndjson` is hundreds of megabytes
- * at benchmark populations, and decoding it into a string before parsing exhausts the heap on a
- * mid-range device. Only a missing asset is swallowed; a failure part-way through a file is a
- * truncated corpus and has to be loud.
+ * Streamed, since a whole file can exceed the heap. A missing asset yields nothing; a read failure
+ * mid-file throws.
  */
 internal actual fun dataFileLines(relativePath: String): Flow<String> = flow {
   val context = assets() ?: return@flow

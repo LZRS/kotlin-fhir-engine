@@ -23,11 +23,7 @@ import kotlinx.serialization.Serializable
 data class Statistics(
   val min: Double,
   val median: Double,
-  /**
-   * Null when fewer than [MIN_SAMPLES_FOR_P90] samples were measured, which includes the default
-   * run. Reported as absent rather than as a number, because the number would not mean what its
-   * name promises.
-   */
+  /** Null when fewer than [MIN_SAMPLES_FOR_P90] samples were measured. */
   val p90: Double?,
   val max: Double,
   val mean: Double,
@@ -35,11 +31,7 @@ data class Statistics(
   val stdDev: Double,
 ) {
   companion object {
-    /**
-     * Below ten samples nothing falls in the top decile at all, so an interpolated 90th percentile
-     * is a relabelled maximum: at five samples it lands between the fourth and the largest however
-     * the run went. Raise `-Pbenchmark.iterations` to at least this to get a real tail figure.
-     */
+    /** Below this, an interpolated 90th percentile is effectively the maximum. */
     const val MIN_SAMPLES_FOR_P90 = 10
 
     fun of(samplesMillis: List<Double>): Statistics {
@@ -56,11 +48,7 @@ data class Statistics(
       )
     }
 
-    /**
-     * Bessel's correction. These samples estimate how much a workload's timing varies; they are not
-     * the entire population of its timings, so the sum of squares is divided by n-1. Dividing by n
-     * would report a run as more consistent than the evidence supports.
-     */
+    /** Divides by n-1 (Bessel's correction): the samples estimate a larger population. */
     private fun List<Double>.sampleStandardDeviation(mean: Double): Double {
       if (size < 2) return 0.0
       return sqrt(sumOf { (it - mean) * (it - mean) } / (size - 1))

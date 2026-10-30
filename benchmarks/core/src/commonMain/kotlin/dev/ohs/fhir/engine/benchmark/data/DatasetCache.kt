@@ -17,12 +17,7 @@ package dev.ohs.fhir.engine.benchmark.data
 
 import kotlinx.serialization.Serializable
 
-/**
- * Somewhere small and fast to keep what a corpus scan learned.
- *
- * Injected rather than called directly so this package stays free of platform code, the same way
- * the line reader is.
- */
+/** Key-value storage for [DatasetMetadata], injected to keep this package platform-free. */
 interface DatasetCache {
   suspend fun read(key: String): String?
 
@@ -30,10 +25,8 @@ interface DatasetCache {
 }
 
 /**
- * Everything [NdjsonDataset] knows about a corpus that is not the corpus itself.
- *
- * Recomputing this means parsing every line: about four minutes for a 50,000-patient corpus on the
- * benchmark tablet, repeated for every macrobenchmark iteration because each one is a new process.
+ * What [NdjsonDataset] learns from a full corpus scan, cached because computing it parses every
+ * line.
  */
 @Serializable
 internal data class DatasetMetadata(

@@ -31,8 +31,7 @@ class TransactionBundleTest(unittest.TestCase):
         self.assertEqual(2, len(bundle["entry"]))
 
     def test_puts_each_resource_at_its_own_id(self):
-        # PUT rather than POST so the server keeps the corpus's ids. A POST would mint new ones
-        # and every reference in the corpus would then point at nothing.
+        # A POST would mint new ids and break the corpus's references.
         entry = populate.transaction_bundle([patient("abc")])["entry"][0]
 
         self.assertEqual("PUT", entry["request"]["method"])
@@ -40,7 +39,6 @@ class TransactionBundleTest(unittest.TestCase):
         self.assertEqual(patient("abc"), entry["resource"])
 
     def test_is_idempotent_across_runs(self):
-        # PUT at a known id means re-running the load updates rather than duplicating.
         first = populate.transaction_bundle([patient("abc")])
         second = populate.transaction_bundle([patient("abc")])
 
@@ -59,7 +57,7 @@ class TransactionBundleTest(unittest.TestCase):
 
 
 class UniqueByIdTest(unittest.TestCase):
-    """Synthea re-emits an organization once per referencing patient, so the corpus repeats ids."""
+    """The Synthea corpus repeats organization and practitioner ids."""
 
     def test_keeps_only_the_first_of_a_repeated_id(self):
         source = [patient("a"), patient("b"), patient("a")]
@@ -93,8 +91,7 @@ class ChunkTest(unittest.TestCase):
 
 class LoadOrderTest(unittest.TestCase):
     def test_loads_referenced_types_before_the_ones_pointing_at_them(self):
-        # Encounter references Patient, which references Organization and Practitioner. Loading
-        # out of order leaves references dangling on a server that validates them.
+        # Encounter references Patient, which references Organization and Practitioner.
         order = populate.LOAD_ORDER
 
         self.assertLess(order.index("Organization"), order.index("Patient"))
@@ -116,8 +113,7 @@ class OutcomeTest(unittest.TestCase):
         self.assertEqual((2, []), populate.outcome(response))
 
     def test_reports_the_entries_a_server_rejected(self):
-        # A transaction is atomic, so one bad entry means the whole chunk landed nowhere. Saying
-        # so beats a silent count that looks like a successful load.
+        # A transaction is atomic, so one rejected entry means the chunk was not loaded.
         response = {
             "entry": [
                 {"response": {"status": "201 Created"}},

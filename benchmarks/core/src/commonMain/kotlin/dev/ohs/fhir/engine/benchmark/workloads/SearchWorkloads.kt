@@ -46,10 +46,7 @@ import dev.ohs.fhir.model.r4.SearchParameter.SearchComparator
 import dev.ohs.fhir.model.r4.String as FhirString
 import dev.ohs.fhir.model.r4.terminologies.ResourceType
 
-/**
- * Search DSL workloads, porting android-fhir's `SearchApiViewModel` and keeping its ids where an
- * equivalent query exists. Read-only, so they need [evictPageCache] rather than isolation.
- */
+/** Search DSL workloads, porting android-fhir's `SearchApiViewModel`. */
 object SearchWorkloads {
 
   fun all(): List<Workload> =
@@ -72,9 +69,7 @@ object SearchWorkloads {
       search("search.patient_by_active_token") { env ->
         env.engine.search<Patient> { filter(TokenClientParam("active"), { value = of(true) }) }
       },
-      // A two-year window inside the generated 1940-2010 spread. It was thirty years, which
-      // matched over 40% of patients — a share no index can narrow, so the workload could not tell
-      // a working date index from a broken one.
+      // Narrow enough that a working date index makes a difference.
       search("search.patient_birthdate_range") { env ->
         env.engine.search<Patient> {
           filter(
@@ -161,11 +156,9 @@ object SearchWorkloads {
         env.engine.search("Patient?gender=male&_count=50")
       },
       search("search.patient_count") { env -> env.engine.count<Patient> {} },
-      // The queries below close the gaps against android-fhir's SearchApiViewModel. Each reaches a
-      // filter path no other workload here touches.
       search("search.patient_given_or_birthdate") { env ->
         env.engine.search<Patient> {
-          // OR between two filters, as opposed to search.patient_two_filters_and.
+          // OR between two filters.
           operation = Operation.OR
           filter(StringClientParam("given"), { value = env.dataset.sampleGivenName })
           filter(
@@ -179,8 +172,7 @@ object SearchWorkloads {
       },
       search("search.patient_given_disjunct_values") { env ->
         env.engine.search<Patient> {
-          // OR between two values of one filter, which is a different query shape again: one
-          // index table, two candidate values.
+          // OR between two values of one filter.
           filter(
             StringClientParam("given"),
             { value = env.dataset.sampleGivenName },
@@ -190,9 +182,7 @@ object SearchWorkloads {
         }
       },
       search("search.encounter_by_last_updated") { env ->
-        // android-fhir sorts on its `local_lastUpdated` column. This engine declares that
-        // parameter but never indexes it, so the closest honest equivalent is the resource's own
-        // meta.lastUpdated, which is a generated date parameter.
+        // Stands in for android-fhir's `local_lastUpdated`, which this engine does not index.
         env.engine.search<Encounter> {
           sort(DateClientParam("_lastUpdated"), Order.DESCENDING)
           count = 1
@@ -217,9 +207,7 @@ object SearchWorkloads {
         seed = ::seedRiskAssessments,
       ) { env ->
         env.engine.search<RiskAssessment> {
-          // A number filter OR'd with a filter of another type. android-fhir pairs a string with a
-          // number through a custom search parameter; adding one here would change how every
-          // Patient is indexed, and so every crud number in the report.
+          // A number filter OR'd with a filter of another type.
           operation = Operation.OR
           filter(
             NumberClientParam("probability"),
@@ -236,11 +224,7 @@ object SearchWorkloads {
       },
     )
 
-  /**
-   * No resource type in the corpus carries a number search parameter — Synthea emits none — so the
-   * number filter is measured against resources the workload creates itself. Small on purpose: the
-   * measurement is of the number index path, not of scale.
-   */
+  /** The corpus has no number search parameter, so these workloads seed their own resources. */
   private suspend fun seedRiskAssessments(env: BenchmarkEnv) {
     if (env.engine.count<RiskAssessment> {} > 0L) return
     val subject = env.dataset.patientIds.firstOrNull() ?: return
@@ -294,9 +278,8 @@ object SearchWorkloads {
     }
   }
 
-  /** Repeats after the first run warm, so these are throughput rather than cold-query numbers. */
+  /** Repeats after the first run warm, so these measure throughput, not cold queries. */
   private const val QUERY_REPEATS = 20
 
-  /** Enough rows for the number index to be worth consulting, few enough to seed in a moment. */
   private const val RISK_ASSESSMENTS = 200
 }

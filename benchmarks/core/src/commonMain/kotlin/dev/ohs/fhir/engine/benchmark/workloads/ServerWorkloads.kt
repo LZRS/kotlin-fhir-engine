@@ -38,12 +38,8 @@ import dev.ohs.fhir.model.r4.String as FhirString
 import dev.ohs.fhir.model.r4.terminologies.ResourceType
 
 /**
- * Sync against a real FHIR server, which is the only way upload can be measured at all: the patch
- * generation, patch ordering and bundle generation that `syncUpload` drives all live behind
- * `internal` types, and an external caller can only ever report failure.
- *
- * Skipped unless `-Pbenchmark.server` is set; see `benchmarks/tools/`. The numbers include the
- * server and the network, so they are only comparable to another run against the same server.
+ * Sync against a real FHIR server, the only way to measure upload. Skipped unless
+ * `-Pbenchmark.server` is set; see `benchmarks/tools/`. Numbers include the server and network.
  */
 object ServerWorkloads {
 
@@ -51,34 +47,23 @@ object ServerWorkloads {
 
   fun all(): List<Workload> = listOf(UploadCreates, UploadUpdates, DownloadFromServer)
 
-  /** Patient only: a full Synthea corpus would measure the server far more than the engine. */
   private const val UPLOAD_BATCH = 100
 
-  /**
-   * Identifies this process. Macrobenchmark restarts the driver between iterations, so anything
-   * counted in memory restarts at the same value and regenerates the previous iteration's ids.
-   */
+  /** Identifies this process, since macrobenchmark restarts it between iterations. */
   private val RUN_TOKEN = nowIso8601()
 
-  /**
-   * Ids for one iteration's uploads, unique across both processes and iterations.
-   *
-   * A repeated id is not a failure the run would report: the server already holds the resource, so
-   * the PUT lands as an update and the workload measures update cost under a create's name.
-   */
+  /** Ids for one iteration's uploads, unique across processes and iterations. */
   internal fun uploadIds(
     prefix: String,
     runToken: String,
     sequence: Int,
     count: Int,
   ): List<String> {
-    // `:` and `+` occur in a timestamp and in neither the FHIR id grammar nor a valid bundle
-    // entry URL, so a raw token would have the server reject every upload.
+    // Timestamp punctuation is not valid in a FHIR id.
     val salt = runToken.filter { it.isLetterOrDigit() }
     return (0 until count).map { "$prefix-$salt-$sequence-$it" }
   }
 
-  /** Bundled rather than one request per change, which is what a real client would do. */
   private fun uploadStrategy() =
     UploadStrategy.forBundleRequest(
       methodForCreate = HttpCreateMethod.PUT,
@@ -93,8 +78,7 @@ object ServerWorkloads {
     override val group = GROUP
     override val opsPerIteration = UPLOAD_BATCH
 
-    // The upload has to start from a database whose only local changes are the ones just made,
-    // otherwise the first iteration uploads a backlog and the rest upload nothing.
+    // Each iteration uploads only the local changes it just made.
     override val isolation = Isolation.CLEAR_TABLES
 
     private var sequence = 0
@@ -123,11 +107,9 @@ object ServerWorkloads {
     private var sequence = 0
 
     override suspend fun beforeEach(env: BenchmarkEnv) {
-      // Fresh ids per iteration here too, so the measured update is of a resource this
-      // iteration put there rather than one an earlier iteration left behind.
       val revision = sequence++
       val ids = uploadIds("bench-update", RUN_TOKEN, revision, UPLOAD_BATCH)
-      // Created and pushed first, so the measured sync carries updates and nothing else.
+      // Pushed first, so the measured sync carries only updates.
       ids.forEach { id -> env.engine.create(Patient(id = id)) }
       env.syncTask().runSyncOrThrow()
       ids.forEach { id ->
@@ -180,10 +162,7 @@ object ServerWorkloads {
     override fun getUploadStrategy(): UploadStrategy = uploadStrategy()
   }
 
-  /**
-   * Every iteration starts from a cleared database, so remembering a high-water mark would make the
-   * second iteration download nothing.
-   */
+  /** No high-water mark, so every iteration downloads the full set. */
   private object NoTimestamps : ResourceParamsBasedDownloadWorkManager.TimestampContext {
     override suspend fun saveLastUpdatedTimestamp(
       resourceType: ResourceType,

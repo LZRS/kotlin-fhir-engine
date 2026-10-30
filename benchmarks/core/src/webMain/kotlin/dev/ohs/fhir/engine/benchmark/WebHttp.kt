@@ -16,11 +16,8 @@
 package dev.ohs.fhir.engine.benchmark
 
 /**
- * The test server is the only filesystem a browser run has: it serves the packaged dataset and the
- * run config, and receives the report. Split per target because Kotlin/Wasm has no `dynamic`.
- *
- * Both return null/false rather than throwing when nothing is listening, so a page served by
- * webpack rather than Karma degrades to defaults instead of failing.
+ * Requests to the test server, which serves the dataset and run config and receives the report.
+ * Returns null/false instead of throwing when the server does not answer.
  */
 internal expect suspend fun httpGet(path: String): String?
 

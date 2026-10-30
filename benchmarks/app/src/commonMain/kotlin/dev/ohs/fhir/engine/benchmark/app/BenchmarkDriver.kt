@@ -20,15 +20,11 @@ import dev.ohs.fhir.engine.benchmark.BenchmarkReport
 import dev.ohs.fhir.engine.benchmark.ProgressListener
 
 /**
- * Two modes: a full run drives the catalogue and writes a report (desktop, web); a single-workload
- * run prepares state and exposes one measured call, which is what macrobenchmark needs.
+ * Runs whole groups and writes a report, or prepares one workload for macrobenchmark to measure.
  */
 object BenchmarkDriver {
 
-  /**
-   * Runs whole groups and emits a report. Returns the report rather than a summary line: a caller
-   * with a screen needs the results, and a caller with a console can call [summarise].
-   */
+  /** Runs whole groups and emits a report. */
   suspend fun runAll(
     request: BenchmarkRequest,
     onProgress: ProgressListener = {},
@@ -40,7 +36,7 @@ object BenchmarkDriver {
     return "ran ${report.results.size} workloads on ${report.platform.target}, $failed failed"
   }
 
-  /** Prepares one workload. The caller decides when to measure. */
+  /** Prepares one workload; the caller measures it. */
   suspend fun prepareSingle(request: BenchmarkRequest): BenchmarkHarness.SingleRun {
     val workloadId = requireNotNull(request.workloadId) { "prepareSingle needs a workload id." }
     return BenchmarkHarness.setUpSingle(workloadId, request.toConfig())

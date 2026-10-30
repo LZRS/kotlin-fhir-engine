@@ -54,18 +54,13 @@ data class FinishedWorkload(
     get() = error == null
 }
 
-/**
- * Everything a progress display needs, folded from [BenchmarkProgress].
- *
- * Kept here rather than in the driver app so it can be unit tested without a device, and so a
- * console renderer for desktop or iOS can reuse it later.
- */
+/** Everything a progress display needs, folded from [BenchmarkProgress]. */
 data class RunState(
   val phase: RunPhase = RunPhase.STARTING,
   val datasetLabel: String? = null,
   val totalWorkloads: Int = 0,
   val current: CurrentWorkload? = null,
-  /** Completion order, which is catalogue order, so this reads as the results table. */
+  /** In catalogue order. */
   val finished: List<FinishedWorkload> = emptyList(),
   val report: BenchmarkReport? = null,
   val failure: String? = null,
@@ -78,8 +73,6 @@ data class RunState(
     when (event) {
       is BenchmarkProgress.LoadingDataset ->
         copy(phase = RunPhase.LOADING_DATASET, datasetLabel = event.datasetKind)
-
-      // Overwrites the requested kind with the loaded one, which carries a population too.
       is BenchmarkProgress.DatasetReady ->
         copy(datasetLabel = "${event.manifest.kind} ${event.manifest.population}pt")
       is BenchmarkProgress.RunStarted ->
@@ -105,8 +98,6 @@ data class RunState(
         )
       is BenchmarkProgress.WorkloadFinished ->
         copy(
-          // Not left on MEASURING: the runner moves straight to the next workload's untimed setup,
-          // and after the last one there is nothing to name until the report lands.
           phase = if (event.index + 1 >= event.total) RunPhase.REPORTING else RunPhase.PREPARING,
           totalWorkloads = event.total,
           current = null,

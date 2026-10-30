@@ -16,31 +16,21 @@
 package dev.ohs.fhir.engine.benchmark
 
 /**
- * Where a run has got to.
- *
- * Every event is emitted outside the measured span: [BenchmarkRunner] wraps only `Workload.run` in
- * [benchmarkSpan], and these fire around it. A listener that blocks stretches the untimed gaps
- * between iterations, so keep implementations cheap.
- *
- * That covers what a listener costs synchronously, not what it starts. A listener that schedules
- * work elsewhere — a Compose recomposition on the main thread, say — can have that work land inside
- * the next span, because an `Isolation.NONE` workload does almost nothing between [Iterating] and
- * the span opening. The Android driver app accepts this: macrobenchmark is the authoritative
- * Android measurement and never runs a listener. Anything that wants clean numbers from the
- * in-process runner should keep the listener empty.
+ * Where a run has got to. Events fire outside [benchmarkSpan], but work a listener schedules
+ * elsewhere can land inside the next span; keep the listener empty for clean numbers.
  */
 sealed interface BenchmarkProgress {
 
-  /** Reading and parsing the corpus. On a Synthea run this is the longest silent stretch. */
+  /** Reading and parsing the corpus. */
   data class LoadingDataset(val datasetKind: String) : BenchmarkProgress
 
   /** The loaded corpus: its kind, population and fingerprint. */
   data class DatasetReady(val manifest: DatasetManifest) : BenchmarkProgress
 
-  /** The catalogue is selected, so a screen can show a denominator before workload one starts. */
+  /** The catalogue is selected. */
   data class RunStarted(val totalWorkloads: Int) : BenchmarkProgress
 
-  /** Untimed per-workload setup, which seeds the corpus into the engine. Minutes on Synthea. */
+  /** Untimed per-workload setup, which seeds the corpus into the engine. */
   data class Preparing(
     val workloadId: String,
     val group: String,
@@ -62,7 +52,7 @@ sealed interface BenchmarkProgress {
       get() = iteration < warmupIterations
   }
 
-  /** A workload ended. [result] carries the error when it failed, so failures are visible. */
+  /** A workload ended. [result] carries the error when it failed. */
   data class WorkloadFinished(
     val result: WorkloadResult,
     val index: Int,

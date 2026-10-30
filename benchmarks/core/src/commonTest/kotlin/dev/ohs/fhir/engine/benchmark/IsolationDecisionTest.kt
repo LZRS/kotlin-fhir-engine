@@ -20,11 +20,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
-/**
- * The isolation a workload asks for is not always the one it gets. Every downgrade has to be
- * reported, because a number measured under weaker isolation than it claims is worse than no number
- * at all.
- */
+/** Every isolation downgrade carries a note. */
 class IsolationDecisionTest {
 
   @Test
@@ -53,8 +49,7 @@ class IsolationDecisionTest {
 
   @Test
   fun `cold cache leaves a table-clearing workload alone`() {
-    // CLEAR_TABLES exists to keep the page cache warm on purpose. Promoting it would silently
-    // change what the workload measures.
+    // CLEAR_TABLES keeps the page cache warm by design.
     val (isolation, note) =
       effectiveIsolation(Isolation.CLEAR_TABLES, coldCache = true, canReopen = true)
 

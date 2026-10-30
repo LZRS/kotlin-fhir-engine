@@ -42,7 +42,6 @@ class BenchmarkRunner(
     onProgress(BenchmarkProgress.RunStarted(workloads.size))
     val results =
       workloads.mapIndexed { index, workload ->
-        // `also` rather than an emission inside runWorkload, so the failure path reports too.
         runWorkload(workload, index, workloads.size).also {
           onProgress(BenchmarkProgress.WorkloadFinished(it, index, workloads.size))
         }
@@ -66,7 +65,6 @@ class BenchmarkRunner(
       workload.prepare(env)
 
       repeat(config.warmupIterations + config.measuredIterations) { iteration ->
-        // Before applyIsolation, which reopens the database and is itself slow.
         onProgress(
           BenchmarkProgress.Iterating(
             workloadId = workload.id,
@@ -103,11 +101,9 @@ class BenchmarkRunner(
         medianMillisPerOp = statistics.median / workload.opsPerIteration,
       )
     } catch (e: CancellationException) {
-      // Never a workload failure. Swallowing it would let the rest of the catalogue blow through in
-      // milliseconds, reporting fake errors to the progress listener and writing a bogus report.
+      // Cancellation ends the run; it is not a workload failure.
       throw e
     } catch (e: Throwable) {
-      // Record the failure rather than losing the whole run to one broken workload.
       WorkloadResult(
         id = workload.id,
         group = workload.group,
@@ -131,9 +127,7 @@ class BenchmarkRunner(
         newEnv()
       }
       Isolation.COLD_CACHE -> {
-        // A cold read is only meaningful over the same rows. If a reopen were ever to land on an
-        // empty database the workload would still "succeed", just against nothing, and report a
-        // search several times faster than the warm one — which is how this was caught.
+        // A reopen that loses data would otherwise report a fast search over an empty table.
         val before = env.engine.count<Patient> {}
         engine = reopenEngineKeepingData()
         val after = engine.count<Patient> {}

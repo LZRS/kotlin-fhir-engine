@@ -27,11 +27,9 @@ import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 
 /**
- * Normalises Synthea's output into one file per resource type, plus a manifest.
+ * Merges Synthea's output into one `<Type>.ndjson` per resource type, plus a manifest.
  *
- * Synthea writes some types with a run timestamp in the filename, e.g.
- * `Organization.1787101630467.ndjson`, so the raw output is not reproducible from one run to the
- * next. Everything for a type is merged into `<Type>.ndjson`.
+ * Synthea puts a run timestamp in some filenames, e.g. `Organization.1787101630467.ndjson`.
  */
 abstract class PackageBenchmarkDataTask : DefaultTask() {
 

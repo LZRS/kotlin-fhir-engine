@@ -21,8 +21,8 @@ import kotlin.time.Clock
 internal actual fun benchmarkPlatformContext(): Any = Unit
 
 /**
- * A fresh directory on every call, so reopening the engine yields a genuinely cold database file
- * rather than a cleared one. Rooted at `-Dbenchmark.storage.dir` when set.
+ * A fresh directory per call, so reopening the engine gives a cold database. Rooted at
+ * `-Dbenchmark.storage.dir` when set.
  */
 internal actual fun benchmarkStorageDirectory(): String? {
   val root = System.getProperty("benchmark.storage.dir")?.let(::File) ?: File("build/benchmark-db")
@@ -45,7 +45,7 @@ internal actual fun supportsFreshDatabase(): Boolean = true
 
 internal actual fun nowIso8601(): String = Clock.System.now().toString()
 
-/** No-op: [benchmarkStorageDirectory] already hands out an unused directory per call. */
+/** No-op: [benchmarkStorageDirectory] hands out an unused directory per call. */
 internal actual suspend fun deleteBenchmarkDatabase(platformContext: Any) = Unit
 
 internal actual suspend fun emitReport(fileName: String, json: String) {
@@ -56,7 +56,6 @@ internal actual suspend fun emitReport(fileName: String, json: String) {
   println("Benchmark report written to ${file.absolutePath}")
 }
 
-/** `-Dbenchmark.report.dir` if set, else the module's build output. */
 private fun reportDirectory(): File =
   File(System.getProperty("benchmark.report.dir") ?: "build/reports/benchmarks")
 

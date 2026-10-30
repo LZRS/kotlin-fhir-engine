@@ -33,7 +33,7 @@ import platform.posix.getenv
 
 internal actual fun benchmarkPlatformContext(): Any = Unit
 
-/** A fresh directory per call, so reopening the engine gives a genuinely cold database. */
+/** A fresh directory per call, so reopening the engine gives a cold database. */
 internal actual fun benchmarkStorageDirectory(): String? =
   "${NSTemporaryDirectory()}fhir-benchmark-${databaseCounter++}"
 
@@ -53,9 +53,8 @@ internal actual fun nowIso8601(): String = Clock.System.now().toString()
 internal actual suspend fun deleteBenchmarkDatabase(platformContext: Any) = Unit
 
 /**
- * Written to the host filesystem, which a simulator shares, so the report lands beside the other
- * platforms'. Falls back to the simulator's temporary directory, whose path is also a real host
- * path, and to the console if even that write fails.
+ * Writes to `BENCHMARK_REPORT_DIR` on the shared host filesystem, else the temporary directory;
+ * prints to the console if the write fails.
  */
 @OptIn(ExperimentalForeignApi::class)
 internal actual suspend fun emitReport(fileName: String, json: String) {

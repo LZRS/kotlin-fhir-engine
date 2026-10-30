@@ -16,11 +16,8 @@
 package dev.ohs.fhir.engine.benchmark
 
 /**
- * Records the workload on the browser's performance timeline as well as running it.
- *
- * [BenchmarkRunner] keeps its own timings, but a page driven from outside — the driver app under a
- * browser automation harness — can only be read through `performance.getEntriesByType("measure")`.
- * The measure name is the workload id, matching the Android trace section and the report key.
+ * Records [block] as a `performance.measure` named [name], readable by an external harness through
+ * `performance.getEntriesByType("measure")`.
  */
 internal actual suspend fun <T> benchmarkSpan(name: String, block: suspend () -> T): T {
   val startMark = "$name.start"

@@ -1,8 +1,5 @@
-// A browser has no filesystem, so the Karma server stands in for one: it hands the page its run
-// config and the packaged Synthea data, and takes the finished report back. Without this the web
-// report exists only in the console and web runs can only use the synthetic dataset.
-//
-// basePath is <repo>/build/js/packages/<module>-test, so the module directory is four levels up.
+// Serves the run config and packaged Synthea data to the page, and writes posted reports to disk.
+// basePath is <repo>/build/js/packages/<module>-test.
 const fs = require("fs");
 const path = require("path");
 
@@ -18,7 +15,7 @@ function serve(response, file, contentType) {
     return;
   }
   response.writeHead(200, { "Content-Type": contentType });
-  // Streamed: a packaged Synthea type can run to hundreds of megabytes.
+  // Streamed: a packaged Synthea file can be hundreds of megabytes.
   fs.createReadStream(file).pipe(response);
 }
 

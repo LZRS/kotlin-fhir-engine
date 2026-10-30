@@ -19,10 +19,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-/**
- * Android is the only target whose run config arrives as flat strings, so this parsing is the only
- * thing standing between an intent extra and the engine's server configuration.
- */
 class BenchmarkRequestTest {
 
   @Test
@@ -34,8 +30,7 @@ class BenchmarkRequestTest {
 
   @Test
   fun `treats a blank server url as absent`() {
-    // The macrobenchmark harness always sets the extra; without this, an unset property
-    // arrives as "" and the engine is configured against a server named nothing.
+    // The macrobenchmark harness passes an unset property as "".
     val request = BenchmarkRequest.from(mapOf(BenchmarkRequest.KEY_SERVER to "  "))
 
     assertNull(request.serverUrl)
@@ -50,7 +45,7 @@ class BenchmarkRequestTest {
   fun `carries the server url into the config the harness runs`() {
     val config = BenchmarkRequest.from(mapOf(BenchmarkRequest.KEY_SERVER to SERVER)).toConfig()
 
-    // BenchmarkConfig normalises to a trailing slash, which is what the engine expects.
+    // BenchmarkConfig adds the trailing slash the engine expects.
     assertEquals("$SERVER/", config.serverUrl)
   }
 
@@ -61,14 +56,11 @@ class BenchmarkRequestTest {
 
   @Test
   fun `defaults to the server-free groups`() {
-    // The server group needs a URL, so it is opted into rather than run by default.
     assertEquals(listOf("crud", "search", "sync"), BenchmarkRequest.from(emptyMap()).groups)
   }
 
   @Test
   fun `reads an explicit list of workloads`() {
-    // Group mode otherwise runs whole groups. The workloads too slow to trace are spread across
-    // groups, so naming them is the only way to measure exactly those in one in-process run.
     val request =
       BenchmarkRequest.from(
         mapOf(BenchmarkRequest.KEY_WORKLOADS to "crud.update, sync.download_batch"),

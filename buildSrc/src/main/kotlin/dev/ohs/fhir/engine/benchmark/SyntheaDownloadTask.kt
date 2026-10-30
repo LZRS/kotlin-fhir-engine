@@ -25,10 +25,9 @@ import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.TaskAction
 
 /**
- * Downloads the pinned Synthea release jar.
+ * Downloads the pinned Synthea release jar, which is not on Maven Central.
  *
- * Synthea is not on Maven Central, so it cannot be a normal dependency. The jar lands in the Gradle
- * user home rather than the project so it survives `clean`; it is roughly 200 MB.
+ * The jar goes in the Gradle user home so it survives `clean`.
  */
 abstract class SyntheaDownloadTask : DefaultTask() {
 

@@ -18,25 +18,20 @@ package dev.ohs.fhir.engine.benchmark
 import dev.ohs.fhir.engine.FhirEngine
 import dev.ohs.fhir.engine.benchmark.data.Dataset
 
-/** Per workload, not uniform: the choice changes what is being measured. */
+/** How a workload's database is reset between iterations; the choice changes what is measured. */
 enum class Isolation {
-  /** Leave the database alone. For read-only workloads that do not mutate anything. */
+  /** Leave the database alone. For read-only workloads. */
   NONE,
 
   /** Delete every row, keeping the open connection and a warm page cache. */
   CLEAR_TABLES,
 
-  /** Close, delete and reopen the database. The only honest baseline for bulk writes. */
+  /** Close, delete and reopen the database. */
   FRESH_DATABASE,
 
   /**
-   * Close and reopen the database *without* deleting it, so the data survives but SQLite's page
-   * cache does not. For read workloads that would otherwise measure pages another iteration already
-   * warmed.
-   *
-   * This clears SQLite's cache, not the operating system's file cache, so it is a colder read than
-   * [NONE] rather than a genuinely cold one. Never requested by a workload directly — the runner
-   * promotes [NONE] to it when a run asks for a cold cache.
+   * Close and reopen the database without deleting it, dropping SQLite's page cache but not the OS
+   * file cache. Applied by the runner in place of [NONE] when a run asks for a cold cache.
    */
   COLD_CACHE,
 }
@@ -56,16 +51,13 @@ class BenchmarkEnv(
 
 /** One measured unit of work. Only [run] is timed. */
 interface Workload {
-  /**
-   * Stable identifier, e.g. `search.observation_by_code`. Also the trace-section name, so one id
-   * keys the Perfetto trace and the JSON report. Ids shared with android-fhir match theirs.
-   */
+  /** Stable identifier, e.g. `search.observation_by_code`; also the trace-section name. */
   val id: String
 
   /** `crud`, `search`, `sync` or `server`. */
   val group: String
 
-  /** Kept large: Android's trace noise floor is tens of microseconds. */
+  /** Large enough to rise above Android's trace noise floor. */
   val opsPerIteration: Int
 
   val isolation: Isolation
@@ -84,11 +76,8 @@ interface Workload {
 }
 
 /**
- * The isolation a workload actually runs under, and a note when that is weaker than it asked for.
- *
- * Only [Isolation.NONE] is promoted for a cold-cache run. [Isolation.CLEAR_TABLES] keeps a warm
- * cache deliberately and [Isolation.FRESH_DATABASE] is already colder than cold-cache, so promoting
- * either would change what the workload measures rather than sharpen it.
+ * The isolation a workload actually runs under, and a note when that is weaker than requested. Only
+ * [Isolation.NONE] is promoted for a cold-cache run.
  *
  * @param canReopen whether this platform can close and reopen the database in-process.
  */

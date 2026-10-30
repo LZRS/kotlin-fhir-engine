@@ -28,19 +28,17 @@ import kotlinx.coroutines.flow.Flow
 interface Dataset {
   val population: Int
 
-  /** Total resources across every type, so a workload can size itself without holding them. */
+  /** Total resources across every type. */
   val resourceCount: Int
 
   /**
-   * Every resource, ordered so that referenced resources come before the ones referencing them.
+   * Every resource, referenced resources before the ones referencing them.
    *
-   * A flow rather than a list. At benchmark populations the parsed corpus is larger than a phone's
-   * entire heap — 50,000 Synthea patients exceed a 512 MB largeHeap ceiling — so a caller streams
-   * the corpus and never has all of it resident.
+   * A flow because a parsed corpus can exceed a phone's heap.
    */
   fun resources(): Flow<Resource>
 
-  /** Patient ids in insertion order. Workloads use these to pick targets deterministically. */
+  /** Patient ids in insertion order. */
   val patientIds: List<String>
 
   /** A [code] value that matches roughly one observation per patient. */
@@ -50,13 +48,8 @@ interface Dataset {
   val sampleOrganizationId: String
 
   /**
-   * A family name to search for, and a given name to search for.
-   *
-   * Both must be **selective** — matching a small fraction of the corpus, the way a real name
-   * search does. This is not a detail: an index can only pay for itself when the predicate rejects
-   * most rows, so a dataset whose names come from a handful of values makes every string search
-   * match a large slice and renders the search benchmarks unable to detect an index regression at
-   * all. That was true here until the synthetic dataset's eight surnames were replaced.
+   * A family name to search for. This and [sampleGivenName] must each match a small fraction of the
+   * corpus, or the search benchmarks cannot detect an index regression.
    */
   val sampleFamilyName: String
 

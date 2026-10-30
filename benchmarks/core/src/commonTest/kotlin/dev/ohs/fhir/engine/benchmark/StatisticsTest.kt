@@ -25,8 +25,7 @@ class StatisticsTest {
 
   @Test
   fun `standard deviation treats samples as a sample, not a population`() {
-    // Mean 5, squared deviations summing to 32. Dividing by n gives 2.0; dividing by n-1, which is
-    // what an estimate from a sample requires, gives 2.138.
+    // The population standard deviation of these samples is 2.0.
     val statistics = Statistics.of(listOf(2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0))
 
     assertEquals(2.1380899, statistics.stdDev, TOLERANCE)
@@ -42,8 +41,7 @@ class StatisticsTest {
 
   @Test
   fun `p90 is absent when there are too few samples to have a top decile`() {
-    // The default run measures five iterations. A "p90" over five points is an interpolation
-    // between the fourth and the largest, which is a relabelled maximum, not a tail estimate.
+    // A p90 over five samples is effectively the maximum.
     val statistics = Statistics.of(listOf(1.0, 2.0, 3.0, 4.0, 100.0))
 
     assertNull(statistics.p90)
@@ -53,7 +51,7 @@ class StatisticsTest {
   fun `p90 is reported once there are ten samples`() {
     val statistics = Statistics.of((1..10).map { it.toDouble() })
 
-    // Rank 0.9 * (10 - 1) = 8.1, so nine tenths of the way from the 9th sample to the 10th.
+    // Rank 0.9 * (10 - 1) = 8.1.
     assertEquals(9.1, assertNotNull(statistics.p90), TOLERANCE)
   }
 

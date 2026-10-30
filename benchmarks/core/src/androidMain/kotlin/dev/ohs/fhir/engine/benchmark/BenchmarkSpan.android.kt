@@ -21,22 +21,16 @@ import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 
 /**
- * One dedicated thread, because atrace pairs begin and end per thread.
- *
- * The measured block suspends constantly — every engine call does — so on a multi-threaded
- * dispatcher it resumes on whichever thread is free and [Trace.endSection] lands somewhere other
- * than [Trace.beginSection]. The section then never closes, and `TraceSectionMetric` reports a
- * count of zero while the trace still contains the name.
+ * A single thread, because atrace pairs [Trace.beginSection] and [Trace.endSection] per thread and
+ * the measured block suspends.
  */
 private val spanDispatcher =
   Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "benchmark-span") }
     .asCoroutineDispatcher()
 
 /**
- * Emits an `atrace` section that macrobenchmark's `TraceSectionMetric` reads back out of the
- * Perfetto trace. The section name is the workload id, which is also the key in the JSON report.
- *
- * Section names are truncated by the platform at 127 characters; workload ids are far shorter.
+ * Emits an `atrace` section named [name] for macrobenchmark's `TraceSectionMetric`. The platform
+ * truncates section names at 127 characters.
  */
 internal actual suspend fun <T> benchmarkSpan(name: String, block: suspend () -> T): T =
   withContext(spanDispatcher) {

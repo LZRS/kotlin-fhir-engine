@@ -21,10 +21,7 @@ import kotlin.test.assertTrue
 
 class SearchWorkloadsTest {
 
-  /**
-   * The queries ported from android-fhir's `SearchApiViewModel` that had no equivalent here. Each
-   * exercises a filter path nothing else in the catalogue reaches.
-   */
+  /** Queries ported from android-fhir's `SearchApiViewModel`. */
   @Test
   fun `covers the search paths ported from android-fhir`() {
     val ids = SearchWorkloads.all().map { it.id }
@@ -46,10 +43,7 @@ class SearchWorkloadsTest {
     assertTrue(SearchWorkloads.all().all { it.group == "search" })
   }
 
-  /**
-   * An id keys both the trace section and the report row, so a duplicate would merge two
-   * measurements into one and read as a single result.
-   */
+  /** An id keys both the trace section and the report row. */
   @Test
   fun `workload ids are unique across the whole catalogue`() {
     val ids = Workloads.all().map { it.id }

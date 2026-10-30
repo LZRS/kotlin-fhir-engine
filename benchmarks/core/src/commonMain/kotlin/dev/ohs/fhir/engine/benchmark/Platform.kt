@@ -25,22 +25,13 @@ internal expect fun benchmarkStorageDirectory(): String?
 
 internal expect fun platformDescriptor(): PlatformDescriptor
 
-/**
- * False on web: closing wedges the SQLite Web Worker, and not closing leaves it holding the
- * exclusive OPFS handle. The runner degrades [Isolation.FRESH_DATABASE] and says so in the report.
- */
+/** False on web, where the SQLite Web Worker cannot be closed and reopened in-process. */
 internal expect fun supportsFreshDatabase(): Boolean
 
 /** Files under the packaged benchmark data directory, or empty where none is available. */
 internal expect suspend fun listDataFiles(): List<String>
 
-/**
- * One line per NDJSON record, empty where the file is absent.
- *
- * A line at a time rather than the whole file: at benchmark populations a single Synthea file runs
- * to hundreds of megabytes, and holding it as a string costs more than the resources parsed out of
- * it. The flow is cold, so nothing is read until it is collected.
- */
+/** One line per NDJSON record, streamed so large files never sit in memory; empty if absent. */
 internal expect fun dataFileLines(relativePath: String): Flow<String>
 
 /** ISO-8601 timestamp for the report. */
@@ -52,12 +43,7 @@ internal expect suspend fun deleteBenchmarkDatabase(platformContext: Any)
 /** Writes [json] wherever this platform can be read from afterwards. */
 internal expect suspend fun emitReport(fileName: String, json: String)
 
-/**
- * Somewhere to keep what a corpus scan learned, so the next process does not repeat it.
- *
- * Every macrobenchmark iteration is a fresh process, and scanning a 50,000-patient corpus costs
- * minutes. Platforms with nowhere to write return null and simply pay it again.
- */
+/** Persists corpus scan results across processes; null where the platform has nowhere to write. */
 internal expect suspend fun readScratchFile(name: String): String?
 
 internal expect suspend fun writeScratchFile(name: String, contents: String)

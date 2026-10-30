@@ -19,10 +19,7 @@ import dev.ohs.fhir.engine.benchmark.BenchmarkConfig
 import dev.ohs.fhir.engine.benchmark.DatasetKind
 import dev.ohs.fhir.engine.benchmark.Profile
 
-/**
- * What one launch is asked to do. Each platform parses its own launch mechanism into this, so the
- * dispatch logic exists once.
- */
+/** What one launch is asked to do, parsed from each platform's launch arguments. */
 data class BenchmarkRequest(
   /** A single workload id, or null to run whole groups and emit a report. */
   val workloadId: String? = null,
@@ -83,8 +80,7 @@ data class BenchmarkRequest(
           },
         warmupIterations = values[KEY_WARMUP]?.toIntOrNull() ?: 2,
         measuredIterations = values[KEY_ITERATIONS]?.toIntOrNull() ?: 5,
-        // Blank rather than absent is the common case: the harness always sets the extra, and
-        // an unset Gradle property arrives as an empty string.
+        // An unset Gradle property arrives as an empty string.
         serverUrl = values[KEY_SERVER]?.takeIf { it.isNotBlank() },
         workloadIds =
           values[KEY_WORKLOADS]

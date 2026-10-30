@@ -1,6 +1,5 @@
-// SQLite-WASM with OPFS requires cross-origin isolation (SharedArrayBuffer); without it
-// `sqlite3.oo1.OpfsDb` is not available and every database test fails. Set the COOP/COEP headers on
-// the Karma test server, mirroring engine-app/webpack.config.d/coop-coep.js used by the app.
+// SQLite-WASM with OPFS requires cross-origin isolation for `sqlite3.oo1.OpfsDb`.
+// Mirrors engine-app/webpack.config.d/coop-coep.js.
 config.set({
   beforeMiddleware: (config.beforeMiddleware || []).concat(["coopCoep"]),
   plugins: (config.plugins || []).concat([
