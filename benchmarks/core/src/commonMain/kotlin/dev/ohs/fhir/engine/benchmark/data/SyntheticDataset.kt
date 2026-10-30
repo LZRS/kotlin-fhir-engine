@@ -15,7 +15,6 @@
  */
 package dev.ohs.fhir.engine.benchmark.data
 
-import com.ionspin.kotlin.bignum.decimal.BigDecimal
 import dev.ohs.fhir.engine.benchmark.DatasetManifest
 import dev.ohs.fhir.model.r4.Boolean as FhirBoolean
 import dev.ohs.fhir.model.r4.Code
@@ -23,10 +22,11 @@ import dev.ohs.fhir.model.r4.CodeableConcept
 import dev.ohs.fhir.model.r4.Coding
 import dev.ohs.fhir.model.r4.Condition
 import dev.ohs.fhir.model.r4.Date
-import dev.ohs.fhir.model.r4.Decimal as FhirDecimal
+import dev.ohs.fhir.model.r4.Decimal
 import dev.ohs.fhir.model.r4.Encounter
 import dev.ohs.fhir.model.r4.Enumeration
 import dev.ohs.fhir.model.r4.FhirDate
+import dev.ohs.fhir.model.r4.FhirDecimal
 import dev.ohs.fhir.model.r4.HumanName
 import dev.ohs.fhir.model.r4.Observation
 import dev.ohs.fhir.model.r4.Organization
@@ -211,7 +211,7 @@ class SyntheticDataset(
       value =
         Observation.Value.Quantity(
           Quantity(
-            value = FhirDecimal(value = BigDecimal.fromInt(40 + random.nextInt(120))),
+            value = Decimal(value = FhirDecimal.fromInt(40 + random.nextInt(120))),
             unit = FhirString(value = "mg"),
             system = Uri(value = UCUM_SYSTEM),
             code = Code(value = "mg"),

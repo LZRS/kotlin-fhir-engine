@@ -33,10 +33,11 @@ import dev.ohs.fhir.engine.search.has
 import dev.ohs.fhir.engine.search.include
 import dev.ohs.fhir.engine.search.revInclude
 import dev.ohs.fhir.engine.search.search
-import dev.ohs.fhir.model.r4.Decimal as FhirDecimal
+import dev.ohs.fhir.model.r4.Decimal
 import dev.ohs.fhir.model.r4.Encounter
 import dev.ohs.fhir.model.r4.Enumeration
 import dev.ohs.fhir.model.r4.FhirDate
+import dev.ohs.fhir.model.r4.FhirDecimal
 import dev.ohs.fhir.model.r4.Observation
 import dev.ohs.fhir.model.r4.Patient
 import dev.ohs.fhir.model.r4.Reference
@@ -254,7 +255,7 @@ object SearchWorkloads {
               RiskAssessment.Prediction(
                 probability =
                   RiskAssessment.Prediction.Probability.Decimal(
-                    FhirDecimal(value = BigDecimal.fromInt(index % 100)),
+                    Decimal(value = FhirDecimal.fromInt(index % 100)),
                   ),
               ),
             ),

@@ -15,14 +15,14 @@
  */
 package dev.ohs.fhir.engine.benchmark.data
 
-import com.ionspin.kotlin.bignum.decimal.BigDecimal
 import dev.ohs.fhir.engine.benchmark.DatasetManifest
 import dev.ohs.fhir.model.r4.Code
 import dev.ohs.fhir.model.r4.CodeableConcept
 import dev.ohs.fhir.model.r4.Coding
 import dev.ohs.fhir.model.r4.Condition
-import dev.ohs.fhir.model.r4.Decimal as FhirDecimal
+import dev.ohs.fhir.model.r4.Decimal
 import dev.ohs.fhir.model.r4.Enumeration
+import dev.ohs.fhir.model.r4.FhirDecimal
 import dev.ohs.fhir.model.r4.Observation
 import dev.ohs.fhir.model.r4.Quantity
 import dev.ohs.fhir.model.r4.Reference
@@ -144,7 +144,7 @@ class AugmentedDataset(
       value =
         Observation.Value.Quantity(
           Quantity(
-            value = FhirDecimal(value = BigDecimal.fromInt(40 + random.nextInt(120))),
+            value = Decimal(value = FhirDecimal.fromInt(40 + random.nextInt(120))),
             unit = FhirString(value = "mg"),
             system = Uri(value = UCUM_SYSTEM),
             code = Code(value = "mg"),
