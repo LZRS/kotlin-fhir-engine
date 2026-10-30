@@ -1,7 +1,7 @@
 # Benchmarking
 
 Measures the engine's CRUD, Search DSL and sync paths across the platforms it ships on. Run
-manually; nothing here runs in CI.
+manually; only the micro benchmarks run in CI.
 
 ## Modules
 
@@ -10,6 +10,7 @@ manually; nothing here runs in CI.
 | `:benchmarks:core` | The workload catalogue and the in-process runner. Every platform runs these same workloads. |
 | `:benchmarks:app` | A driver app launched by intent, so Android can be measured as a real app. |
 | `:benchmarks:macro` | Macrobenchmark that drives the app and reads trace sections back. |
+| `:engine` (`desktopBenchmark`) | JMH micro-benchmarks of the engine's internals and of SQLite itself. See [Micro benchmarks](#micro-benchmarks). |
 
 Workloads are defined once, in `:benchmarks:core`. Neither of the other modules defines its own.
 
@@ -39,6 +40,9 @@ The report prints as a table and is written to
 | `-Pbenchmark.warmup` | `2` | Discarded iterations |
 | `-Pbenchmark.iterations` | `5` | Measured iterations |
 | `-Pbenchmark.seed` | `20260819` | Dataset seed. Changing it changes the fingerprint. |
+| `-Pbenchmark.workloads` | none | Comma-separated workload ids. Beats `groups`; the fastest way to measure one thing. |
+| `-Pbenchmark.population` | from the profile | Patient count, for walking a scaling curve without a new profile. |
+| `-Pbenchmark.coldcache` | `false` | Reopen the database between iterations of read-only workloads, so they stop measuring warm pages. |
 | `-Pbenchmark.server` | none | Base URL for the `server` group, which is skipped without it |
 | `-Pbenchmark.report.dir` | `build/reports/benchmarks` | Where the JSON lands |
 | `-Pbenchmark.data.dir` | the packaged output | Where the Synthea corpus is read from |
@@ -539,7 +543,12 @@ both match.** Different platform, different seed, different population, or a dif
 all mean the numbers are measuring different things.
 
 Per workload the report carries the raw `samplesMillis` plus min/median/p90/max/mean/stdDev and
-`medianMillisPerOp`. Prefer the median; `p90` shows how noisy the run was.
+`medianMillisPerOp`. Prefer the median.
+
+`p90` is **null unless at least 10 iterations were measured**, and the default is 5. Below ten
+samples nothing falls in the top decile, so an interpolated p90 is a relabelled maximum rather than
+a tail figure. Raise `-Pbenchmark.iterations` to 10 or more when you want one. Use `stdDev` — the
+sample standard deviation, corrected for sample size — to judge how noisy a shorter run was.
 
 ### Sanity checks
 
@@ -569,6 +578,18 @@ Before trusting a run:
   `internal`, so an external caller can only report failure. The `server` group covers upload
   against a running FHIR server; there is no in-process equivalent.
 - **`js`/`wasmJs` have two pre-existing `FhirEngineImplTest` failures** unrelated to benchmarking.
+
+- **A cold cache is only as cold as SQLite's.** `-Pbenchmark.coldcache` reopens the database, which
+  drops SQLite's page cache but not the operating system's file cache, so it is a colder read than
+  the default rather than a genuinely cold one. Web cannot reopen in-process at all and says so in
+  the report. Measured on desktop at 20,000 patients it moves search medians by under 6%, inside
+  the noise floor — the file cache stays warm and the working set is small. It is likely to matter
+  more on a device with real storage.
+
+- **A run leaves its databases behind.** `benchmarkStorageDirectory()` mints a new directory per
+  engine open and nothing removes them, so `benchmarks/core/build/benchmark-db` grows without
+  bound: a session of roughly a hundred runs left 749 directories and 6.2 GB. Delete the directory
+  between sweeps, and be aware that a full disk inflates every timing on the machine.
 
 ## Micro benchmarks
 
